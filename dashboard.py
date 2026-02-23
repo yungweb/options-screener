@@ -89,7 +89,7 @@ def _demo_data(ticker, bars=200):
     vol = np.random.randint(500000, 3000000, bars)
     return pd.DataFrame({"timestamp": dates, "open": op, "high": hi, "low": lo, "close": close, "volume": vol})
 
-@st.cache_data(ttl=300)
+
 def fetch_current_price(ticker):
     if not POLYGON_API_KEY:
         return {"PLTR": 118.42, "NBIS": 45.20, "VRT": 92.10, "CRDO": 68.50,
