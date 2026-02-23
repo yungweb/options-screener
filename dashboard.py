@@ -22,7 +22,7 @@ from backtester import run_backtest
 st.set_page_config(
     page_title="Options Screener",
     page_icon="📡",
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="expanded",
 )
 
