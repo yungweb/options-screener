@@ -39,8 +39,8 @@ body, .stApp { background: #0a0e17; color: #e0e6f0; }
 .big-price { font-size: 2rem; font-weight: 700; color: #e0e6f0; }
 </style>
 """, unsafe_allow_html=True)
-
-POLYGON_API_KEY = st.secrets.get("POLYGON_API_KEY", "")
+import os
+POLYGON_API_KEY = os.environ.get("POLYGON_API_KEY", "")
 
 WATCHLIST = ["PLTR", "NBIS", "VRT", "CRDO", "GOOGL", "AAOI", "ASTS", "ZETA", "SPY", "QQQ", "NVDA", "TSLA", "AAPL"]
 
