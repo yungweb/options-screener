@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, date
 import requests
 import os
 
-from pattern_detection import detect_double_bottom, detect_break_and_retest
+from pattern_detection import detect_double_bottom, detect_double_top, detect_break_and_retest
 from backtester import run_backtest
 
 st.set_page_config(page_title="Options Screener", page_icon="📡", layout="centered", initial_sidebar_state="expanded")
@@ -264,8 +264,9 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["🚦 SIGNAL", "📈 CHART", "📊 BACKT
 # ── TAB 1: Signal ─────────────────────────────────────
 with tab1:
     db_setups = [s for s in detect_double_bottom(df, selected_ticker, rr_min=2.0) if s.confirmed]
+    dt_setups = [s for s in detect_double_top(df, selected_ticker, rr_min=2.0) if s.confirmed]
     br_setups = [s for s in detect_break_and_retest(df, selected_ticker, rr_min=2.0) if s.confirmed]
-    all_setups = db_setups + br_setups
+    all_setups = db_setups + dt_setups + br_setups
 
     if not all_setups:
         st.markdown(f"""
@@ -281,7 +282,7 @@ with tab1:
         factors, score, confidence, rsi, vwap, ema20_val = score_confluence(df, best_setup)
         direction = getattr(best_setup, "direction", "bullish")
         is_bull = direction == "bullish"
-        ptype = "Double Bottom" if hasattr(best_setup, "bottom1_idx") else "Break & Retest"
+        ptype = "Double Bottom" if hasattr(best_setup, "bottom1_idx") and best_setup.bottom1_idx is not None else "Double Top" if hasattr(best_setup, "top1_idx") and best_setup.top1_idx is not None else "Break & Retest"
 
         # Color based on confidence
         if confidence >= 80:
@@ -466,13 +467,14 @@ with tab4:
                 tdf = fetch_ohlcv(ticker, tf_mult, tf_span, tf_days)
                 price = fetch_current_price(ticker) or float(tdf["close"].iloc[-1])
                 db = [s for s in detect_double_bottom(tdf, ticker, rr_min=2.0) if s.confirmed]
+                dt = [s for s in detect_double_top(tdf, ticker, rr_min=2.0) if s.confirmed]
                 br = [s for s in detect_break_and_retest(tdf, ticker, rr_min=2.0) if s.confirmed]
-                all_s = db + br
+                all_s = db + dt + br
                 if all_s:
                     best = max(all_s, key=lambda x: x.rr_ratio)
                     _, score, confidence, _, _, _ = score_confluence(tdf, best)
                     direction = getattr(best, "direction", "bullish")
-                    ptype = "Double Bottom" if hasattr(best, "bottom1_idx") else "Break & Retest"
+                    ptype = "Double Bottom" if (hasattr(best, "bottom1_idx") and best.bottom1_idx is not None) else "Double Top" if (hasattr(best, "top1_idx") and best.top1_idx is not None) else "Break & Retest"
                     if confidence >= 80:
                         status_label = "🟢 STRONG"
                     elif confidence >= 60:
