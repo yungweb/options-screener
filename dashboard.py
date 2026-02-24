@@ -145,6 +145,44 @@ def score_confluence(df, setup):
     confidence = int((score / 5) * 100)
     return factors, score, confidence, rsi, vwap, ema20
 
+# ── Earnings check ────────────────────────────────────
+@st.cache_data(ttl=3600)
+def check_earnings(ticker):
+    try:
+        import yfinance as yf
+        cal = yf.Ticker(ticker).calendar
+        if cal is None or cal.empty:
+            return None
+        earn_date = cal.iloc[0, 0] if hasattr(cal.iloc[0, 0], 'date') else None
+        if earn_date is None:
+            return None
+        days_away = (pd.Timestamp(earn_date).date() - date.today()).days
+        if 0 <= days_away <= 7:
+            return days_away
+        return None
+    except:
+        return None
+
+# ── Signal history ────────────────────────────────────
+def load_signal_log():
+    if "signal_log" not in st.session_state:
+        st.session_state.signal_log = []
+    return st.session_state.signal_log
+
+def log_signal(ticker, direction, strike, target, stop, confidence):
+    log = load_signal_log()
+    log.append({
+        "Date": datetime.now().strftime("%m/%d %H:%M"),
+        "Ticker": ticker,
+        "Action": "📈 CALL" if direction == "bullish" else "📉 PUT",
+        "Strike": f"${strike:.2f}",
+        "Target": f"${target:.2f}",
+        "Stop": f"${stop:.2f}",
+        "Confidence": f"{confidence}%",
+        "Result": "⏳ Open"
+    })
+    st.session_state.signal_log = log[-50:]
+
 def calc_option(price, direction, days_to_exp, iv=0.45, account=10000, risk_pct=0.01):
     is_call = direction == "bullish"
     strike = round(price * (1.05 if is_call else 0.95) / 0.5) * 0.5
@@ -175,6 +213,8 @@ with st.sidebar:
     risk_pct = st.slider("Risk per Trade (%)", 0.5, 5.0, 1.0, 0.5) / 100
     dte = st.selectbox("Days to Expiration", [14, 21, 30, 45, 60], index=2)
     st.markdown("---")
+    auto_refresh = st.toggle("Auto-refresh (5 min)", value=False)
+    st.markdown("---")
     if POLYGON_API_KEY:
         st.success("🟢 LIVE DATA")
     else:
@@ -186,6 +226,23 @@ df = fetch_ohlcv(selected_ticker, tf_mult, tf_span, tf_days)
 current_price = fetch_current_price(selected_ticker) or float(df["close"].iloc[-1])
 prev_close = float(df["close"].iloc[-2]) if len(df) > 1 else current_price
 pct_change = ((current_price - prev_close) / prev_close) * 100
+
+# ── Auto refresh ─────────────────────────────────────
+if auto_refresh:
+    import time
+    st.empty()
+    time.sleep(300)
+    st.rerun()
+
+# ── Earnings warning ──────────────────────────────────
+earnings_days = check_earnings(selected_ticker)
+if earnings_days is not None:
+    if earnings_days == 0:
+        st.error(f"🚨 {selected_ticker} REPORTS EARNINGS TODAY — Avoid new options positions. Premiums are extremely expensive and moves are unpredictable.")
+    elif earnings_days <= 2:
+        st.error(f"⚠️ {selected_ticker} earns in {earnings_days} day{'s' if earnings_days > 1 else ''} — High risk. Options premiums are inflated. Consider waiting until after earnings.")
+    else:
+        st.warning(f"📅 {selected_ticker} earns in {earnings_days} days — Be cautious. Options may be getting more expensive as earnings approach.")
 
 # ── Header ────────────────────────────────────────────
 col1, col2, col3 = st.columns([2, 1, 1])
@@ -202,7 +259,7 @@ with col3:
     st.markdown(f"<div class='metric-card'><div style='color:#8899aa;font-size:0.75rem'>VOLUME</div><div style='font-weight:700'>{vol/1e6:.1f}M</div></div>", unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(["🚦 SIGNAL", "📈 CHART", "📊 BACKTEST", "🔍 SCAN"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🚦 SIGNAL", "📈 CHART", "📊 BACKTEST", "🔍 SCAN", "📋 SIGNAL LOG"])
 
 # ── TAB 1: Signal ─────────────────────────────────────
 with tab1:
@@ -321,6 +378,9 @@ with tab1:
                 </div>
             </div>
             """, unsafe_allow_html=True)
+            if st.button("📋 Log This Signal", type="primary"):
+                log_signal(selected_ticker, direction, opt['strike'], opt['target_price'], best_setup.stop_loss, confidence)
+                st.success("Signal logged! Check the Signal Log tab.")
 
         elif confidence >= 60:
             opt = calc_option(current_price, direction, dte, account=account_size, risk_pct=risk_pct)
@@ -433,5 +493,19 @@ with tab4:
             st.dataframe(pd.DataFrame(results), use_container_width=True)
         else:
             st.info("No confirmed setups right now. Try again later or switch timeframe.")
+
+# ── TAB 5: Signal Log ─────────────────────────────────
+with tab5:
+    st.markdown("<div class='section-title'>SIGNAL LOG</div>", unsafe_allow_html=True)
+    st.markdown("Every 80%+ signal gets logged here automatically. Update the result after the trade closes.")
+    log = load_signal_log()
+    if not log:
+        st.info("No signals logged yet. When a 🟢 STRONG SIGNAL fires and you click 'Log This Signal', it will appear here.")
+    else:
+        df_log = pd.DataFrame(log[::-1])
+        st.dataframe(df_log, use_container_width=True)
+        if st.button("Clear Log"):
+            st.session_state.signal_log = []
+            st.rerun()
 
 st.markdown("<div style='text-align:center;padding:20px;color:#8899aa;font-size:0.75rem;border-top:1px solid #1e2d40;margin-top:20px'>OPTIONS SCREENER v3.0 · NOT FINANCIAL ADVICE</div>", unsafe_allow_html=True)
