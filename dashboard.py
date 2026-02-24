@@ -91,17 +91,12 @@ def _demo_data(ticker, bars=200):
 
 
 def fetch_current_price(ticker):
-    if not POLYGON_API_KEY:
-        return {"PLTR": 118.42, "NBIS": 45.20, "VRT": 92.10, "CRDO": 68.50,
-                "GOOGL": 175.30, "AAOI": 22.10, "ASTS": 28.40, "ZETA": 19.80,
-                "SPY": 570.20, "QQQ": 490.50, "NVDA": 138.60, "TSLA": 320.10, "AAPL": 228.40}.get(ticker, 100.0)
     try:
-        url = f"https://api.polygon.io/v2/last/trade/{ticker}?apiKey={POLYGON_API_KEY}"
-        r = requests.get(url, timeout=5)
-        return r.json().get("results", {}).get("p", 0)
+        import yfinance as yf
+        price = yf.Ticker(ticker).fast_info["last_price"]
+        return round(price, 2)
     except:
-        return 0
-
+        return None
 def calc_call(price, days_to_exp=30, iv=0.45, account=10000, risk_pct=0.01):
     strike = round(price * 1.05 / 0.5) * 0.5
     premium = round(price * iv * (days_to_exp / 365) ** 0.5 * 0.4, 2)
