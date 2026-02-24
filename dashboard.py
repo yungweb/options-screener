@@ -403,26 +403,179 @@ with tab1:
 
 # ── TAB 2: Chart ──────────────────────────────────────
 with tab2:
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.75, 0.25], vertical_spacing=0.02)
-    fig.add_trace(go.Candlestick(x=df["timestamp"], open=df["open"], high=df["high"],
+    # Detect all setups for chart markers
+    chart_db = [s for s in detect_double_bottom(df, selected_ticker, rr_min=2.0) if s.confirmed]
+    chart_dt = [s for s in detect_double_top(df, selected_ticker, rr_min=2.0) if s.confirmed]
+    chart_br = [s for s in detect_break_and_retest(df, selected_ticker, rr_min=2.0) if s.confirmed]
+    chart_setups = chart_db + chart_dt + chart_br
+
+    # Time axis format based on timeframe
+    tf_formats = {
+        "5 Min": "%H:%M", "15 Min": "%H:%M",
+        "1 Hour": "%b %d %H:%M", "4 Hour": "%b %d",
+        "Daily": "%b %d '%y",
+    }
+    tick_format = tf_formats.get(selected_tf, "%b %d")
+
+    # Price range for y-axis — tight around candles, no crazy decimals
+    price_min = float(df["low"].min()) * 0.995
+    price_max = float(df["high"].max()) * 1.005
+    price_range = price_max - price_min
+    # Round tick to clean interval
+    raw_tick = price_range / 8
+    magnitude = 10 ** (len(str(int(raw_tick))) - 1)
+    tick_interval = round(raw_tick / magnitude) * magnitude
+    tick_interval = max(tick_interval, 0.01)
+
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True,
+        row_heights=[0.78, 0.22], vertical_spacing=0.02,
+        subplot_titles=("", "")
+    )
+
+    # Candlesticks
+    fig.add_trace(go.Candlestick(
+        x=df["timestamp"], open=df["open"], high=df["high"],
         low=df["low"], close=df["close"], name=selected_ticker,
         increasing_line_color="#00d4aa", decreasing_line_color="#ff4d6d",
-        increasing_fillcolor="#00d4aa", decreasing_fillcolor="#ff4d6d"), row=1, col=1)
+        increasing_fillcolor="#00d4aa", decreasing_fillcolor="#ff4d6d",
+        line_width=1,
+    ), row=1, col=1)
+
+    # EMA 20
     ema = df["close"].ewm(span=20).mean()
-    fig.add_trace(go.Scatter(x=df["timestamp"], y=ema, name="EMA 20",
-        line=dict(color="#f0c040", width=1.5, dash="dot")), row=1, col=1)
+    fig.add_trace(go.Scatter(
+        x=df["timestamp"], y=ema, name="EMA 20",
+        line=dict(color="#f0c040", width=1.5, dash="dot"),
+        hovertemplate="EMA 20: $%{y:.2f}<extra></extra>",
+    ), row=1, col=1)
+
+    # VWAP
     tp = (df["high"] + df["low"] + df["close"]) / 3
     vwap_line = (tp * df["volume"]).cumsum() / df["volume"].cumsum()
-    fig.add_trace(go.Scatter(x=df["timestamp"], y=vwap_line, name="VWAP",
-        line=dict(color="#9966ff", width=1.5, dash="dash")), row=1, col=1)
-    colors = ["#00d4aa" if c >= o else "#ff4d6d" for c, o in zip(df["close"], df["open"])]
-    fig.add_trace(go.Bar(x=df["timestamp"], y=df["volume"], marker_color=colors, opacity=0.6, name="Volume"), row=2, col=1)
-    fig.update_layout(paper_bgcolor="#0a0e17", plot_bgcolor="#0d1219", font=dict(color="#e0e6f0"),
-        height=480, xaxis_rangeslider_visible=False, margin=dict(l=0, r=0, t=10, b=0),
-        legend=dict(bgcolor="rgba(0,0,0,0)"))
-    fig.update_xaxes(gridcolor="#1e2d40")
-    fig.update_yaxes(gridcolor="#1e2d40")
+    fig.add_trace(go.Scatter(
+        x=df["timestamp"], y=vwap_line, name="VWAP",
+        line=dict(color="#9966ff", width=1.5, dash="dash"),
+        hovertemplate="VWAP: $%{y:.2f}<extra></extra>",
+    ), row=1, col=1)
+
+    # Signal markers on chart
+    for s in chart_setups[:3]:
+        is_bull = s.direction == "bullish"
+        line_color = "#00d4aa" if is_bull else "#ff4d6d"
+
+        # Entry line
+        fig.add_hline(
+            y=s.entry_price, line_dash="solid", line_color=line_color,
+            line_width=1.5, opacity=0.8,
+            annotation_text=f"  Entry ${s.entry_price:.2f}",
+            annotation_font_color=line_color,
+            annotation_font_size=11,
+            row=1, col=1,
+        )
+        # Target line
+        fig.add_hline(
+            y=s.target, line_dash="dash", line_color="#00d4aa",
+            line_width=1, opacity=0.6,
+            annotation_text=f"  Target ${s.target:.2f}",
+            annotation_font_color="#00d4aa",
+            annotation_font_size=11,
+            row=1, col=1,
+        )
+        # Stop line
+        fig.add_hline(
+            y=s.stop_loss, line_dash="dot", line_color="#ff4d6d",
+            line_width=1, opacity=0.6,
+            annotation_text=f"  Stop ${s.stop_loss:.2f}",
+            annotation_font_color="#ff4d6d",
+            annotation_font_size=11,
+            row=1, col=1,
+        )
+
+        # Shaded zone between entry and target
+        fig.add_hrect(
+            y0=min(s.entry_price, s.target),
+            y1=max(s.entry_price, s.target),
+            fillcolor="rgba(0,212,170,0.05)",
+            line_width=0,
+            row=1, col=1,
+        )
+
+    # Volume bars
+    vol_colors = ["#00d4aa" if c >= o else "#ff4d6d"
+                  for c, o in zip(df["close"], df["open"])]
+    fig.add_trace(go.Bar(
+        x=df["timestamp"], y=df["volume"],
+        marker_color=vol_colors, opacity=0.5, name="Volume",
+        hovertemplate="%{x}<br>Vol: %{y:,.0f}<extra></extra>",
+    ), row=2, col=1)
+
+    # Layout — clean, no clutter
+    fig.update_layout(
+        paper_bgcolor="#0a0e17",
+        plot_bgcolor="#0d1219",
+        font=dict(color="#e0e6f0", family="Barlow, sans-serif", size=12),
+        height=520,
+        xaxis_rangeslider_visible=False,
+        margin=dict(l=10, r=80, t=10, b=10),
+        legend=dict(
+            bgcolor="rgba(13,18,25,0.8)",
+            bordercolor="#1e2d40",
+            borderwidth=1,
+            font=dict(size=11),
+            x=0.01, y=0.99,
+        ),
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#0d1219", bordercolor="#1e2d40", font_size=12),
+        # Disable all toolbar buttons except zoom and reset
+        modebar_remove=["pan", "lasso2d", "select2d", "autoScale2d",
+                        "hoverCompareCartesian", "hoverClosestCartesian",
+                        "toggleSpikelines", "zoomIn2d", "zoomOut2d"],
+        modebar_add=["resetScale2d"],
+    )
+
+    # X axis — clean time labels, no overcrowding
+    x_axis_config = dict(
+        gridcolor="#1e2d40", gridwidth=1,
+        tickformat=tick_format,
+        nticks=8,
+        showspikes=True, spikecolor="#1e2d40",
+        spikedash="solid", spikethickness=1,
+        tickfont=dict(size=11),
+    )
+    fig.update_xaxes(**x_axis_config)
+
+    # Y axis — clean price labels, 2 decimal places max
+    fig.update_yaxes(
+        gridcolor="#1e2d40", gridwidth=1,
+        tickformat="$.2f",
+        dtick=tick_interval,
+        range=[price_min, price_max],
+        showspikes=True, spikecolor="#1e2d40",
+        spikedash="solid", spikethickness=1,
+        tickfont=dict(size=11),
+        row=1, col=1,
+    )
+    fig.update_yaxes(
+        gridcolor="#1e2d40", gridwidth=1,
+        tickformat=".2s",  # 1.2M style
+        tickfont=dict(size=10),
+        row=2, col=1,
+    )
+
     st.plotly_chart(fig, use_container_width=True)
+
+    # Legend below chart explaining the lines
+    if chart_setups:
+        st.markdown("""
+        <div style='display:flex;gap:20px;flex-wrap:wrap;padding:8px 4px;font-size:0.8rem;color:#8899aa'>
+            <span><span style='color:#00d4aa'>─────</span> Entry</span>
+            <span><span style='color:#00d4aa'>- - -</span> Target</span>
+            <span><span style='color:#ff4d6d'>·····</span> Stop Loss</span>
+            <span><span style='color:#f0c040'>·····</span> EMA 20</span>
+            <span><span style='color:#9966ff'>- - -</span> VWAP</span>
+        </div>
+        """, unsafe_allow_html=True)
 
 # ── TAB 3: Backtest ───────────────────────────────────
 with tab3:
