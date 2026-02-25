@@ -5,3 +5,4 @@ numpy
 scipy
 requests
 yfinance
+streamlit-autorefresh
