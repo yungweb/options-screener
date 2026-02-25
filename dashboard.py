@@ -62,7 +62,7 @@ TIMEFRAMES = {
     "Daily":  ("day",    1,  90),
 }
 
-# ── Market hours ──────────────────────────────────────
+# -- Market hours --------------------------------------
 def get_market_status():
     et = pytz.timezone("America/New_York")
     now = datetime.now(et)
@@ -70,23 +70,23 @@ def get_market_status():
     t = now.time()
     from datetime import time as dtime
     if wd >= 5:
-        return "closed", "Market Closed — Weekend"
+        return "closed", "Market Closed - Weekend"
     pre_start  = dtime(4, 0)
     open_start = dtime(9, 30)
     close_time = dtime(16, 0)
     after_end  = dtime(20, 0)
     if t < pre_start:
-        return "closed", "Market Closed — Opens at 4:00 AM ET Pre-Market"
+        return "closed", "Market Closed - Opens at 4:00 AM ET Pre-Market"
     elif t < open_start:
-        return "pre", f"⏰ Pre-Market Hours — Regular session opens at 9:30 AM ET"
+        return "pre", f"⏰ Pre-Market Hours - Regular session opens at 9:30 AM ET"
     elif t < close_time:
-        return "open", f"🟢 Market Open — Regular Session Until 4:00 PM ET"
+        return "open", f"🟢 Market Open - Regular Session Until 4:00 PM ET"
     elif t < after_end:
-        return "after", f"🌙 After-Hours Trading — Until 8:00 PM ET"
+        return "after", f"🌙 After-Hours Trading - Until 8:00 PM ET"
     else:
-        return "closed", "Market Closed — Pre-market opens 4:00 AM ET"
+        return "closed", "Market Closed - Pre-market opens 4:00 AM ET"
 
-# ── Data ─────────────────────────────────────────────
+# -- Data ---------------------------------------------
 @st.cache_data(ttl=60)
 def fetch_ohlcv(ticker, multiplier, timespan, days_back):
     try:
@@ -139,11 +139,11 @@ def check_earnings(ticker):
     except:
         return None
 
-# ── RSI divergence ────────────────────────────────────
+# -- RSI divergence ------------------------------------
 def detect_rsi_divergence(df):
     """
-    Bullish divergence: price makes lower low but RSI makes higher low — reversal up coming
-    Bearish divergence: price makes higher high but RSI makes lower high — reversal down coming
+    Bullish divergence: price makes lower low but RSI makes higher low - reversal up coming
+    Bearish divergence: price makes higher high but RSI makes lower high - reversal down coming
     """
     if len(df) < 30:
         return None
@@ -173,7 +173,7 @@ def detect_rsi_divergence(df):
             price_highs.append((i, recent_close[i]))
             rsi_highs.append((i, recent_rsi[i]))
 
-    # Bullish divergence — price lower low, RSI higher low
+    # Bullish divergence - price lower low, RSI higher low
     if len(price_lows) >= 2 and len(rsi_lows) >= 2:
         p1, p2 = price_lows[-2][1], price_lows[-1][1]
         r1, r2 = rsi_lows[-2][1],   rsi_lows[-1][1]
@@ -184,7 +184,7 @@ def detect_rsi_divergence(df):
                 "detail": f"Price made a lower low (${p2:.2f} < ${p1:.2f}) but RSI made a higher low ({r2:.0f} > {r1:.0f}). This often signals a reversal UP is coming before the pattern fully forms.",
             }
 
-    # Bearish divergence — price higher high, RSI lower high
+    # Bearish divergence - price higher high, RSI lower high
     if len(price_highs) >= 2 and len(rsi_highs) >= 2:
         p1, p2 = price_highs[-2][1], price_highs[-1][1]
         r1, r2 = rsi_highs[-2][1],   rsi_highs[-1][1]
@@ -197,7 +197,7 @@ def detect_rsi_divergence(df):
 
     return None
 
-# ── Signal history ────────────────────────────────────
+# -- Signal history ------------------------------------
 def load_signal_log():
     if "signal_log" not in st.session_state:
         st.session_state.signal_log = []
@@ -237,7 +237,7 @@ def get_ticker_signal_stats():
             stats[t]["wins"] += 1
     return stats
 
-# ── Trend analysis ────────────────────────────────────
+# -- Trend analysis ------------------------------------
 def get_trend(df):
     close=df["close"]; high=df["high"]; low=df["low"]
     price=float(close.iloc[-1])
@@ -291,7 +291,7 @@ def score_setup(df, setup):
     return factors,score,int(score/5*100),rsi,vwap,ema20
 
 def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, iv=0.45):
-    """Calculate option details using the SIGNAL's own entry/target/stop — not generic %."""
+    """Calculate option details using the SIGNAL's own entry/target/stop - not generic %."""
     is_call = direction=="bullish"
     # Strike closest to entry
     strike = round(entry/0.5)*0.5
@@ -332,7 +332,7 @@ def build_candidates(df, ticker, toggles, account, risk_pct, dte):
         raw+=[s for s in detect_break_and_retest(df,ticker,rr_min=2.0) if s.confirmed]
 
     for setup in raw:
-        # Staleness filter — skip if entry is more than 5% away from current price
+        # Staleness filter - skip if entry is more than 5% away from current price
         if abs(setup.entry_price - price) / price > 0.05:
             continue
         factors,score,confidence,rsi,vwap,ema20=score_setup(df,setup)
@@ -375,7 +375,7 @@ def build_candidates(df, ticker, toggles, account, risk_pct, dte):
             "rsi":t_rsi,"vwap":t_vwap,"ema20":t_ema,
         })
 
-    # Deduplicate — keep highest confidence per unique pattern+direction
+    # Deduplicate - keep highest confidence per unique pattern+direction
     seen={}
     for c in sorted(candidates,key=lambda x:x["confidence"],reverse=True):
         key=f"{c['direction']}_{c['pattern_label']}"
@@ -384,12 +384,12 @@ def build_candidates(df, ticker, toggles, account, risk_pct, dte):
 
     return sorted(seen.values(),key=lambda x:x["confidence"],reverse=True)[:3]
 
-# ── Share text ────────────────────────────────────────
+# -- Share text ----------------------------------------
 def build_share_text(ticker, sig, opt, market_status):
     direction = "📈 CALL" if sig["direction"]=="bullish" else "📉 PUT"
     return (f"OPTIONS SCREENER SIGNAL\n"
             f"{'='*30}\n"
-            f"{ticker} — {direction}\n"
+            f"{ticker} - {direction}\n"
             f"Pattern: {sig['pattern_label']}\n"
             f"Confidence: {sig['confidence']}%\n"
             f"{'='*30}\n"
@@ -408,7 +408,7 @@ def build_share_text(ticker, sig, opt, market_status):
             f"Time: {datetime.now().strftime('%m/%d/%Y %H:%M')}\n"
             f"NOT FINANCIAL ADVICE")
 
-# ── Sidebar ───────────────────────────────────────────
+# -- Sidebar -------------------------------------------
 with st.sidebar:
     st.markdown("## 📡 OPTIONS SCREENER")
     st.markdown("---")
@@ -439,62 +439,62 @@ with st.sidebar:
     else:
         st.warning("🟡 DEMO MODE")
 
-# ── Auto refresh ──────────────────────────────────────
+# -- Auto refresh --------------------------------------
 if refresh_on and AUTOREFRESH_AVAILABLE and refresh_interval:
     ms={"1 min":60000,"5 min":300000,"15 min":900000}.get(refresh_interval,300000)
     st_autorefresh(interval=ms, key="autorefresh")
 
-# ── Load data ─────────────────────────────────────────
+# -- Load data -----------------------------------------
 tf_mult,tf_span,tf_days=TIMEFRAMES[selected_tf]
 df=fetch_ohlcv(selected_ticker,tf_mult,tf_span,tf_days)
 current_price=fetch_current_price(selected_ticker) or float(df["close"].iloc[-1])
 prev_close=float(df["close"].iloc[-2]) if len(df)>1 else current_price
 pct_change=((current_price-prev_close)/prev_close)*100
 
-# ── Market status banner ──────────────────────────────
+# -- Market status banner ------------------------------
 mstatus, mtext = get_market_status()
 css_class = {"open":"market-open","pre":"market-pre","after":"market-pre","closed":"market-closed"}.get(mstatus,"market-closed")
 st.markdown(f"<div class='{css_class}'>{mtext}</div>", unsafe_allow_html=True)
 
-# ── Earnings warning ──────────────────────────────────
+# -- Earnings warning ----------------------------------
 ed=check_earnings(selected_ticker)
 if ed is not None:
     if ed<=1:
-        st.error(f"🚨 {selected_ticker} reports earnings {'today' if ed==0 else 'tomorrow'} — Avoid new options positions.")
+        st.error(f"🚨 {selected_ticker} reports earnings {'today' if ed==0 else 'tomorrow'} - Avoid new options positions.")
     else:
-        st.warning(f"📅 {selected_ticker} earns in {ed} days — Options premiums may be inflated.")
+        st.warning(f"📅 {selected_ticker} earns in {ed} days - Options premiums may be inflated.")
 
-# ── Header ────────────────────────────────────────────
+# -- Header --------------------------------------------
 c1,c2,c3=st.columns([2,1,1])
 with c1:
     color="#00d4aa" if pct_change>=0 else "#ff4d6d"
-    arrow="▲" if pct_change>=0 else "▼"
+    arrow="UP" if pct_change>=0 else "DN"
     prepost = "" if mstatus=="open" else " <span style='color:#f0c040;font-size:0.75rem'>(delayed)</span>"
-    st.markdown(f"<div class='metric-card'><div style='color:#8899aa;font-size:0.8rem'>{selected_ticker} · {selected_tf}</div><div class='big-price'>${current_price:,.2f}{prepost}</div><div style='color:{color}'>{arrow} {pct_change:+.2f}%</div></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='metric-card'><div style='color:#8899aa;font-size:0.8rem'>{selected_ticker} . {selected_tf}</div><div class='big-price'>${current_price:,.2f}{prepost}</div><div style='color:{color}'>{arrow} {pct_change:+.2f}%</div></div>", unsafe_allow_html=True)
 with c2:
     ema20v=float(df["close"].ewm(span=20).mean().iloc[-1])
     above=current_price>ema20v
-    st.markdown(f"<div class='metric-card'><div style='color:#8899aa;font-size:0.75rem'>TREND</div><div style='font-weight:700;color:{'#00d4aa' if above else '#ff4d6d'}'>{'BULLISH ▲' if above else 'BEARISH ▼'}</div></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='metric-card'><div style='color:#8899aa;font-size:0.75rem'>TREND</div><div style='font-weight:700;color:{'#00d4aa' if above else '#ff4d6d'}'>{'BULLISH UP' if above else 'BEARISH DN'}</div></div>", unsafe_allow_html=True)
 with c3:
     vol=float(df["volume"].iloc[-1])
     st.markdown(f"<div class='metric-card'><div style='color:#8899aa;font-size:0.75rem'>VOLUME</div><div style='font-weight:700'>{vol/1e6:.1f}M</div></div>", unsafe_allow_html=True)
 
-# ── RSI Divergence alert ──────────────────────────────
+# -- RSI Divergence alert ------------------------------
 div=detect_rsi_divergence(df)
 if div:
     css=f"divergence-{'bull' if div['type']=='bullish' else 'bear'}"
     st.markdown(f"<div class='{css}'><b>{div['label']}</b><br>{div['detail']}</div>", unsafe_allow_html=True)
 
-# ── Tabs ──────────────────────────────────────────────
+# -- Tabs ----------------------------------------------
 tab1,tab2,tab3,tab4,tab5=st.tabs(["🚦 SIGNALS","📈 CHART","📊 BACKTEST","🔍 SCAN","📋 SIGNAL LOG"])
 
-# ── TAB 1: Signals ────────────────────────────────────
+# -- TAB 1: Signals ------------------------------------
 with tab1:
     candidates=build_candidates(df,selected_ticker,toggles,account_size,risk_pct,dte)
 
     if not candidates:
         st.markdown("""<div style='background:#111827;border:2px solid #1e2d40;border-radius:12px;padding:24px;text-align:center;color:#8899aa'>
-            <div style='font-size:2rem'>—</div>
+            <div style='font-size:2rem'>&mdash;</div>
             <div style='font-size:1rem;font-weight:700;margin:8px 0'>NO SIGNALS FOUND</div>
             <div style='font-size:0.85rem'>Try Daily or 4 Hour timeframe, enable more patterns, or check a different ticker.</div>
         </div>""", unsafe_allow_html=True)
@@ -517,7 +517,7 @@ with tab1:
             conflict_html=""
             if sig.get("conflict"):
                 pname=sig.get("conflict_pattern","pattern")
-                conflict_html=f"<div class='conflict-warn'>⚠️ {pname} pattern found but trend is {'bearish' if not is_bull else 'bullish'} — trend wins. Showing {'PUT' if not is_bull else 'CALL'} instead.</div>"
+                conflict_html=f"<div class='conflict-warn'>⚠️ {pname} pattern found but trend is {'bearish' if not is_bull else 'bullish'} - trend wins. Showing {'PUT' if not is_bull else 'CALL'} instead.</div>"
 
             dots_html=""
             for f in sig["factors"].values():
@@ -530,7 +530,7 @@ with tab1:
                 <div style='display:flex;justify-content:space-between;align-items:flex-start'>
                     <div>
                         <span class='rank-badge {bc}'>{rl}</span>
-                        <div style='font-size:1.1rem;font-weight:700;color:{dir_color}'>{dir_label} — {selected_ticker}</div>
+                        <div style='font-size:1.1rem;font-weight:700;color:{dir_color}'>{dir_label} - {selected_ticker}</div>
                         <div style='color:#8899aa;font-size:0.82rem;margin-top:2px'>{sig['pattern_label']}</div>
                     </div>
                     <div class='{cc}'>{sig['confidence']}%</div>
@@ -577,7 +577,7 @@ with tab1:
             if i<len(candidates)-1:
                 st.markdown("<hr style='border-color:#1e2d40;margin:12px 0'>", unsafe_allow_html=True)
 
-# ── TAB 2: Chart ──────────────────────────────────────
+# -- TAB 2: Chart --------------------------------------
 with tab2:
     chart_db=[s for s in detect_double_bottom(df,selected_ticker,rr_min=2.0) if s.confirmed]
     chart_dt=[s for s in detect_double_top(df,selected_ticker,rr_min=2.0) if s.confirmed]
@@ -634,14 +634,14 @@ with tab2:
     st.plotly_chart(fig,use_container_width=True)
     if chart_setups:
         st.markdown("""<div style='display:flex;gap:20px;flex-wrap:wrap;padding:8px 4px;font-size:0.8rem;color:#8899aa'>
-            <span><span style='color:#00d4aa'>─────</span> Entry</span>
+            <span><span style='color:#00d4aa'>-----</span> Entry</span>
             <span><span style='color:#00d4aa'>- - -</span> Target</span>
-            <span><span style='color:#ff4d6d'>·····</span> Stop Loss</span>
-            <span><span style='color:#f0c040'>·····</span> EMA 20</span>
+            <span><span style='color:#ff4d6d'>.....</span> Stop Loss</span>
+            <span><span style='color:#f0c040'>.....</span> EMA 20</span>
             <span><span style='color:#9966ff'>- - -</span> VWAP</span>
         </div>""", unsafe_allow_html=True)
 
-# ── TAB 3: Backtest ───────────────────────────────────
+# -- TAB 3: Backtest -----------------------------------
 with tab3:
     st.markdown("<div class='section-title'>BACKTEST</div>", unsafe_allow_html=True)
     if st.button("Run Backtest",type="primary"):
@@ -667,7 +667,7 @@ with tab3:
     else:
         st.info("Click Run Backtest to analyze this ticker.")
 
-# ── TAB 4: Scan ───────────────────────────────────────
+# -- TAB 4: Scan ---------------------------------------
 with tab4:
     st.markdown("<div class='section-title'>WATCHLIST SCAN</div>", unsafe_allow_html=True)
     if st.button("🔍 SCAN ALL TICKERS",type="primary"):
@@ -698,14 +698,14 @@ with tab4:
         else:
             st.info("No signals right now. Try again later or switch timeframe.")
 
-# ── TAB 5: Signal Log ─────────────────────────────────
+# -- TAB 5: Signal Log ---------------------------------
 with tab5:
     st.markdown("<div class='section-title'>SIGNAL LOG & TICKER STATS</div>", unsafe_allow_html=True)
 
     # Ticker signal stats
     stats=get_ticker_signal_stats()
     if stats:
-        st.markdown("**Signal Frequency by Ticker** — live tracked since you started logging")
+        st.markdown("**Signal Frequency by Ticker** - live tracked since you started logging")
         stat_rows=[{"Ticker":t,"Total Signals":v["total"],"Calls":v["calls"],
                     "Puts":v["puts"],"Wins":v["wins"]} for t,v in
                    sorted(stats.items(),key=lambda x:x[1]["total"],reverse=True)]
@@ -730,4 +730,4 @@ with tab5:
                 file_name=f"signal_log_{datetime.now().strftime('%m%d%Y')}.csv",
                 mime="text/csv")
 
-st.markdown("<div style='text-align:center;padding:20px;color:#8899aa;font-size:0.75rem;border-top:1px solid #1e2d40;margin-top:20px'>OPTIONS SCREENER v5.0 · NOT FINANCIAL ADVICE</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align:center;padding:20px;color:#8899aa;font-size:0.75rem;border-top:1px solid #1e2d40;margin-top:20px'>OPTIONS SCREENER v5.0 . NOT FINANCIAL ADVICE</div>", unsafe_allow_html=True)
