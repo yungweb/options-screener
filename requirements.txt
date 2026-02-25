@@ -6,3 +6,4 @@ scipy
 requests
 yfinance
 streamlit-autorefresh
+pytz
