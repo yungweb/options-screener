@@ -244,8 +244,7 @@ def get_trend(df):
     ema20=float(close.ewm(span=20).mean().iloc[-1])
     tp=(high+low+close)/3
     vwap=float((tp*df["volume"]).cumsum().iloc[-1]/df["volume"].cumsum().iloc[-1])
-    delta=close.diff()
-    rsi=float((100-(100/(1+(delta.clip(lower=0).rolling(14).mean()/(-delta.clip(upper=0)).rolling(14).mean())))).iloc[-1])
+    rsi=calc_rsi(close)
     recent=df.tail(10)
     up_vol  =float(recent[recent["close"]>=recent["open"]]["volume"].mean() or 0)
     down_vol=float(recent[recent["close"]< recent["open"]]["volume"].mean() or 0)
@@ -276,8 +275,7 @@ def score_setup(df, setup):
     ema20=float(close.ewm(span=20).mean().iloc[-1])
     tp=(high+low+close)/3
     vwap=float((tp*df["volume"]).cumsum().iloc[-1]/df["volume"].cumsum().iloc[-1])
-    delta=close.diff()
-    rsi=float((100-(100/(1+(delta.clip(lower=0).rolling(14).mean()/(-delta.clip(upper=0)).rolling(14).mean())))).iloc[-1])
+    rsi=calc_rsi(close)
     avg_vol=float(df["volume"].iloc[-20:].mean())
     cur_vol=float(df["volume"].iloc[-1])
     factors={
@@ -290,31 +288,50 @@ def score_setup(df, setup):
     score=sum(1 for f in factors.values() if f["pass"])
     return factors,score,int(score/5*100),rsi,vwap,ema20
 
-def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, iv=0.45):
-    """Calculate option details using the SIGNAL's own entry/target/stop - not generic %."""
-    is_call = direction=="bullish"
-    # Strike closest to entry
-    strike = round(entry/0.5)*0.5
-    premium = round(entry*iv*(days_to_exp/365)**0.5*0.4, 2)
-    breakeven = (strike+premium) if is_call else (strike-premium)
-    max_loss_per = premium*100
-    contracts = max(1, int((account*risk_pct)/max_loss_per)) if max_loss_per>0 else 1
-    # Profit uses the signal's actual target, not a generic 15%
-    profit = max(0, abs(target-entry-premium)*100*contracts)
-    rr = round(abs(target-entry)/abs(entry-stop),2) if abs(entry-stop)>0 else 0
+def calc_rsi(close, period=14):
+    delta = close.diff()
+    avg_gain = delta.clip(lower=0).ewm(com=period-1, min_periods=period).mean()
+    avg_loss = (-delta.clip(upper=0)).ewm(com=period-1, min_periods=period).mean()
+    rs = avg_gain / avg_loss.replace(0, 1e-10)
+    return float((100 - (100 / (1 + rs))).iloc[-1])
+
+def estimate_delta(price, strike, dte, iv=0.45, is_call=True):
+    import math
+    T = max(dte / 365, 0.001)
+    try:
+        d1 = (math.log(price / strike) + (0.05 + 0.5 * iv**2) * T) / (iv * math.sqrt(T))
+        nd1 = 1 / (1 + math.exp(-1.7 * d1))
+        return nd1 if is_call else nd1 - 1
+    except:
+        return 0.5
+
+def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, current_price, iv=0.45):
+    is_call = direction == "bullish"
+    strike = round(entry / 0.5) * 0.5
+    delta = estimate_delta(current_price, strike, days_to_exp, iv, is_call)
+    abs_delta = abs(delta)
+    premium = round(current_price * iv * (days_to_exp / 365) ** 0.5 * 0.4, 2)
+    premium = max(premium, 0.10)
+    breakeven = (strike + premium) if is_call else (strike - premium)
+    max_loss_per = premium * 100
+    contracts = max(1, int((account * risk_pct) / max_loss_per)) if max_loss_per > 0 else 1
+    if is_call:
+        profit_per = max(0, (target - strike - premium) * 100)
+    else:
+        profit_per = max(0, (strike - target - premium) * 100)
+    total_profit = profit_per * contracts
+    rr = round(abs(target - entry) / abs(entry - stop), 2) if abs(entry - stop) > 0 else 0
     return {
-        "type":"CALL" if is_call else "PUT",
-        "strike": strike,
-        "premium": premium,
-        "breakeven": round(breakeven,2),
-        "max_loss": round(max_loss_per*contracts,2),
+        "type": "CALL" if is_call else "PUT",
+        "strike": strike, "premium": premium,
+        "breakeven": round(breakeven, 2),
+        "max_loss": round(max_loss_per * contracts, 2),
         "contracts": contracts,
-        "profit_at_target": round(profit,2),
-        "target": round(target,2),
-        "stop": round(stop,2),
-        "entry": round(entry,2),
-        "rr": rr,
-        "expiration": (date.today()+timedelta(days=days_to_exp)).strftime("%b %d, %Y"),
+        "profit_at_target": round(total_profit, 2),
+        "target": round(target, 2), "stop": round(stop, 2), "entry": round(entry, 2),
+        "rr": rr, "delta": round(abs_delta, 2),
+        "delta_ok": 0.35 <= abs_delta <= 0.85,
+        "expiration": (date.today() + timedelta(days=days_to_exp)).strftime("%b %d, %Y"),
     }
 
 def build_candidates(df, ticker, toggles, account, risk_pct, dte):
@@ -540,39 +557,43 @@ with tab1:
             """, unsafe_allow_html=True)
 
             if sig["confidence"]>=60:
-                opt=calc_trade(sig["entry"],sig["stop"],sig["target"],sig["direction"],dte,account_size,risk_pct)
-                st.markdown(f"""
-                <div class='trade-box {"" if is_bull else "bear"}'>
-                    <div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.88rem'>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>STRIKE</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>${opt['strike']:.2f}</div></div>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>PAY MAX</div><div style='font-size:1.2rem;font-weight:700'>${opt['premium']:.2f}/sh</div></div>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>ENTRY</div><div style='font-weight:700'>${opt['entry']:.2f}</div></div>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>R:R RATIO</div><div style='font-weight:700;color:#00d4aa'>{opt['rr']}x</div></div>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>EXIT TARGET</div><div style='font-weight:700;color:#00d4aa'>${opt['target']:.2f}</div></div>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>STOP OUT</div><div style='font-weight:700;color:#ff4d6d'>${opt['stop']:.2f}</div></div>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>CONTRACTS</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>{opt['contracts']}</div></div>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>MAX LOSS</div><div style='font-weight:700;color:#ff4d6d'>${opt['max_loss']:.0f}</div></div>
+                opt=calc_trade(sig["entry"],sig["stop"],sig["target"],sig["direction"],dte,account_size,risk_pct,current_price)
+                if not opt["delta_ok"]:
+                    st.markdown(f"<div style='background:#1a1010;border:1px solid #ff4d6d;border-radius:8px;padding:10px;margin-top:6px;color:#ff4d6d;font-size:0.83rem'>Delta {opt['delta']:.2f} is outside 0.35-0.85 range - not worth trading.</div>", unsafe_allow_html=True)
+                elif opt["profit_at_target"] < 50:
+                    st.markdown(f"<div style='background:#1a150a;border:1px solid #f0c040;border-radius:8px;padding:10px;margin-top:6px;color:#f0c040;font-size:0.83rem'>Profit at target too low (${opt['profit_at_target']:.0f}) - target too close to entry. Wait for a wider setup.</div>", unsafe_allow_html=True)
+                else:
+                    delta_color = "#00d4aa"
+                    st.markdown(f"""
+                    <div class='trade-box {"" if is_bull else "bear"}'>
+                        <div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.88rem'>
+                            <div><div style='color:#8899aa;font-size:0.72rem'>STRIKE</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>${opt['strike']:.2f}</div></div>
+                            <div><div style='color:#8899aa;font-size:0.72rem'>PAY MAX</div><div style='font-weight:700'>${opt['premium']:.2f}/sh</div></div>
+                            <div><div style='color:#8899aa;font-size:0.72rem'>ENTRY</div><div style='font-weight:700'>${opt['entry']:.2f}</div></div>
+                            <div><div style='color:#8899aa;font-size:0.72rem'>DELTA</div><div style='font-weight:700;color:{delta_color}'>{opt['delta']:.2f}</div></div>
+                            <div><div style='color:#8899aa;font-size:0.72rem'>EXIT TARGET</div><div style='font-weight:700;color:#00d4aa'>${opt['target']:.2f}</div></div>
+                            <div><div style='color:#8899aa;font-size:0.72rem'>STOP OUT</div><div style='font-weight:700;color:#ff4d6d'>${opt['stop']:.2f}</div></div>
+                            <div><div style='color:#8899aa;font-size:0.72rem'>R:R RATIO</div><div style='font-weight:700;color:#00d4aa'>{opt['rr']}x</div></div>
+                            <div><div style='color:#8899aa;font-size:0.72rem'>MAX LOSS</div><div style='font-weight:700;color:#ff4d6d'>${opt['max_loss']:.0f}</div></div>
+                            <div><div style='color:#8899aa;font-size:0.72rem'>CONTRACTS</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>{opt['contracts']}</div></div>
+                            <div><div style='color:#8899aa;font-size:0.72rem'>PROFIT AT TARGET</div><div style='font-size:1.2rem;font-weight:700;color:#00d4aa'>${opt['profit_at_target']:,.0f}</div></div>
+                        </div>
+                        <div style='margin-top:10px;padding-top:8px;border-top:1px solid #1e2d40'>
+                            <div style='color:#8899aa;font-size:0.72rem'>EXPIRES</div>
+                            <div style='font-weight:700'>{opt['expiration']}</div>
+                        </div>
                     </div>
-                    <div style='margin-top:10px;padding-top:8px;border-top:1px solid #1e2d40;display:flex;justify-content:space-between'>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>EXPIRES</div><div style='font-weight:700'>{opt['expiration']}</div></div>
-                        <div style='text-align:right'><div style='color:#8899aa;font-size:0.72rem'>PROFIT AT TARGET</div><div style='font-size:1.2rem;font-weight:700;color:#00d4aa'>${opt['profit_at_target']:,.0f}</div></div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                # Buttons row
-                bcol1, bcol2 = st.columns(2)
-                with bcol1:
-                    if st.button(f"📋 Log Signal #{i+1}", key=f"log_{i}"):
-                        log_signal(selected_ticker, sig["direction"], opt['strike'], opt['target'], opt['stop'], sig["confidence"], sig["pattern_label"])
-                        st.success("Logged!")
-                with bcol2:
-                    share_text = build_share_text(selected_ticker, sig, opt, mtext)
-                    st.download_button(f"📤 Share #{i+1}", data=share_text,
-                        file_name=f"{selected_ticker}_signal_{datetime.now().strftime('%m%d_%H%M')}.txt",
-                        mime="text/plain", key=f"share_{i}")
-            else:
-                st.markdown(f"<div style='background:#111827;border:1px solid #1e2d40;border-radius:8px;padding:10px 14px;margin-top:6px;color:#8899aa;font-size:0.83rem'>Confidence too low to trade. Wait for more signals to confirm.</div>", unsafe_allow_html=True)
+                    """, unsafe_allow_html=True)
+                    bcol1, bcol2 = st.columns(2)
+                    with bcol1:
+                        if st.button(f"📋 Log Signal #{i+1}", key=f"log_{i}"):
+                            log_signal(selected_ticker, sig["direction"], opt["strike"], opt["target"], opt["stop"], sig["confidence"], sig["pattern_label"])
+                            st.success("Logged!")
+                    with bcol2:
+                        share_text = build_share_text(selected_ticker, sig, opt, mtext)
+                        st.download_button(f"📤 Share #{i+1}", data=share_text,
+                            file_name=f"{selected_ticker}_signal_{datetime.now().strftime('%m%d_%H%M')}.txt",
+                            mime="text/plain", key=f"share_{i}")
 
             if i<len(candidates)-1:
                 st.markdown("<hr style='border-color:#1e2d40;margin:12px 0'>", unsafe_allow_html=True)
