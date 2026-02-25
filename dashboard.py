@@ -440,7 +440,10 @@ with st.sidebar:
     refresh_on=st.toggle("Live refresh",value=False)
     refresh_interval=st.selectbox("Interval",["1 min","5 min","15 min"],index=1) if refresh_on else None
     st.markdown("---")
-    st.success("🟢 LIVE DATA") if POLYGON_API_KEY else st.warning("🟡 DEMO MODE")
+    if POLYGON_API_KEY:
+        st.success("🟢 LIVE DATA")
+    else:
+        st.warning("🟡 DEMO MODE")
 
 # ── Auto refresh ──────────────────────────────────────
 if refresh_on and AUTOREFRESH_AVAILABLE and refresh_interval:
