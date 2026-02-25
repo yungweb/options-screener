@@ -1,4 +1,4 @@
-“””
+"""
 Options Screener v5.0
 
 - Pre/post market flag
