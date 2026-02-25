@@ -307,20 +307,35 @@ def estimate_delta(price, strike, dte, iv=0.45, is_call=True):
 
 def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, current_price, iv=0.45):
     is_call = direction == "bullish"
-    strike = round(entry / 0.5) * 0.5
-    delta = estimate_delta(current_price, strike, days_to_exp, iv, is_call)
-    abs_delta = abs(delta)
+
+    # Strike: slightly OTM so premium is lower and target has room to be profitable
+    # Calls: 2% above current price. Puts: 2% below current price
+    raw_strike = current_price * 1.02 if is_call else current_price * 0.98
+    strike = round(raw_strike / 0.5) * 0.5
+
+    # Adjust target to ensure it clears breakeven by at least 5%
     premium = round(current_price * iv * (days_to_exp / 365) ** 0.5 * 0.4, 2)
     premium = max(premium, 0.10)
     breakeven = (strike + premium) if is_call else (strike - premium)
+
+    # If target doesnt clear breakeven, extend it until it does
+    if is_call and target < breakeven * 1.05:
+        target = round(breakeven * 1.10, 2)
+    elif not is_call and target > breakeven * 0.95:
+        target = round(breakeven * 0.90, 2)
+
+    delta = estimate_delta(current_price, strike, days_to_exp, iv, is_call)
+    abs_delta = abs(delta)
     max_loss_per = premium * 100
     contracts = max(1, int((account * risk_pct) / max_loss_per)) if max_loss_per > 0 else 1
+
     if is_call:
         profit_per = max(0, (target - strike - premium) * 100)
     else:
         profit_per = max(0, (strike - target - premium) * 100)
     total_profit = profit_per * contracts
     rr = round(abs(target - entry) / abs(entry - stop), 2) if abs(entry - stop) > 0 else 0
+
     return {
         "type": "CALL" if is_call else "PUT",
         "strike": strike, "premium": premium,
