@@ -288,6 +288,28 @@ def score_setup(df, setup):
     score=sum(1 for f in factors.values() if f["pass"])
     return factors,score,int(score/5*100),rsi,vwap,ema20
 
+def get_expiration_date(dte_target):
+    """
+    Returns the nearest real Friday expiration date to the target DTE.
+    Options expire on Fridays. This snaps to the closest upcoming Friday
+    that is at or beyond the minimum DTE requested.
+    """
+    today = date.today()
+    # Build list of next 16 Fridays (covers ~4 months)
+    fridays = []
+    d = today
+    while len(fridays) < 16:
+        d += timedelta(days=1)
+        if d.weekday() == 4:  # Friday
+            fridays.append(d)
+    # Find the Friday closest to our target DTE
+    target_date = today + timedelta(days=dte_target)
+    best = min(fridays, key=lambda f: abs((f - target_date).days))
+    # Never return a Friday in the past or fewer than 5 days away
+    valid = [f for f in fridays if (f - today).days >= 5]
+    best = min(valid, key=lambda f: abs((f - target_date).days))
+    return best
+
 def calc_rsi(close, period=14):
     delta = close.diff()
     avg_gain = delta.clip(lower=0).ewm(com=period-1, min_periods=period).mean()
@@ -308,13 +330,17 @@ def estimate_delta(price, strike, dte, iv=0.45, is_call=True):
 def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, current_price, iv=0.45):
     is_call = direction == "bullish"
 
+    # Snap to real Friday expiration
+    exp_date = get_expiration_date(days_to_exp)
+    actual_dte = max((exp_date - date.today()).days, 1)
+
     # Strike: slightly OTM so premium is lower and target has room to be profitable
     # Calls: 2% above current price. Puts: 2% below current price
     raw_strike = current_price * 1.02 if is_call else current_price * 0.98
     strike = round(raw_strike / 0.5) * 0.5
 
     # Adjust target to ensure it clears breakeven by at least 5%
-    premium = round(current_price * iv * (days_to_exp / 365) ** 0.5 * 0.4, 2)
+    premium = round(current_price * iv * (actual_dte / 365) ** 0.5 * 0.4, 2)
     premium = max(premium, 0.10)
     breakeven = (strike + premium) if is_call else (strike - premium)
 
@@ -324,7 +350,7 @@ def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, c
     elif not is_call and target > breakeven * 0.95:
         target = round(breakeven * 0.90, 2)
 
-    delta = estimate_delta(current_price, strike, days_to_exp, iv, is_call)
+    delta = estimate_delta(current_price, strike, actual_dte, iv, is_call)
     abs_delta = abs(delta)
     max_loss_per = premium * 100
     contracts = max(1, int((account * risk_pct) / max_loss_per)) if max_loss_per > 0 else 1
@@ -346,7 +372,7 @@ def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, c
         "target": round(target, 2), "stop": round(stop, 2), "entry": round(entry, 2),
         "rr": rr, "delta": round(abs_delta, 2),
         "delta_ok": 0.35 <= abs_delta <= 0.85,
-        "expiration": (date.today() + timedelta(days=days_to_exp)).strftime("%b %d, %Y"),
+        "expiration": exp_date.strftime("%b %d, %Y"),
     }
 
 def build_candidates(df, ticker, toggles, account, risk_pct, dte):
