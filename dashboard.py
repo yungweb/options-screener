@@ -356,8 +356,8 @@ def build_candidates(df, ticker, toggles, account, risk_pct, dte):
         conflict=setup.direction!=trend_dir and trend_score>=3
         if conflict:
             t_entry=round(price*(0.998 if trend_dir=="bearish" else 1.002),2)
-            t_stop =round(price+atr*1.5,2) if trend_dir=="bearish" else round(price-atr*1.5,2)
-            t_target=round(price-atr*3.0,2) if trend_dir=="bearish" else round(price+atr*3.0,2)
+            t_stop =round(price*1.02,2) if trend_dir=="bearish" else round(price*0.98,2)
+            t_target=round(price*0.96,2) if trend_dir=="bearish" else round(price*1.04,2)
             candidates.append({
                 "source":"trend_override","direction":trend_dir,
                 "confidence":int(trend_score/5*100),"score":trend_score,
@@ -381,8 +381,8 @@ def build_candidates(df, ticker, toggles, account, risk_pct, dte):
     # Trend signal even without patterns
     if trend_score>=3:
         t_entry=round(price*(0.998 if trend_dir=="bearish" else 1.002),2)
-        t_stop =round(price+atr*1.5,2) if trend_dir=="bearish" else round(price-atr*1.5,2)
-        t_target=round(price-atr*3.0,2) if trend_dir=="bearish" else round(price+atr*3.0,2)
+        t_stop =round(price*1.02,2) if trend_dir=="bearish" else round(price*0.98,2)
+        t_target=round(price*0.96,2) if trend_dir=="bearish" else round(price*1.04,2)
         candidates.append({
             "source":"trend","direction":trend_dir,
             "confidence":int(trend_score/5*100),"score":trend_score,
@@ -558,42 +558,45 @@ with tab1:
 
             if sig["confidence"]>=60:
                 opt=calc_trade(sig["entry"],sig["stop"],sig["target"],sig["direction"],dte,account_size,risk_pct,current_price)
+                # Build warning flags but always show the trade
+                warnings = []
                 if not opt["delta_ok"]:
-                    st.markdown(f"<div style='background:#1a1010;border:1px solid #ff4d6d;border-radius:8px;padding:10px;margin-top:6px;color:#ff4d6d;font-size:0.83rem'>Delta {opt['delta']:.2f} is outside 0.35-0.85 range - not worth trading.</div>", unsafe_allow_html=True)
-                elif opt["profit_at_target"] < 50:
-                    st.markdown(f"<div style='background:#1a150a;border:1px solid #f0c040;border-radius:8px;padding:10px;margin-top:6px;color:#f0c040;font-size:0.83rem'>Profit at target too low (${opt['profit_at_target']:.0f}) - target too close to entry. Wait for a wider setup.</div>", unsafe_allow_html=True)
-                else:
-                    delta_color = "#00d4aa"
-                    st.markdown(f"""
-                    <div class='trade-box {"" if is_bull else "bear"}'>
-                        <div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.88rem'>
-                            <div><div style='color:#8899aa;font-size:0.72rem'>STRIKE</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>${opt['strike']:.2f}</div></div>
-                            <div><div style='color:#8899aa;font-size:0.72rem'>PAY MAX</div><div style='font-weight:700'>${opt['premium']:.2f}/sh</div></div>
-                            <div><div style='color:#8899aa;font-size:0.72rem'>ENTRY</div><div style='font-weight:700'>${opt['entry']:.2f}</div></div>
-                            <div><div style='color:#8899aa;font-size:0.72rem'>DELTA</div><div style='font-weight:700;color:{delta_color}'>{opt['delta']:.2f}</div></div>
-                            <div><div style='color:#8899aa;font-size:0.72rem'>EXIT TARGET</div><div style='font-weight:700;color:#00d4aa'>${opt['target']:.2f}</div></div>
-                            <div><div style='color:#8899aa;font-size:0.72rem'>STOP OUT</div><div style='font-weight:700;color:#ff4d6d'>${opt['stop']:.2f}</div></div>
-                            <div><div style='color:#8899aa;font-size:0.72rem'>R:R RATIO</div><div style='font-weight:700;color:#00d4aa'>{opt['rr']}x</div></div>
-                            <div><div style='color:#8899aa;font-size:0.72rem'>MAX LOSS</div><div style='font-weight:700;color:#ff4d6d'>${opt['max_loss']:.0f}</div></div>
-                            <div><div style='color:#8899aa;font-size:0.72rem'>CONTRACTS</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>{opt['contracts']}</div></div>
-                            <div><div style='color:#8899aa;font-size:0.72rem'>PROFIT AT TARGET</div><div style='font-size:1.2rem;font-weight:700;color:#00d4aa'>${opt['profit_at_target']:,.0f}</div></div>
-                        </div>
-                        <div style='margin-top:10px;padding-top:8px;border-top:1px solid #1e2d40'>
-                            <div style='color:#8899aa;font-size:0.72rem'>EXPIRES</div>
-                            <div style='font-weight:700'>{opt['expiration']}</div>
-                        </div>
+                    warnings.append(f"Delta {opt['delta']:.2f} is outside ideal 0.35-0.85 range")
+                if opt["profit_at_target"] < 50:
+                    warnings.append("Profit at target is low - consider wider expiration or more contracts")
+                for w in warnings:
+                    st.markdown(f"<div style='background:#1a150a;border:1px solid #f0c040;border-radius:6px;padding:8px 12px;margin-top:6px;color:#f0c040;font-size:0.8rem'>⚠️ {w}</div>", unsafe_allow_html=True)
+                delta_color = "#00d4aa" if opt["delta_ok"] else "#f0c040"
+                st.markdown(f"""
+                <div class='trade-box {"" if is_bull else "bear"}'>
+                    <div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.88rem'>
+                        <div><div style='color:#8899aa;font-size:0.72rem'>STRIKE</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>${opt['strike']:.2f}</div></div>
+                        <div><div style='color:#8899aa;font-size:0.72rem'>PAY MAX</div><div style='font-weight:700'>${opt['premium']:.2f}/sh</div></div>
+                        <div><div style='color:#8899aa;font-size:0.72rem'>ENTRY</div><div style='font-weight:700'>${opt['entry']:.2f}</div></div>
+                        <div><div style='color:#8899aa;font-size:0.72rem'>DELTA</div><div style='font-weight:700;color:{delta_color}'>{opt['delta']:.2f}</div></div>
+                        <div><div style='color:#8899aa;font-size:0.72rem'>EXIT TARGET</div><div style='font-weight:700;color:#00d4aa'>${opt['target']:.2f}</div></div>
+                        <div><div style='color:#8899aa;font-size:0.72rem'>STOP OUT</div><div style='font-weight:700;color:#ff4d6d'>${opt['stop']:.2f}</div></div>
+                        <div><div style='color:#8899aa;font-size:0.72rem'>R:R RATIO</div><div style='font-weight:700;color:#00d4aa'>{opt['rr']}x</div></div>
+                        <div><div style='color:#8899aa;font-size:0.72rem'>MAX LOSS</div><div style='font-weight:700;color:#ff4d6d'>${opt['max_loss']:.0f}</div></div>
+                        <div><div style='color:#8899aa;font-size:0.72rem'>CONTRACTS</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>{opt['contracts']}</div></div>
+                        <div><div style='color:#8899aa;font-size:0.72rem'>PROFIT AT TARGET</div><div style='font-size:1.2rem;font-weight:700;color:#00d4aa'>${opt['profit_at_target']:,.0f}</div></div>
                     </div>
-                    """, unsafe_allow_html=True)
-                    bcol1, bcol2 = st.columns(2)
-                    with bcol1:
-                        if st.button(f"📋 Log Signal #{i+1}", key=f"log_{i}"):
-                            log_signal(selected_ticker, sig["direction"], opt["strike"], opt["target"], opt["stop"], sig["confidence"], sig["pattern_label"])
-                            st.success("Logged!")
-                    with bcol2:
-                        share_text = build_share_text(selected_ticker, sig, opt, mtext)
-                        st.download_button(f"📤 Share #{i+1}", data=share_text,
-                            file_name=f"{selected_ticker}_signal_{datetime.now().strftime('%m%d_%H%M')}.txt",
-                            mime="text/plain", key=f"share_{i}")
+                    <div style='margin-top:10px;padding-top:8px;border-top:1px solid #1e2d40'>
+                        <div style='color:#8899aa;font-size:0.72rem'>EXPIRES</div>
+                        <div style='font-weight:700'>{opt['expiration']}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                bcol1, bcol2 = st.columns(2)
+                with bcol1:
+                    if st.button(f"📋 Log Signal #{i+1}", key=f"log_{i}"):
+                        log_signal(selected_ticker, sig["direction"], opt["strike"], opt["target"], opt["stop"], sig["confidence"], sig["pattern_label"])
+                        st.success("Logged!")
+                with bcol2:
+                    share_text = build_share_text(selected_ticker, sig, opt, mtext)
+                    st.download_button(f"📤 Share #{i+1}", data=share_text,
+                        file_name=f"{selected_ticker}_signal_{datetime.now().strftime('%m%d_%H%M')}.txt",
+                        mime="text/plain", key=f"share_{i}")
 
             if i<len(candidates)-1:
                 st.markdown("<hr style='border-color:#1e2d40;margin:12px 0'>", unsafe_allow_html=True)
