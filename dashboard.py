@@ -921,74 +921,79 @@ with tab1:
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Entry confirmation check
-                conf_result = check_entry_confirmation(df, sig["direction"])
-                conf_status = conf_result["status"]
-                if conf_status == "CONFIRMED":
-                    conf_bg    = "#061a10"; conf_border = "#00d4aa"; conf_color = "#00d4aa"
-                    conf_icon  = "✅"
-                elif conf_status == "WAITING":
-                    conf_bg    = "#0d1219"; conf_border = "#f0c040"; conf_color = "#f0c040"
-                    conf_icon  = "👁"
-                else:
-                    conf_bg    = "#1a0a0a"; conf_border = "#ff4d6d"; conf_color = "#ff4d6d"
-                    conf_icon  = "⏳"
-
-                candle_html = ""
-                for c in conf_result.get("candles", []):
-                    if c == "green":   candle_html += "<span style='color:#00d4aa'>&#9650;</span> "
-                    elif c == "red":   candle_html += "<span style='color:#ff4d6d'>&#9660;</span> "
-                    else:              candle_html += "<span style='color:#8899aa'>&#9644;</span> "
-
-                st.markdown(f"""
-                <div style='background:{conf_bg};border:1px solid {conf_border};border-radius:8px;padding:10px 14px;margin-top:8px'>
-                    <div style='color:{conf_color};font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:4px'>ENTRY TIMING CHECK</div>
-                    <div style='display:flex;align-items:center;gap:10px'>
-                        <span style='font-size:1.1rem'>{conf_icon}</span>
-                        <span style='font-weight:700;color:{conf_color}'>{conf_status}</span>
-                        <span style='color:#8899aa;font-size:0.82rem'>Recent candles: {candle_html}</span>
-                    </div>
-                    <div style='color:#e0e6f0;font-size:0.82rem;margin-top:4px'>{conf_result["message"]}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                # Auto-add 7/7 signals to watch queue
+                # Entry timing check + watch queue - market hours only
                 watch_key = f"{selected_ticker}_{sig['direction']}"
                 already_watching = watch_key in st.session_state.get("watch_queue", {})
-                if elevate and not already_watching and conf_status != "CONFIRMED":
-                    add_to_watch_queue(selected_ticker, sig["direction"], sig, opt)
+                conf_status = "N/A"
 
-                if ANTHROPIC_API_KEY:
-                    ai_key = f"ai_result_{selected_ticker}_{i}"
-                    if st.button(f"🤖 Get AI Brief #{i+1}", key=f"ai_{i}"):
-                        with st.spinner("Analyzing setup..."):
-                            try:
-                                ai_text   = get_ai_brief(selected_ticker, sig, opt, gates, gates_passed, iv_rank, earnings_days, conf_status)
-                                ai_parsed = parse_ai_brief(ai_text)
-                                st.session_state[ai_key] = ai_parsed
-                            except Exception as e:
-                                st.session_state[ai_key] = {"error": str(e)}
+                if mstatus == "open":
+                    conf_result = check_entry_confirmation(df, sig["direction"])
+                    conf_status = conf_result["status"]
+                    if conf_status == "CONFIRMED":
+                        conf_bg = "#061a10"; conf_border = "#00d4aa"; conf_color = "#00d4aa"; conf_icon = "✅"
+                    elif conf_status == "WAITING":
+                        conf_bg = "#0d1219"; conf_border = "#f0c040"; conf_color = "#f0c040"; conf_icon = "👁"
+                    else:
+                        conf_bg = "#1a0a0a"; conf_border = "#ff4d6d"; conf_color = "#ff4d6d"; conf_icon = "⏳"
 
-                    if ai_key in st.session_state:
-                        ai = st.session_state[ai_key]
-                        if "error" in ai:
-                            st.error(f"AI call failed: {ai['error']}")
-                        else:
-                            rating = ai.get("rating","")
-                            if "Strong" in rating:   r_color = "#00d4aa"; r_bg = "#061a10"; r_border = "#00d4aa"
-                            elif "Moderate" in rating: r_color = "#f0c040"; r_bg = "#1a150a"; r_border = "#f0c040"
-                            else:                    r_color = "#ff4d6d"; r_bg = "#1a0a0a"; r_border = "#ff4d6d"
-                            st.markdown(f"""
-                            <div style='background:{r_bg};border:1px solid {r_border};border-radius:8px;padding:14px;margin-top:8px'>
-                                <div style='color:#8899aa;font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:6px'>AI TRADE BRIEF</div>
-                                <div style='font-size:1.1rem;font-weight:700;color:{r_color};margin-bottom:10px'>🤖 {rating}</div>
-                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#8899aa'>REASONING</span><br>{ai.get("reasoning","")}</div>
-                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#ff4d6d'>KEY RISK</span><br>{ai.get("risk","")}</div>
-                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#00d4aa'>EDGE</span><br>{ai.get("edge","")}</div>
-                            </div>
-                            """, unsafe_allow_html=True)
+                    candle_html = ""
+                    for c in conf_result.get("candles", []):
+                        if c == "green":   candle_html += "<span style='color:#00d4aa'>&#9650;</span> "
+                        elif c == "red":   candle_html += "<span style='color:#ff4d6d'>&#9660;</span> "
+                        else:              candle_html += "<span style='color:#8899aa'>&#9644;</span> "
+
+                    st.markdown(f"""
+                    <div style='background:{conf_bg};border:1px solid {conf_border};border-radius:8px;padding:10px 14px;margin-top:8px'>
+                        <div style='color:{conf_color};font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:4px'>ENTRY TIMING CHECK</div>
+                        <div style='display:flex;align-items:center;gap:10px'>
+                            <span style='font-size:1.1rem'>{conf_icon}</span>
+                            <span style='font-weight:700;color:{conf_color}'>{conf_status}</span>
+                            <span style='color:#8899aa;font-size:0.82rem'>Recent candles: {candle_html}</span>
+                        </div>
+                        <div style='color:#e0e6f0;font-size:0.82rem;margin-top:4px'>{conf_result["message"]}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    # Auto-add 7/7 elevated signals to watch queue
+                    if elevate and not already_watching and conf_status != "CONFIRMED":
+                        add_to_watch_queue(selected_ticker, sig["direction"], sig, opt)
                 else:
-                    st.markdown("<div class='ai-placeholder'>🤖 AI Trade Brief - Add ANTHROPIC_API_KEY in Railway to enable</div>", unsafe_allow_html=True)
+                    st.markdown("<div style='background:#0d1219;border:1px solid #1e2d40;border-radius:8px;padding:10px 14px;margin-top:8px;color:#8899aa;font-size:0.82rem'>⏸ Entry timing check runs during market hours only (9:30 AM - 4:00 PM ET)</div>", unsafe_allow_html=True)
+
+                if mstatus == "open":
+                    if ANTHROPIC_API_KEY:
+                        ai_key = f"ai_result_{selected_ticker}_{i}"
+                        if st.button(f"🤖 Get AI Brief #{i+1}", key=f"ai_{i}"):
+                            with st.spinner("Analyzing setup..."):
+                                try:
+                                    ai_text   = get_ai_brief(selected_ticker, sig, opt, gates, gates_passed, iv_rank, earnings_days, conf_status)
+                                    ai_parsed = parse_ai_brief(ai_text)
+                                    st.session_state[ai_key] = ai_parsed
+                                except Exception as e:
+                                    st.session_state[ai_key] = {"error": str(e)}
+
+                        if ai_key in st.session_state:
+                            ai = st.session_state[ai_key]
+                            if "error" in ai:
+                                st.error(f"AI call failed: {ai['error']}")
+                            else:
+                                rating = ai.get("rating","")
+                                if "Strong" in rating:     r_color = "#00d4aa"; r_bg = "#061a10"; r_border = "#00d4aa"
+                                elif "Moderate" in rating: r_color = "#f0c040"; r_bg = "#1a150a"; r_border = "#f0c040"
+                                else:                      r_color = "#ff4d6d"; r_bg = "#1a0a0a"; r_border = "#ff4d6d"
+                                st.markdown(f"""
+                                <div style='background:{r_bg};border:1px solid {r_border};border-radius:8px;padding:14px;margin-top:8px'>
+                                    <div style='color:#8899aa;font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:6px'>AI TRADE BRIEF</div>
+                                    <div style='font-size:1.1rem;font-weight:700;color:{r_color};margin-bottom:10px'>🤖 {rating}</div>
+                                    <div style='margin:6px 0;font-size:0.85rem'><span style='color:#8899aa'>REASONING</span><br>{ai.get("reasoning","")}</div>
+                                    <div style='margin:6px 0;font-size:0.85rem'><span style='color:#ff4d6d'>KEY RISK</span><br>{ai.get("risk","")}</div>
+                                    <div style='margin:6px 0;font-size:0.85rem'><span style='color:#00d4aa'>EDGE</span><br>{ai.get("edge","")}</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                    else:
+                        st.markdown("<div class='ai-placeholder'>🤖 AI Trade Brief - Add ANTHROPIC_API_KEY in Railway to enable</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<div style='background:#0d1219;border:1px solid #1e2d40;border-radius:8px;padding:10px 14px;margin-top:8px;color:#8899aa;font-size:0.82rem'>🤖 AI Trade Brief runs during market hours only (9:30 AM - 4:00 PM ET)</div>", unsafe_allow_html=True)
 
                 bcol1, bcol2, bcol3 = st.columns(3)
                 with bcol1:
