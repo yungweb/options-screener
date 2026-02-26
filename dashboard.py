@@ -581,6 +581,86 @@ def build_share_text(ticker, sig, opt, gates_passed, gates_total, elevate, marke
             f"Time:   {datetime.now().strftime('%m/%d/%Y %H:%M')}\n"
             f"NOT FINANCIAL ADVICE")
 
+# ── AI Trade Brief ───────────────────────────────────────────────────────────
+def get_ai_brief(ticker, sig, opt, gates, gates_passed, iv_rank, earnings_days, conf_status):
+    """
+    Calls Claude API with full signal context.
+    Returns a structured verdict: rating, reasoning, key risk.
+    """
+    import urllib.request
+    import json
+
+    is_bull     = sig["direction"] == "bullish"
+    action      = "CALL" if is_bull else "PUT"
+    gate_lines  = "\n".join(["  - " + k + ": " + ("PASS" if v["pass"] else "FAIL") + " (" + v["label"] + ")" for k,v in gates.items()])
+    div         = detect_rsi_divergence_text(sig)
+
+    prompt = f"""You are an expert options trader reviewing a technical setup. Give a concise professional assessment.
+
+TICKER: {ticker}
+SIGNAL: BUY {action}
+Pattern: {sig['pattern_label']}
+Confidence Score: {sig['confidence']}%
+Gate Score: {gates_passed}/7
+
+PRICE DATA:
+- Entry: ${opt['entry']:.2f}
+- Strike: ${opt['strike']:.2f}
+- Target: ${opt['target']:.2f}
+- Stop: ${opt['stop']:.2f}
+- R:R Ratio: {opt['rr']}x
+- Delta: {opt['delta']:.2f}
+- Premium: ${opt['premium']:.2f}
+- Expiration: {opt['expiration']}
+
+7-POINT GATE RESULTS:
+{gate_lines}
+
+ADDITIONAL CONTEXT:
+- IV Rank: {iv_rank if iv_rank is not None else 'unavailable'}%
+- Earnings: {'None within 14 days' if earnings_days is None else f'In {earnings_days} days - HIGH RISK'}
+- Entry timing: {conf_status}
+
+Respond in exactly this format, no extra text:
+RATING: [Strong Setup / Moderate Setup / Weak Setup / Do Not Trade]
+REASONING: [2-3 sentences on why the setup quality is good or bad based on the data above]
+KEY RISK: [1 sentence on the single biggest risk to this trade]
+EDGE: [1 sentence on what gives this trade its edge if taken]"""
+
+    payload = json.dumps({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 300,
+        "messages": [{"role": "user", "content": prompt}]
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={
+            "Content-Type":      "application/json",
+            "x-api-key":         ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+        },
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read())
+    return data["content"][0]["text"].strip()
+
+def detect_rsi_divergence_text(sig):
+    return sig.get("rsi_div", "not checked")
+
+def parse_ai_brief(text):
+    """Parse the structured AI response into parts."""
+    lines  = text.strip().splitlines()
+    parsed = {}
+    for line in lines:
+        if line.startswith("RATING:"):    parsed["rating"]    = line.replace("RATING:","").strip()
+        elif line.startswith("REASONING:"): parsed["reasoning"] = line.replace("REASONING:","").strip()
+        elif line.startswith("KEY RISK:"): parsed["risk"]      = line.replace("KEY RISK:","").strip()
+        elif line.startswith("EDGE:"):    parsed["edge"]      = line.replace("EDGE:","").strip()
+    return parsed
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## OPTIONS SCREENER v6")
@@ -879,10 +959,36 @@ with tab1:
                     add_to_watch_queue(selected_ticker, sig["direction"], sig, opt)
 
                 if ANTHROPIC_API_KEY:
-                    if st.button(f"Get AI Analysis #{i+1}", key=f"ai_{i}"):
-                        st.info("AI Analysis - API key detected, feature activates in next update.")
+                    ai_key = f"ai_result_{selected_ticker}_{i}"
+                    if st.button(f"🤖 Get AI Brief #{i+1}", key=f"ai_{i}"):
+                        with st.spinner("Analyzing setup..."):
+                            try:
+                                ai_text   = get_ai_brief(selected_ticker, sig, opt, gates, gates_passed, iv_rank, earnings_days, conf_status)
+                                ai_parsed = parse_ai_brief(ai_text)
+                                st.session_state[ai_key] = ai_parsed
+                            except Exception as e:
+                                st.session_state[ai_key] = {"error": str(e)}
+
+                    if ai_key in st.session_state:
+                        ai = st.session_state[ai_key]
+                        if "error" in ai:
+                            st.error(f"AI call failed: {ai['error']}")
+                        else:
+                            rating = ai.get("rating","")
+                            if "Strong" in rating:   r_color = "#00d4aa"; r_bg = "#061a10"; r_border = "#00d4aa"
+                            elif "Moderate" in rating: r_color = "#f0c040"; r_bg = "#1a150a"; r_border = "#f0c040"
+                            else:                    r_color = "#ff4d6d"; r_bg = "#1a0a0a"; r_border = "#ff4d6d"
+                            st.markdown(f"""
+                            <div style='background:{r_bg};border:1px solid {r_border};border-radius:8px;padding:14px;margin-top:8px'>
+                                <div style='color:#8899aa;font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:6px'>AI TRADE BRIEF</div>
+                                <div style='font-size:1.1rem;font-weight:700;color:{r_color};margin-bottom:10px'>🤖 {rating}</div>
+                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#8899aa'>REASONING</span><br>{ai.get("reasoning","")}</div>
+                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#ff4d6d'>KEY RISK</span><br>{ai.get("risk","")}</div>
+                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#00d4aa'>EDGE</span><br>{ai.get("edge","")}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
                 else:
-                    st.markdown("<div class='ai-placeholder'>AI Trade Brief - Add ANTHROPIC_API_KEY in Railway environment variables to enable instant AI synthesis of this setup</div>", unsafe_allow_html=True)
+                    st.markdown("<div class='ai-placeholder'>🤖 AI Trade Brief - Add ANTHROPIC_API_KEY in Railway to enable</div>", unsafe_allow_html=True)
 
                 bcol1, bcol2, bcol3 = st.columns(3)
                 with bcol1:
