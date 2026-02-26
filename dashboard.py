@@ -1,4 +1,4 @@
-# Options Screener v5.0
+# Options Screener v6.0
 import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -7,6 +7,7 @@ import numpy as np
 from datetime import datetime, timedelta, date
 import os
 import pytz
+import math
 
 from pattern_detection import detect_double_bottom, detect_double_top, detect_break_and_retest
 from backtester import run_backtest
@@ -35,14 +36,24 @@ body, .stApp { background: #0a0e17; color: #e0e6f0; }
 .factor-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 0.82rem; }
 .dot-green { width: 8px; height: 8px; background: #00d4aa; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .dot-red   { width: 8px; height: 8px; background: #ff4d6d; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot-yellow{ width: 8px; height: 8px; background: #f0c040; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .trade-box { background: #111827; border-radius: 8px; padding: 14px; margin-top: 10px; border-left: 3px solid #00d4aa; }
 .trade-box.bear { border-left-color: #ff4d6d; }
+.exit-rules { background: #0d1525; border: 1px solid #1e2d40; border-radius: 8px; padding: 12px 14px; margin-top: 10px; font-size: 0.83rem; }
+.gate-box { background: #0d1219; border: 1px solid #1e2d40; border-radius: 8px; padding: 12px 14px; margin-top: 8px; }
+.gate-pass { color: #00d4aa; font-size: 0.78rem; }
+.gate-fail { color: #ff4d6d; font-size: 0.78rem; }
+.gate-warn { color: #f0c040; font-size: 0.78rem; }
+.ai-placeholder { background: #0d1219; border: 1px dashed #1e2d40; border-radius: 8px; padding: 14px; margin-top: 10px; color: #8899aa; font-size: 0.83rem; text-align: center; }
 .conflict-warn { background: #1a150a; border: 1px solid #f0c040; border-radius: 8px; padding: 10px 14px; margin: 6px 0; font-size: 0.83rem; color: #f0c040; }
 .market-open   { background: #061a10; border: 1px solid #00d4aa; border-radius: 8px; padding: 8px 14px; margin-bottom: 10px; color: #00d4aa; font-size: 0.85rem; }
 .market-closed { background: #1a1010; border: 1px solid #ff4d6d; border-radius: 8px; padding: 8px 14px; margin-bottom: 10px; color: #ff4d6d; font-size: 0.85rem; }
 .market-pre    { background: #1a150a; border: 1px solid #f0c040; border-radius: 8px; padding: 8px 14px; margin-bottom: 10px; color: #f0c040; font-size: 0.85rem; }
 .divergence-bull { background: #061a10; border: 1px solid #00d4aa; border-radius: 8px; padding: 10px 14px; margin: 6px 0; font-size: 0.83rem; color: #00d4aa; }
 .divergence-bear { background: #1a0610; border: 1px solid #ff4d6d; border-radius: 8px; padding: 10px 14px; margin: 6px 0; font-size: 0.83rem; color: #ff4d6d; }
+.journal-win  { color: #00d4aa; font-weight: 700; }
+.journal-loss { color: #ff4d6d; font-weight: 700; }
+.journal-open { color: #f0c040; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -52,7 +63,9 @@ try:
 except ImportError:
     AUTOREFRESH_AVAILABLE = False
 
-POLYGON_API_KEY = os.environ.get("POLYGON_API_KEY", "")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+POLYGON_API_KEY   = os.environ.get("POLYGON_API_KEY", "")
+
 WATCHLIST = ["PLTR","NBIS","VRT","CRDO","GOOGL","AAOI","ASTS","ZETA","SPY","QQQ","NVDA","TSLA","AAPL"]
 TIMEFRAMES = {
     "5 Min":  ("minute", 5,  2),
@@ -62,41 +75,31 @@ TIMEFRAMES = {
     "Daily":  ("day",    1,  90),
 }
 
-# -- Market hours --------------------------------------
+# ── Market hours ──────────────────────────────────────────────────────────────
 def get_market_status():
-    et = pytz.timezone("America/New_York")
+    et  = pytz.timezone("America/New_York")
     now = datetime.now(et)
-    wd = now.weekday()  # 0=Mon, 6=Sun
-    t = now.time()
+    wd  = now.weekday()
+    t   = now.time()
     from datetime import time as dtime
     if wd >= 5:
         return "closed", "Market Closed - Weekend"
-    pre_start  = dtime(4, 0)
-    open_start = dtime(9, 30)
-    close_time = dtime(16, 0)
-    after_end  = dtime(20, 0)
-    if t < pre_start:
-        return "closed", "Market Closed - Opens at 4:00 AM ET Pre-Market"
-    elif t < open_start:
-        return "pre", f"⏰ Pre-Market Hours - Regular session opens at 9:30 AM ET"
-    elif t < close_time:
-        return "open", f"🟢 Market Open - Regular Session Until 4:00 PM ET"
-    elif t < after_end:
-        return "after", f"🌙 After-Hours Trading - Until 8:00 PM ET"
-    else:
-        return "closed", "Market Closed - Pre-market opens 4:00 AM ET"
+    if   t < dtime(4,  0): return "closed", "Market Closed - Opens 4:00 AM ET Pre-Market"
+    elif t < dtime(9, 30): return "pre",    "Pre-Market Hours - Regular session opens 9:30 AM ET"
+    elif t < dtime(16, 0): return "open",   "Market Open - Regular Session Until 4:00 PM ET"
+    elif t < dtime(20, 0): return "after",  "After-Hours Trading - Until 8:00 PM ET"
+    else:                  return "closed", "Market Closed - Pre-market opens 4:00 AM ET"
 
-# -- Data ---------------------------------------------
+# ── Data ──────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=60)
 def fetch_ohlcv(ticker, multiplier, timespan, days_back):
     try:
         import yfinance as yf
         intervals = {"minute":"5m","hour":"1h","day":"1d"}
-        interval = intervals.get(timespan,"1h")
-        period = f"{min(days_back,59)}d" if timespan=="minute" else f"{days_back}d"
+        interval  = intervals.get(timespan,"1h")
+        period    = f"{min(days_back,59)}d" if timespan=="minute" else f"{days_back}d"
         df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True)
-        if df.empty:
-            return _demo_data(ticker)
+        if df.empty: return _demo_data(ticker)
         df = df.reset_index()
         df.columns = [c[0].lower() if isinstance(c,tuple) else c.lower() for c in df.columns]
         df = df.rename(columns={"datetime":"timestamp","date":"timestamp"})
@@ -114,9 +117,9 @@ def _demo_data(ticker, bars=200):
     for _ in range(bars-1):
         close.append(close[-1]*(1+np.random.normal(0,0.012)))
     close = np.array(close)
-    hi = close*(1+np.abs(np.random.normal(0,0.008,bars)))
-    lo = close*(1-np.abs(np.random.normal(0,0.008,bars)))
-    op = lo+np.random.uniform(0,1,bars)*(hi-lo)
+    hi  = close*(1+np.abs(np.random.normal(0,0.008,bars)))
+    lo  = close*(1-np.abs(np.random.normal(0,0.008,bars)))
+    op  = lo+np.random.uniform(0,1,bars)*(hi-lo)
     vol = np.random.randint(500000,3000000,bars)
     return pd.DataFrame({"timestamp":dates,"open":op,"high":hi,"low":lo,"close":close,"volume":vol})
 
@@ -132,139 +135,271 @@ def check_earnings(ticker):
     try:
         import yfinance as yf
         cal = yf.Ticker(ticker).calendar
-        if cal is None or cal.empty:
-            return None
+        if cal is None or cal.empty: return None
         days_away = (pd.Timestamp(cal.iloc[0,0]).date()-date.today()).days
-        return days_away if 0<=days_away<=7 else None
+        return days_away if 0<=days_away<=14 else None
     except:
         return None
 
-# -- RSI divergence ------------------------------------
+@st.cache_data(ttl=300)
+def fetch_iv_rank(ticker):
+    """
+    Estimate IV rank using 52-week high/low of historical volatility.
+    IV rank of 0 = cheapest options have been all year.
+    IV rank of 100 = most expensive options have been all year.
+    We want to BUY options when IV rank is LOW (under 50).
+    """
+    try:
+        import yfinance as yf
+        hist = yf.Ticker(ticker).history(period="1y")
+        if hist.empty or len(hist) < 30: return None, None
+        log_ret  = np.log(hist["Close"]/hist["Close"].shift(1)).dropna()
+        # 20-day rolling HV
+        rolling_hv = log_ret.rolling(20).std() * np.sqrt(252) * 100
+        rolling_hv = rolling_hv.dropna()
+        current_hv = float(rolling_hv.iloc[-1])
+        hv_52_low  = float(rolling_hv.min())
+        hv_52_high = float(rolling_hv.max())
+        if hv_52_high == hv_52_low: return 50, current_hv
+        iv_rank = int((current_hv - hv_52_low) / (hv_52_high - hv_52_low) * 100)
+        return iv_rank, current_hv
+    except:
+        return None, None
+
+# ── Core calculations ─────────────────────────────────────────────────────────
+def calc_rsi(close, period=14):
+    delta    = close.diff()
+    avg_gain = delta.clip(lower=0).ewm(com=period-1, min_periods=period).mean()
+    avg_loss = (-delta.clip(upper=0)).ewm(com=period-1, min_periods=period).mean()
+    rs = avg_gain / avg_loss.replace(0, 1e-10)
+    return float((100 - (100 / (1 + rs))).iloc[-1])
+
+def estimate_delta(price, strike, dte, iv=0.45, is_call=True):
+    T = max(dte/365, 0.001)
+    try:
+        d1  = (math.log(price/strike) + (0.05 + 0.5*iv**2)*T) / (iv*math.sqrt(T))
+        nd1 = 1 / (1 + math.exp(-1.7*d1))
+        return nd1 if is_call else nd1 - 1
+    except:
+        return 0.5
+
+def get_expiration_date(dte_target):
+    today   = date.today()
+    d       = today
+    fridays = []
+    while len(fridays) < 16:
+        d += timedelta(days=1)
+        if d.weekday() == 4:
+            fridays.append(d)
+    valid = [f for f in fridays if (f-today).days >= 5]
+    return min(valid, key=lambda f: abs((f-(today+timedelta(days=dte_target))).days))
+
+def estimate_move_timeframe(df, pattern_label):
+    """
+    Estimate how many calendar days the pattern likely needs to play out.
+    Used to pick the right DTE so you don't run out of time.
+    Returns (days_estimate, dte_recommended)
+    """
+    bars = len(df)
+    if "Double" in pattern_label:
+        # Double tops/bottoms typically take 2-4 weeks to resolve
+        est_days = 21
+    elif "Break" in pattern_label:
+        # Break and retest resolves faster, 1-2 weeks
+        est_days = 14
+    else:
+        # Trend signals are shorter term
+        est_days = 10
+    # Add 50% buffer so you dont expire before the move finishes
+    dte_rec = int(est_days * 1.5)
+    return est_days, dte_rec
+
+def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, current_price, iv=0.45):
+    is_call = direction == "bullish"
+
+    exp_date   = get_expiration_date(days_to_exp)
+    actual_dte = max((exp_date - date.today()).days, 1)
+
+    # Strike slightly OTM: calls 2% above price, puts 2% below
+    raw_strike = current_price * 1.02 if is_call else current_price * 0.98
+    strike     = round(raw_strike / 0.5) * 0.5
+
+    premium = round(current_price * iv * (actual_dte/365)**0.5 * 0.4, 2)
+    premium = max(premium, 0.10)
+    breakeven = (strike + premium) if is_call else (strike - premium)
+
+    # Ensure target clears breakeven + 10% buffer
+    if is_call and target < breakeven * 1.10:
+        target = round(breakeven * 1.10, 2)
+    elif not is_call and target > breakeven * 0.90:
+        target = round(breakeven * 0.90, 2)
+
+    delta     = estimate_delta(current_price, strike, actual_dte, iv, is_call)
+    abs_delta = abs(delta)
+
+    max_loss_per = premium * 100
+    contracts    = max(1, int((account * risk_pct) / max_loss_per)) if max_loss_per > 0 else 1
+    position_dollars = round(max_loss_per * contracts, 2)
+    pct_of_account   = round((position_dollars / account) * 100, 1) if account > 0 else 0
+
+    if is_call:
+        profit_per = max(0, (target - strike - premium) * 100)
+    else:
+        profit_per = max(0, (strike - target - premium) * 100)
+    total_profit = round(profit_per * contracts, 2)
+
+    rr = round(abs(target-entry) / abs(entry-stop), 2) if abs(entry-stop) > 0 else 0
+
+    # Exit rules
+    profit_50pct_target = round(premium * 2.0, 2)  # 100% gain on the option = take 50%
+    stop_price_stock    = round(stop, 2)
+
+    return {
+        "type":              "CALL" if is_call else "PUT",
+        "strike":            strike,
+        "premium":           premium,
+        "breakeven":         round(breakeven, 2),
+        "max_loss":          position_dollars,
+        "contracts":         contracts,
+        "position_dollars":  position_dollars,
+        "pct_of_account":    pct_of_account,
+        "profit_at_target":  total_profit,
+        "target":            round(target, 2),
+        "stop":              round(stop, 2),
+        "entry":             round(entry, 2),
+        "rr":                rr,
+        "delta":             round(abs_delta, 2),
+        "delta_ok":          0.35 <= abs_delta <= 0.85,
+        "expiration":        exp_date.strftime("%b %d, %Y"),
+        "actual_dte":        actual_dte,
+        "exit_take_half":    profit_50pct_target,
+        "exit_stop_stock":   stop_price_stock,
+    }
+
+# ── 7-Point Gate ──────────────────────────────────────────────────────────────
+def run_seven_point_gate(df, sig, opt, iv_rank, earnings_days, dte_used):
+    """
+    Every candidate must pass these 7 gates to be elevated to a full trade brief.
+    Returns (gates_dict, gates_passed, elevate)
+    """
+    is_bull   = sig["direction"] == "bullish"
+    price     = float(df["close"].iloc[-1])
+    rsi       = sig.get("rsi", 50)
+    _, dte_rec = estimate_move_timeframe(df, sig["pattern_label"])
+
+    # Gate 1: IV rank - want to BUY options when IV is LOW (cheap)
+    iv_ok = iv_rank is not None and iv_rank < 60
+    iv_label = f"IV Rank {iv_rank}% - {'Cheap, good to buy' if iv_ok else 'Elevated, options expensive'}" if iv_rank is not None else "IV Rank unavailable"
+
+    # Gate 2: Volume behavior - recent volume expanding
+    avg_vol = float(df["volume"].iloc[-20:].mean())
+    cur_vol = float(df["volume"].iloc[-3:].mean())
+    vol_ok  = cur_vol > avg_vol * 1.1
+    vol_label = f"Volume {'expanding' if vol_ok else 'contracting'} ({cur_vol/1e6:.1f}M vs avg {avg_vol/1e6:.1f}M)"
+
+    # Gate 3: RSI divergence present
+    div = detect_rsi_divergence(df)
+    div_ok    = div is not None and div["type"] == ("bullish" if is_bull else "bearish")
+    div_label = f"RSI divergence {'confirmed' if div_ok else 'not detected'}"
+
+    # Gate 4: Neckline / entry within 3% of current price
+    entry_distance = abs(opt["entry"] - price) / price * 100
+    neck_ok    = entry_distance < 3.0
+    neck_label = f"Entry {entry_distance:.1f}% from current price ({'in range' if neck_ok else 'too far'})"
+
+    # Gate 5: Measured move vs premium cost - R:R on the actual option >= 2:1
+    rr_ok    = opt["rr"] >= 2.0
+    rr_label = f"Option R:R {opt['rr']}x ({'meets 2:1 minimum' if rr_ok else 'below 2:1 minimum'})"
+
+    # Gate 6: DTE adequate for expected move
+    dte_ok    = dte_used >= dte_rec
+    dte_label = f"DTE {dte_used} days (pattern needs ~{dte_rec} days - {'adequate' if dte_ok else 'too short, consider longer expiry'})"
+
+    # Gate 7: Earnings clearance - no earnings within 7 days
+    earn_ok    = earnings_days is None or earnings_days > 7
+    earn_label = f"{'No earnings within 7 days' if earn_ok else f'EARNINGS IN {earnings_days} DAYS - high risk'}"
+
+    gates = {
+        "IV Rank":         {"pass": iv_ok,   "label": iv_label,   "critical": False},
+        "Volume":          {"pass": vol_ok,  "label": vol_label,  "critical": False},
+        "RSI Divergence":  {"pass": div_ok,  "label": div_label,  "critical": False},
+        "Entry Proximity": {"pass": neck_ok, "label": neck_label, "critical": True},
+        "R:R Ratio":       {"pass": rr_ok,   "label": rr_label,   "critical": True},
+        "DTE Adequacy":    {"pass": dte_ok,  "label": dte_label,  "critical": False},
+        "Earnings Clear":  {"pass": earn_ok, "label": earn_label, "critical": True},
+    }
+
+    passed  = sum(1 for g in gates.values() if g["pass"])
+    # Must pass all 3 critical gates + at least 2 of the other 4
+    critical_pass = all(g["pass"] for g in gates.values() if g["critical"])
+    non_critical_pass = sum(1 for k,g in gates.items() if not g["critical"] and g["pass"])
+    elevate = critical_pass and non_critical_pass >= 2
+
+    return gates, passed, elevate
+
+# ── RSI divergence ────────────────────────────────────────────────────────────
 def detect_rsi_divergence(df):
-    """
-    Bullish divergence: price makes lower low but RSI makes higher low - reversal up coming
-    Bearish divergence: price makes higher high but RSI makes lower high - reversal down coming
-    """
-    if len(df) < 30:
-        return None
+    if len(df) < 30: return None
     close = df["close"]
     delta = close.diff()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = (-delta.clip(upper=0)).rolling(14).mean()
-    rsi = 100-(100/(1+(gain/loss)))
-
-    # Look at last 20 bars
+    gain  = delta.clip(lower=0).rolling(14).mean()
+    loss  = (-delta.clip(upper=0)).rolling(14).mean()
+    rsi   = 100 - (100/(1+(gain/loss)))
     recent_close = close.iloc[-20:].values
     recent_rsi   = rsi.iloc[-20:].values
 
-    # Find two recent lows in price
-    price_lows = []
-    rsi_lows   = []
+    price_lows, rsi_lows, price_highs, rsi_highs = [], [], [], []
     for i in range(2, len(recent_close)-2):
         if recent_close[i] < recent_close[i-1] and recent_close[i] < recent_close[i+1]:
             price_lows.append((i, recent_close[i]))
             rsi_lows.append((i, recent_rsi[i]))
-
-    # Find two recent highs in price
-    price_highs = []
-    rsi_highs   = []
-    for i in range(2, len(recent_close)-2):
         if recent_close[i] > recent_close[i-1] and recent_close[i] > recent_close[i+1]:
             price_highs.append((i, recent_close[i]))
             rsi_highs.append((i, recent_rsi[i]))
 
-    # Bullish divergence - price lower low, RSI higher low
     if len(price_lows) >= 2 and len(rsi_lows) >= 2:
-        p1, p2 = price_lows[-2][1], price_lows[-1][1]
-        r1, r2 = rsi_lows[-2][1],   rsi_lows[-1][1]
+        p1,p2 = price_lows[-2][1], price_lows[-1][1]
+        r1,r2 = rsi_lows[-2][1],   rsi_lows[-1][1]
         if p2 < p1 and r2 > r1:
-            return {
-                "type": "bullish",
-                "label": "📈 Bullish RSI Divergence Detected",
-                "detail": f"Price made a lower low (${p2:.2f} < ${p1:.2f}) but RSI made a higher low ({r2:.0f} > {r1:.0f}). This often signals a reversal UP is coming before the pattern fully forms.",
-            }
+            return {"type":"bullish","label":"Bullish RSI Divergence Detected",
+                    "detail":f"Price lower low (${p2:.2f} < ${p1:.2f}) but RSI higher low ({r2:.0f} > {r1:.0f})"}
 
-    # Bearish divergence - price higher high, RSI lower high
     if len(price_highs) >= 2 and len(rsi_highs) >= 2:
-        p1, p2 = price_highs[-2][1], price_highs[-1][1]
-        r1, r2 = rsi_highs[-2][1],   rsi_highs[-1][1]
+        p1,p2 = price_highs[-2][1], price_highs[-1][1]
+        r1,r2 = rsi_highs[-2][1],   rsi_highs[-1][1]
         if p2 > p1 and r2 < r1:
-            return {
-                "type": "bearish",
-                "label": "📉 Bearish RSI Divergence Detected",
-                "detail": f"Price made a higher high (${p2:.2f} > ${p1:.2f}) but RSI made a lower high ({r2:.0f} < {r1:.0f}). This often signals a reversal DOWN is coming.",
-            }
-
+            return {"type":"bearish","label":"Bearish RSI Divergence Detected",
+                    "detail":f"Price higher high (${p2:.2f} > ${p1:.2f}) but RSI lower high ({r2:.0f} < {r1:.0f})"}
     return None
 
-# -- Signal history ------------------------------------
-def load_signal_log():
-    if "signal_log" not in st.session_state:
-        st.session_state.signal_log = []
-    return st.session_state.signal_log
-
-def log_signal(ticker, direction, strike, target, stop, confidence, pattern):
-    log = load_signal_log()
-    log.append({
-        "Date":       datetime.now().strftime("%m/%d %H:%M"),
-        "Ticker":     ticker,
-        "Action":     "📈 CALL" if direction=="bullish" else "📉 PUT",
-        "Pattern":    pattern,
-        "Strike":     f"${strike:.2f}",
-        "Target":     f"${target:.2f}",
-        "Stop":       f"${stop:.2f}",
-        "Confidence": f"{confidence}%",
-        "Result":     "⏳ Open",
-    })
-    st.session_state.signal_log = log[-100:]
-
-def get_ticker_signal_stats():
-    """Count strong signals per ticker from the log."""
-    log = load_signal_log()
-    if not log:
-        return {}
-    stats = {}
-    for entry in log:
-        t = entry["Ticker"]
-        if t not in stats:
-            stats[t] = {"total":0,"calls":0,"puts":0,"wins":0}
-        stats[t]["total"] += 1
-        if "CALL" in entry["Action"]:
-            stats[t]["calls"] += 1
-        else:
-            stats[t]["puts"] += 1
-        if "WIN" in entry.get("Result",""):
-            stats[t]["wins"] += 1
-    return stats
-
-# -- Trend analysis ------------------------------------
+# ── Trend analysis ────────────────────────────────────────────────────────────
 def get_trend(df):
     close=df["close"]; high=df["high"]; low=df["low"]
     price=float(close.iloc[-1])
     ema20=float(close.ewm(span=20).mean().iloc[-1])
-    tp=(high+low+close)/3
-    vwap=float((tp*df["volume"]).cumsum().iloc[-1]/df["volume"].cumsum().iloc[-1])
-    rsi=calc_rsi(close)
-    recent=df.tail(10)
-    up_vol  =float(recent[recent["close"]>=recent["open"]]["volume"].mean() or 0)
-    down_vol=float(recent[recent["close"]< recent["open"]]["volume"].mean() or 0)
-    hl=[float(high.iloc[i]) for i in range(-10,0)]
-    ll=[float(low.iloc[i])  for i in range(-10,0)]
-    lower_highs=len(hl)>=9 and hl[-1]<hl[-5]<hl[-9]
-    higher_lows=len(ll)>=9 and ll[-1]>ll[-5]>ll[-9]
-    bear={"below_ema":{"pass":price<ema20,"label":f"Price below EMA 20 (${ema20:.2f})"},
-          "below_vwap":{"pass":price<vwap,"label":f"Price below VWAP (${vwap:.2f})"},
-          "rsi_high":{"pass":rsi>55,"label":f"RSI elevated ({rsi:.0f})"},
-          "down_vol":{"pass":down_vol>up_vol,"label":"Heavier volume on down bars"},
-          "lower_highs":{"pass":lower_highs,"label":"Lower highs forming"}}
-    bull={"above_ema":{"pass":price>ema20,"label":f"Price above EMA 20 (${ema20:.2f})"},
-          "above_vwap":{"pass":price>vwap,"label":f"Price above VWAP (${vwap:.2f})"},
-          "rsi_low":{"pass":rsi<45,"label":f"RSI low ({rsi:.0f})"},
-          "up_vol":{"pass":up_vol>down_vol,"label":"Heavier volume on up bars"},
-          "higher_lows":{"pass":higher_lows,"label":"Higher lows forming"}}
-    bear_score=sum(1 for f in bear.values() if f["pass"])
-    bull_score=sum(1 for f in bull.values() if f["pass"])
-    if bear_score>=bull_score:
+    tp   =(high+low+close)/3
+    vwap =float((tp*df["volume"]).cumsum().iloc[-1]/df["volume"].cumsum().iloc[-1])
+    rsi  =calc_rsi(close)
+    recent   = df.tail(10)
+    up_vol   = float(recent[recent["close"]>=recent["open"]]["volume"].mean() or 0)
+    down_vol = float(recent[recent["close"]< recent["open"]]["volume"].mean() or 0)
+    hl = [float(high.iloc[i]) for i in range(-10,0)]
+    ll = [float(low.iloc[i])  for i in range(-10,0)]
+    lower_highs = len(hl)>=9 and hl[-1]<hl[-5]<hl[-9]
+    higher_lows = len(ll)>=9 and ll[-1]>ll[-5]>ll[-9]
+    bear={"below_ema":  {"pass":price<ema20,      "label":f"Price below EMA 20 (${ema20:.2f})"},
+          "below_vwap": {"pass":price<vwap,        "label":f"Price below VWAP (${vwap:.2f})"},
+          "rsi_high":   {"pass":rsi>55,            "label":f"RSI elevated ({rsi:.0f})"},
+          "down_vol":   {"pass":down_vol>up_vol,   "label":"Heavier volume on down bars"},
+          "lower_highs":{"pass":lower_highs,       "label":"Lower highs forming"}}
+    bull={"above_ema":  {"pass":price>ema20,       "label":f"Price above EMA 20 (${ema20:.2f})"},
+          "above_vwap": {"pass":price>vwap,        "label":f"Price above VWAP (${vwap:.2f})"},
+          "rsi_low":    {"pass":rsi<45,            "label":f"RSI low ({rsi:.0f})"},
+          "up_vol":     {"pass":up_vol>down_vol,   "label":"Heavier volume on up bars"},
+          "higher_lows":{"pass":higher_lows,       "label":"Higher lows forming"}}
+    bear_score = sum(1 for f in bear.values() if f["pass"])
+    bull_score = sum(1 for f in bull.values() if f["pass"])
+    if bear_score >= bull_score:
         return "bearish",bear_score,bear,ema20,vwap,rsi
     return "bullish",bull_score,bull,ema20,vwap,rsi
 
@@ -272,322 +407,290 @@ def score_setup(df, setup):
     close=df["close"]; high=df["high"]; low=df["low"]
     price=float(close.iloc[-1])
     is_bull=setup.direction=="bullish"
-    ema20=float(close.ewm(span=20).mean().iloc[-1])
-    tp=(high+low+close)/3
-    vwap=float((tp*df["volume"]).cumsum().iloc[-1]/df["volume"].cumsum().iloc[-1])
-    rsi=calc_rsi(close)
+    ema20  =float(close.ewm(span=20).mean().iloc[-1])
+    tp     =(high+low+close)/3
+    vwap   =float((tp*df["volume"]).cumsum().iloc[-1]/df["volume"].cumsum().iloc[-1])
+    rsi    =calc_rsi(close)
     avg_vol=float(df["volume"].iloc[-20:].mean())
     cur_vol=float(df["volume"].iloc[-1])
     factors={
-        "pattern":{"pass":True,"label":"Pattern confirmed"},
-        "rsi":    {"pass":35<rsi<65,"label":f"RSI in zone ({rsi:.0f})"},
-        "vwap":   {"pass":(price>vwap if is_bull else price<vwap),"label":f"Price {'above' if is_bull else 'below'} VWAP (${vwap:.2f})"},
-        "volume": {"pass":cur_vol>avg_vol*1.2,"label":f"Volume spike ({cur_vol/1e6:.1f}M vs avg {avg_vol/1e6:.1f}M)"},
-        "ema":    {"pass":(price>ema20 if is_bull else price<ema20),"label":f"Price {'above' if is_bull else 'below'} EMA 20 (${ema20:.2f})"},
+        "pattern":{"pass":True, "label":"Pattern confirmed"},
+        "rsi":    {"pass":35<rsi<65, "label":f"RSI in zone ({rsi:.0f})"},
+        "vwap":   {"pass":(price>vwap if is_bull else price<vwap), "label":f"Price {'above' if is_bull else 'below'} VWAP (${vwap:.2f})"},
+        "volume": {"pass":cur_vol>avg_vol*1.2, "label":f"Volume spike ({cur_vol/1e6:.1f}M vs avg {avg_vol/1e6:.1f}M)"},
+        "ema":    {"pass":(price>ema20 if is_bull else price<ema20), "label":f"Price {'above' if is_bull else 'below'} EMA 20 (${ema20:.2f})"},
     }
-    score=sum(1 for f in factors.values() if f["pass"])
-    return factors,score,int(score/5*100),rsi,vwap,ema20
-
-def get_expiration_date(dte_target):
-    """
-    Returns the nearest real Friday expiration date to the target DTE.
-    Options expire on Fridays. This snaps to the closest upcoming Friday
-    that is at or beyond the minimum DTE requested.
-    """
-    today = date.today()
-    # Build list of next 16 Fridays (covers ~4 months)
-    fridays = []
-    d = today
-    while len(fridays) < 16:
-        d += timedelta(days=1)
-        if d.weekday() == 4:  # Friday
-            fridays.append(d)
-    # Find the Friday closest to our target DTE
-    target_date = today + timedelta(days=dte_target)
-    best = min(fridays, key=lambda f: abs((f - target_date).days))
-    # Never return a Friday in the past or fewer than 5 days away
-    valid = [f for f in fridays if (f - today).days >= 5]
-    best = min(valid, key=lambda f: abs((f - target_date).days))
-    return best
-
-def calc_rsi(close, period=14):
-    delta = close.diff()
-    avg_gain = delta.clip(lower=0).ewm(com=period-1, min_periods=period).mean()
-    avg_loss = (-delta.clip(upper=0)).ewm(com=period-1, min_periods=period).mean()
-    rs = avg_gain / avg_loss.replace(0, 1e-10)
-    return float((100 - (100 / (1 + rs))).iloc[-1])
-
-def estimate_delta(price, strike, dte, iv=0.45, is_call=True):
-    import math
-    T = max(dte / 365, 0.001)
-    try:
-        d1 = (math.log(price / strike) + (0.05 + 0.5 * iv**2) * T) / (iv * math.sqrt(T))
-        nd1 = 1 / (1 + math.exp(-1.7 * d1))
-        return nd1 if is_call else nd1 - 1
-    except:
-        return 0.5
-
-def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, current_price, iv=0.45):
-    is_call = direction == "bullish"
-
-    # Snap to real Friday expiration
-    exp_date = get_expiration_date(days_to_exp)
-    actual_dte = max((exp_date - date.today()).days, 1)
-
-    # Strike: slightly OTM so premium is lower and target has room to be profitable
-    # Calls: 2% above current price. Puts: 2% below current price
-    raw_strike = current_price * 1.02 if is_call else current_price * 0.98
-    strike = round(raw_strike / 0.5) * 0.5
-
-    # Adjust target to ensure it clears breakeven by at least 5%
-    premium = round(current_price * iv * (actual_dte / 365) ** 0.5 * 0.4, 2)
-    premium = max(premium, 0.10)
-    breakeven = (strike + premium) if is_call else (strike - premium)
-
-    # If target doesnt clear breakeven, extend it until it does
-    if is_call and target < breakeven * 1.05:
-        target = round(breakeven * 1.10, 2)
-    elif not is_call and target > breakeven * 0.95:
-        target = round(breakeven * 0.90, 2)
-
-    delta = estimate_delta(current_price, strike, actual_dte, iv, is_call)
-    abs_delta = abs(delta)
-    max_loss_per = premium * 100
-    contracts = max(1, int((account * risk_pct) / max_loss_per)) if max_loss_per > 0 else 1
-
-    if is_call:
-        profit_per = max(0, (target - strike - premium) * 100)
-    else:
-        profit_per = max(0, (strike - target - premium) * 100)
-    total_profit = profit_per * contracts
-    rr = round(abs(target - entry) / abs(entry - stop), 2) if abs(entry - stop) > 0 else 0
-
-    return {
-        "type": "CALL" if is_call else "PUT",
-        "strike": strike, "premium": premium,
-        "breakeven": round(breakeven, 2),
-        "max_loss": round(max_loss_per * contracts, 2),
-        "contracts": contracts,
-        "profit_at_target": round(total_profit, 2),
-        "target": round(target, 2), "stop": round(stop, 2), "entry": round(entry, 2),
-        "rr": rr, "delta": round(abs_delta, 2),
-        "delta_ok": 0.35 <= abs_delta <= 0.85,
-        "expiration": exp_date.strftime("%b %d, %Y"),
-    }
+    score = sum(1 for f in factors.values() if f["pass"])
+    return factors, score, int(score/5*100), rsi, vwap, ema20
 
 def build_candidates(df, ticker, toggles, account, risk_pct, dte):
     trend_dir,trend_score,trend_factors,t_ema,t_vwap,t_rsi = get_trend(df)
-    price=float(df["close"].iloc[-1])
-    atr=float((df["high"]-df["low"]).tail(14).mean())
-    candidates=[]
+    price = float(df["close"].iloc[-1])
+    candidates = []
 
-    raw=[]
-    if toggles["db"]:
-        raw+=[s for s in detect_double_bottom(df,ticker,rr_min=2.0) if s.confirmed]
-    if toggles["dt"]:
-        raw+=[s for s in detect_double_top(df,ticker,rr_min=2.0) if s.confirmed]
-    if toggles["br"]:
-        raw+=[s for s in detect_break_and_retest(df,ticker,rr_min=2.0) if s.confirmed]
+    raw = []
+    if toggles["db"]: raw += [s for s in detect_double_bottom(df,ticker,rr_min=2.0) if s.confirmed]
+    if toggles["dt"]: raw += [s for s in detect_double_top(df,ticker,rr_min=2.0) if s.confirmed]
+    if toggles["br"]: raw += [s for s in detect_break_and_retest(df,ticker,rr_min=2.0) if s.confirmed]
 
     for setup in raw:
-        # Staleness filter - skip if entry is more than 5% away from current price
         if abs(setup.entry_price - price) / price > 0.05:
             continue
-        factors,score,confidence,rsi,vwap,ema20=score_setup(df,setup)
-        conflict=setup.direction!=trend_dir and trend_score>=3
+        factors,score,confidence,rsi,vwap,ema20 = score_setup(df,setup)
+        conflict = setup.direction != trend_dir and trend_score >= 3
         if conflict:
-            t_entry=round(price*(0.998 if trend_dir=="bearish" else 1.002),2)
-            t_stop =round(price*1.02,2) if trend_dir=="bearish" else round(price*0.98,2)
-            t_target=round(price*0.96,2) if trend_dir=="bearish" else round(price*1.04,2)
-            candidates.append({
-                "source":"trend_override","direction":trend_dir,
+            t_entry  = round(price*(0.998 if trend_dir=="bearish" else 1.002),2)
+            t_stop   = round(price*1.02,2) if trend_dir=="bearish" else round(price*0.98,2)
+            t_target = round(price*0.96,2) if trend_dir=="bearish" else round(price*1.04,2)
+            candidates.append({"source":"trend_override","direction":trend_dir,
                 "confidence":int(trend_score/5*100),"score":trend_score,
-                "factors":trend_factors,"conflict":True,
-                "conflict_pattern":setup.pattern,
+                "factors":trend_factors,"conflict":True,"conflict_pattern":setup.pattern,
                 "entry":t_entry,"stop":t_stop,"target":t_target,
-                "pattern_label":"Trend Override",
-                "rsi":t_rsi,"vwap":t_vwap,"ema20":t_ema,
-            })
+                "pattern_label":"Trend Override","rsi":t_rsi,"vwap":t_vwap,"ema20":t_ema})
         else:
-            bonus=10 if setup.direction==trend_dir else 0
-            candidates.append({
-                "source":"pattern","direction":setup.direction,
+            bonus = 10 if setup.direction==trend_dir else 0
+            candidates.append({"source":"pattern","direction":setup.direction,
                 "confidence":min(100,confidence+bonus),"score":score,
                 "factors":factors,"conflict":False,
                 "entry":setup.entry_price,"stop":setup.stop_loss,"target":setup.target,
                 "pattern_label":setup.pattern.replace("Double","Double ").replace("BreakRetest","Break & Retest"),
-                "rsi":rsi,"vwap":vwap,"ema20":ema20,"rr":setup.rr_ratio,
-            })
+                "rsi":rsi,"vwap":vwap,"ema20":ema20,"rr":setup.rr_ratio})
 
-    # Trend signal even without patterns
-    if trend_score>=3:
-        t_entry=round(price*(0.998 if trend_dir=="bearish" else 1.002),2)
-        t_stop =round(price*1.02,2) if trend_dir=="bearish" else round(price*0.98,2)
-        t_target=round(price*0.96,2) if trend_dir=="bearish" else round(price*1.04,2)
-        candidates.append({
-            "source":"trend","direction":trend_dir,
+    if trend_score >= 3:
+        t_entry  = round(price*(0.998 if trend_dir=="bearish" else 1.002),2)
+        t_stop   = round(price*1.02,2) if trend_dir=="bearish" else round(price*0.98,2)
+        t_target = round(price*0.96,2) if trend_dir=="bearish" else round(price*1.04,2)
+        candidates.append({"source":"trend","direction":trend_dir,
             "confidence":int(trend_score/5*100),"score":trend_score,
             "factors":trend_factors,"conflict":False,
             "entry":t_entry,"stop":t_stop,"target":t_target,
             "pattern_label":f"{'Bearish' if trend_dir=='bearish' else 'Bullish'} Trend",
-            "rsi":t_rsi,"vwap":t_vwap,"ema20":t_ema,
-        })
+            "rsi":t_rsi,"vwap":t_vwap,"ema20":t_ema})
 
-    # Deduplicate - keep highest confidence per unique pattern+direction
-    seen={}
-    for c in sorted(candidates,key=lambda x:x["confidence"],reverse=True):
-        key=f"{c['direction']}_{c['pattern_label']}"
+    seen = {}
+    for c in sorted(candidates, key=lambda x:x["confidence"], reverse=True):
+        key = f"{c['direction']}_{c['pattern_label']}"
         if key not in seen:
-            seen[key]=c
+            seen[key] = c
+    return sorted(seen.values(), key=lambda x:x["confidence"], reverse=True)[:3]
 
-    return sorted(seen.values(),key=lambda x:x["confidence"],reverse=True)[:3]
+# ── Trade journal ─────────────────────────────────────────────────────────────
+def load_journal():
+    if "trade_journal" not in st.session_state:
+        st.session_state.trade_journal = []
+    return st.session_state.trade_journal
 
-# -- Share text ----------------------------------------
-def build_share_text(ticker, sig, opt, market_status):
-    direction = "📈 CALL" if sig["direction"]=="bullish" else "📉 PUT"
-    return (f"OPTIONS SCREENER SIGNAL\n"
-            f"{'='*30}\n"
-            f"{ticker} - {direction}\n"
-            f"Pattern: {sig['pattern_label']}\n"
-            f"Confidence: {sig['confidence']}%\n"
-            f"{'='*30}\n"
-            f"Strike:   ${opt['strike']:.2f}\n"
-            f"Pay max:  ${opt['premium']:.2f}/share\n"
-            f"Entry:    ${opt['entry']:.2f}\n"
-            f"Target:   ${opt['target']:.2f}\n"
-            f"Stop out: ${opt['stop']:.2f}\n"
-            f"R:R:      {opt['rr']}x\n"
-            f"Contracts:{opt['contracts']}\n"
-            f"Max loss: ${opt['max_loss']:.0f}\n"
-            f"Expires:  {opt['expiration']}\n"
-            f"Profit at target: ${opt['profit_at_target']:,.0f}\n"
-            f"{'='*30}\n"
+def log_trade(ticker, sig, opt, gates_passed, gates_total, elevate):
+    journal = load_journal()
+    journal.append({
+        "Date":        datetime.now().strftime("%m/%d %H:%M"),
+        "Ticker":      ticker,
+        "Action":      "CALL" if sig["direction"]=="bullish" else "PUT",
+        "Pattern":     sig["pattern_label"],
+        "Strike":      f"${opt['strike']:.2f}",
+        "Entry":       f"${opt['entry']:.2f}",
+        "Target":      f"${opt['target']:.2f}",
+        "Stop":        f"${opt['stop']:.2f}",
+        "Premium":     f"${opt['premium']:.2f}",
+        "Contracts":   opt["contracts"],
+        "Max Loss":    f"${opt['max_loss']:.0f}",
+        "Pot. Profit": f"${opt['profit_at_target']:,.0f}",
+        "Confidence":  f"{sig['confidence']}%",
+        "Gate Score":  f"{gates_passed}/{gates_total}",
+        "Elevated":    "YES" if elevate else "no",
+        "Expiry":      opt["expiration"],
+        "Result":      "Open",
+        "P&L $":       "",
+    })
+    st.session_state.trade_journal = journal[-200:]
+
+def get_journal_stats():
+    journal = load_journal()
+    if not journal: return {}
+    stats = {}
+    for t in journal:
+        tk = t["Ticker"]
+        if tk not in stats:
+            stats[tk] = {"total":0,"wins":0,"losses":0,"open":0,"calls":0,"puts":0}
+        stats[tk]["total"] += 1
+        r = t.get("Result","Open")
+        if r == "Open":         stats[tk]["open"]   += 1
+        elif "Win" in r:        stats[tk]["wins"]   += 1
+        elif "Loss" in r:       stats[tk]["losses"] += 1
+        if t["Action"]=="CALL": stats[tk]["calls"]  += 1
+        else:                   stats[tk]["puts"]   += 1
+    return stats
+
+# ── Share text ────────────────────────────────────────────────────────────────
+def build_share_text(ticker, sig, opt, gates_passed, gates_total, elevate, market_status):
+    direction = "CALL" if sig["direction"]=="bullish" else "PUT"
+    elevated  = "YES - ALL GATES PASSED" if elevate else f"NO - {gates_passed}/7 gates"
+    return (f"OPTIONS SCREENER v6.0 SIGNAL\n"
+            f"{'='*32}\n"
+            f"{ticker} - BUY {direction}\n"
+            f"Pattern:   {sig['pattern_label']}\n"
+            f"Confidence:{sig['confidence']}%\n"
+            f"Gate Score:{gates_passed}/7 | Elevated: {elevated}\n"
+            f"{'='*32}\n"
+            f"Strike:    ${opt['strike']:.2f}\n"
+            f"Premium:   ${opt['premium']:.2f}/share\n"
+            f"Entry:     ${opt['entry']:.2f}\n"
+            f"Target:    ${opt['target']:.2f}\n"
+            f"Stop:      ${opt['stop']:.2f}\n"
+            f"R:R:       {opt['rr']}x\n"
+            f"Delta:     {opt['delta']:.2f}\n"
+            f"Contracts: {opt['contracts']}\n"
+            f"Position:  ${opt['position_dollars']:.0f} ({opt['pct_of_account']}% of acct)\n"
+            f"Max Loss:  ${opt['max_loss']:.0f}\n"
+            f"Profit:    ${opt['profit_at_target']:,.0f}\n"
+            f"Expires:   {opt['expiration']}\n"
+            f"{'='*32}\n"
+            f"EXIT RULES:\n"
+            f"Take 50% profit when option reaches ${opt['exit_take_half']:.2f}\n"
+            f"Close 100% if stock closes below/above ${opt['exit_stop_stock']:.2f}\n"
+            f"{'='*32}\n"
             f"Market: {market_status}\n"
-            f"Time: {datetime.now().strftime('%m/%d/%Y %H:%M')}\n"
+            f"Time:   {datetime.now().strftime('%m/%d/%Y %H:%M')}\n"
             f"NOT FINANCIAL ADVICE")
 
-# -- Sidebar -------------------------------------------
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 📡 OPTIONS SCREENER")
+    st.markdown("## OPTIONS SCREENER v6")
     st.markdown("---")
-    selected_ticker=st.selectbox("TICKER",WATCHLIST)
-    custom=st.text_input("Or type any ticker","").upper().strip()
-    if custom:
-        selected_ticker=custom
-    selected_tf=st.selectbox("TIMEFRAME",list(TIMEFRAMES.keys()),index=2)
+    selected_ticker = st.selectbox("TICKER", WATCHLIST)
+    custom = st.text_input("Or type any ticker","").upper().strip()
+    if custom: selected_ticker = custom
+    selected_tf = st.selectbox("TIMEFRAME", list(TIMEFRAMES.keys()), index=2)
     st.markdown("---")
     st.markdown("**PATTERNS TO SCAN**")
-    tog_db   =st.toggle("📈 Double Bottom (calls)",value=True)
-    tog_br_up=st.toggle("📈 Break & Retest Up (calls)",value=True)
-    tog_dt   =st.toggle("📉 Double Top (puts)",value=True)
-    tog_br_dn=st.toggle("📉 Break & Retest Down (puts)",value=True)
-    toggles={"db":tog_db,"dt":tog_dt,"br":tog_br_up or tog_br_dn}
+    tog_db    = st.toggle("Double Bottom (calls)", value=True)
+    tog_br_up = st.toggle("Break & Retest Up (calls)", value=True)
+    tog_dt    = st.toggle("Double Top (puts)",    value=True)
+    tog_br_dn = st.toggle("Break & Retest Down (puts)", value=True)
+    toggles   = {"db":tog_db, "dt":tog_dt, "br":tog_br_up or tog_br_dn}
     st.markdown("---")
     st.markdown("**ACCOUNT SETTINGS**")
-    account_size=st.number_input("Account Size ($)",value=10000,step=1000)
-    risk_pct=st.slider("Risk per Trade (%)",0.5,5.0,1.0,0.5)/100
-    dte=st.selectbox("Days to Expiration",[14,21,30,45,60],index=2)
+    account_size = st.number_input("Account Size ($)", value=10000, step=1000)
+    risk_pct     = st.slider("Risk per Trade (%)", 0.5, 5.0, 1.0, 0.5) / 100
+    dte          = st.selectbox("Days to Expiration", [14,21,30,45,60], index=2)
     st.markdown("---")
     st.markdown("**AUTO REFRESH**")
-    refresh_on=st.toggle("Live refresh",value=False)
-    refresh_interval=st.selectbox("Interval",["1 min","5 min","15 min"],index=1) if refresh_on else None
+    refresh_on       = st.toggle("Live refresh", value=False)
+    refresh_interval = st.selectbox("Interval",["1 min","5 min","15 min"],index=1) if refresh_on else None
     st.markdown("---")
     if POLYGON_API_KEY:
-        st.success("🟢 LIVE DATA")
+        st.success("LIVE DATA")
     else:
-        st.warning("🟡 DEMO MODE")
+        st.warning("DEMO MODE")
+    if ANTHROPIC_API_KEY:
+        st.success("AI READY")
+    else:
+        st.info("AI Brief: add ANTHROPIC_API_KEY to enable")
 
-# -- Auto refresh --------------------------------------
+# ── Auto refresh ──────────────────────────────────────────────────────────────
 if refresh_on and AUTOREFRESH_AVAILABLE and refresh_interval:
-    ms={"1 min":60000,"5 min":300000,"15 min":900000}.get(refresh_interval,300000)
+    ms = {"1 min":60000,"5 min":300000,"15 min":900000}.get(refresh_interval,300000)
     st_autorefresh(interval=ms, key="autorefresh")
 
-# -- Load data -----------------------------------------
-tf_mult,tf_span,tf_days=TIMEFRAMES[selected_tf]
-df=fetch_ohlcv(selected_ticker,tf_mult,tf_span,tf_days)
-current_price=fetch_current_price(selected_ticker) or float(df["close"].iloc[-1])
-prev_close=float(df["close"].iloc[-2]) if len(df)>1 else current_price
-pct_change=((current_price-prev_close)/prev_close)*100
+# ── Load data ─────────────────────────────────────────────────────────────────
+tf_mult,tf_span,tf_days = TIMEFRAMES[selected_tf]
+df            = fetch_ohlcv(selected_ticker, tf_mult, tf_span, tf_days)
+current_price = fetch_current_price(selected_ticker) or float(df["close"].iloc[-1])
+prev_close    = float(df["close"].iloc[-2]) if len(df)>1 else current_price
+pct_change    = ((current_price-prev_close)/prev_close)*100
+iv_rank, hv   = fetch_iv_rank(selected_ticker)
+earnings_days = check_earnings(selected_ticker)
 
-# -- Market status banner ------------------------------
+# ── Market status ─────────────────────────────────────────────────────────────
 mstatus, mtext = get_market_status()
 css_class = {"open":"market-open","pre":"market-pre","after":"market-pre","closed":"market-closed"}.get(mstatus,"market-closed")
 st.markdown(f"<div class='{css_class}'>{mtext}</div>", unsafe_allow_html=True)
 
-# -- Earnings warning ----------------------------------
-ed=check_earnings(selected_ticker)
-if ed is not None:
-    if ed<=1:
-        st.error(f"🚨 {selected_ticker} reports earnings {'today' if ed==0 else 'tomorrow'} - Avoid new options positions.")
+# ── Earnings warning ──────────────────────────────────────────────────────────
+if earnings_days is not None:
+    if earnings_days <= 1:
+        st.error(f"EARNINGS {'TODAY' if earnings_days==0 else 'TOMORROW'} on {selected_ticker} - Avoid new options positions.")
+    elif earnings_days <= 7:
+        st.error(f"EARNINGS IN {earnings_days} DAYS on {selected_ticker} - 7-point gate will block this signal.")
     else:
-        st.warning(f"📅 {selected_ticker} earns in {ed} days - Options premiums may be inflated.")
+        st.warning(f"Earnings in {earnings_days} days on {selected_ticker} - premiums may be inflated.")
 
-# -- Header --------------------------------------------
-c1,c2,c3=st.columns([2,1,1])
+# ── Header ────────────────────────────────────────────────────────────────────
+c1,c2,c3,c4 = st.columns([2,1,1,1])
 with c1:
-    color="#00d4aa" if pct_change>=0 else "#ff4d6d"
-    arrow="UP" if pct_change>=0 else "DN"
-    prepost = "" if mstatus=="open" else " <span style='color:#f0c040;font-size:0.75rem'>(delayed)</span>"
+    color  = "#00d4aa" if pct_change>=0 else "#ff4d6d"
+    arrow  = "UP" if pct_change>=0 else "DN"
+    prepost = "" if mstatus=="open" else " <span style='color:#f0c040;font-size:0.72rem'>(delayed)</span>"
     st.markdown(f"<div class='metric-card'><div style='color:#8899aa;font-size:0.8rem'>{selected_ticker} . {selected_tf}</div><div class='big-price'>${current_price:,.2f}{prepost}</div><div style='color:{color}'>{arrow} {pct_change:+.2f}%</div></div>", unsafe_allow_html=True)
 with c2:
-    ema20v=float(df["close"].ewm(span=20).mean().iloc[-1])
-    above=current_price>ema20v
-    st.markdown(f"<div class='metric-card'><div style='color:#8899aa;font-size:0.75rem'>TREND</div><div style='font-weight:700;color:{'#00d4aa' if above else '#ff4d6d'}'>{'BULLISH UP' if above else 'BEARISH DN'}</div></div>", unsafe_allow_html=True)
+    ema20v = float(df["close"].ewm(span=20).mean().iloc[-1])
+    above  = current_price > ema20v
+    st.markdown(f"<div class='metric-card'><div style='color:#8899aa;font-size:0.75rem'>TREND</div><div style='font-weight:700;color:{'#00d4aa' if above else '#ff4d6d'}'>{'BULL' if above else 'BEAR'}</div></div>", unsafe_allow_html=True)
 with c3:
-    vol=float(df["volume"].iloc[-1])
+    vol = float(df["volume"].iloc[-1])
     st.markdown(f"<div class='metric-card'><div style='color:#8899aa;font-size:0.75rem'>VOLUME</div><div style='font-weight:700'>{vol/1e6:.1f}M</div></div>", unsafe_allow_html=True)
+with c4:
+    iv_color = "#00d4aa" if iv_rank is not None and iv_rank<50 else "#f0c040" if iv_rank is not None and iv_rank<70 else "#ff4d6d"
+    iv_text  = f"{iv_rank}%" if iv_rank is not None else "N/A"
+    st.markdown(f"<div class='metric-card'><div style='color:#8899aa;font-size:0.75rem'>IV RANK</div><div style='font-weight:700;color:{iv_color}'>{iv_text}</div></div>", unsafe_allow_html=True)
 
-# -- RSI Divergence alert ------------------------------
-div=detect_rsi_divergence(df)
+# ── RSI divergence banner ─────────────────────────────────────────────────────
+div = detect_rsi_divergence(df)
 if div:
-    css=f"divergence-{'bull' if div['type']=='bullish' else 'bear'}"
+    css = f"divergence-{'bull' if div['type']=='bullish' else 'bear'}"
     st.markdown(f"<div class='{css}'><b>{div['label']}</b><br>{div['detail']}</div>", unsafe_allow_html=True)
 
-# -- Tabs ----------------------------------------------
-tab1,tab2,tab3,tab4,tab5=st.tabs(["🚦 SIGNALS","📈 CHART","📊 BACKTEST","🔍 SCAN","📋 SIGNAL LOG"])
+# ── Tabs ──────────────────────────────────────────────────────────────────────
+tab1,tab2,tab3,tab4,tab5 = st.tabs(["SIGNALS","CHART","BACKTEST","SCAN","JOURNAL"])
 
-# -- TAB 1: Signals ------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 1: SIGNALS
+# ─────────────────────────────────────────────────────────────────────────────
 with tab1:
-    candidates=build_candidates(df,selected_ticker,toggles,account_size,risk_pct,dte)
+    candidates = build_candidates(df, selected_ticker, toggles, account_size, risk_pct, dte)
 
     if not candidates:
-        st.markdown("""<div style='background:#111827;border:2px solid #1e2d40;border-radius:12px;padding:24px;text-align:center;color:#8899aa'>
-            <div style='font-size:2rem'>&mdash;</div>
+        st.markdown("""<div style='background:#111827;border:2px solid #1e2d40;border-radius:12px;
+            padding:24px;text-align:center;color:#8899aa'>
             <div style='font-size:1rem;font-weight:700;margin:8px 0'>NO SIGNALS FOUND</div>
             <div style='font-size:0.85rem'>Try Daily or 4 Hour timeframe, enable more patterns, or check a different ticker.</div>
         </div>""", unsafe_allow_html=True)
     else:
-        rank_labels  =["🥇 BEST","🥈 BETTER","🥉 GOOD"]
-        rank_classes =["rank-best","rank-better","rank-good"]
-        badge_classes=["badge-best","badge-better","badge-good"]
-        conf_classes =["conf-num-best","conf-num-better","conf-num-good"]
+        rank_labels   = ["BEST","BETTER","GOOD"]
+        rank_classes  = ["rank-best","rank-better","rank-good"]
+        badge_classes = ["badge-best","badge-better","badge-good"]
+        conf_classes  = ["conf-num-best","conf-num-better","conf-num-good"]
+        rank_icons    = ["🥇","🥈","🥉"]
 
-        for i,sig in enumerate(candidates):
-            rl=rank_labels[i]  if i<3 else f"#{i+1}"
-            rc=rank_classes[i] if i<3 else "rank-good"
-            bc=badge_classes[i]if i<3 else "badge-good"
-            cc=conf_classes[i] if i<3 else "conf-num-good"
+        for i, sig in enumerate(candidates):
+            rl = rank_labels[i]  if i<3 else f"#{i+1}"
+            rc = rank_classes[i] if i<3 else "rank-good"
+            bc = badge_classes[i]if i<3 else "badge-good"
+            cc = conf_classes[i] if i<3 else "conf-num-good"
+            ri = rank_icons[i]   if i<3 else ""
 
-            is_bull=sig["direction"]=="bullish"
-            dir_color="#00d4aa" if is_bull else "#ff4d6d"
-            dir_label="📈 BUY CALL" if is_bull else "📉 BUY PUT"
+            is_bull   = sig["direction"] == "bullish"
+            dir_color = "#00d4aa" if is_bull else "#ff4d6d"
+            dir_label = "BUY CALL" if is_bull else "BUY PUT"
 
-            conflict_html=""
+            # Conflict warning
+            conflict_html = ""
             if sig.get("conflict"):
-                pname=sig.get("conflict_pattern","pattern")
-                conflict_html=f"<div class='conflict-warn'>⚠️ {pname} pattern found but trend is {'bearish' if not is_bull else 'bullish'} - trend wins. Showing {'PUT' if not is_bull else 'CALL'} instead.</div>"
+                pname = sig.get("conflict_pattern","pattern")
+                conflict_html = f"<div class='conflict-warn'>⚠️ {pname} found but trend is {'bearish' if not is_bull else 'bullish'} - trend overrides. Showing {'PUT' if not is_bull else 'CALL'}.</div>"
 
-            dots_html=""
+            # Confidence factors
+            dots_html = ""
             for f in sig["factors"].values():
-                dot="dot-green" if f["pass"] else "dot-red"
-                dots_html+=f"<div class='factor-row'><span class='{dot}'></span><span style='color:{'#e0e6f0' if f['pass'] else '#8899aa'}'>{f['label']}</span></div>"
+                dot = "dot-green" if f["pass"] else "dot-red"
+                dots_html += f"<div class='factor-row'><span class='{dot}'></span><span style='color:{'#e0e6f0' if f['pass'] else '#8899aa'}'>{f['label']}</span></div>"
 
             st.markdown(f"""
             {conflict_html}
             <div class='{rc}'>
                 <div style='display:flex;justify-content:space-between;align-items:flex-start'>
                     <div>
-                        <span class='rank-badge {bc}'>{rl}</span>
+                        <span class='rank-badge {bc}'>{ri} {rl}</span>
                         <div style='font-size:1.1rem;font-weight:700;color:{dir_color}'>{dir_label} - {selected_ticker}</div>
                         <div style='color:#8899aa;font-size:0.82rem;margin-top:2px'>{sig['pattern_label']}</div>
                     </div>
@@ -597,16 +700,42 @@ with tab1:
             </div>
             """, unsafe_allow_html=True)
 
-            if sig["confidence"]>=60:
-                opt=calc_trade(sig["entry"],sig["stop"],sig["target"],sig["direction"],dte,account_size,risk_pct,current_price)
-                # Build warning flags but always show the trade
-                warnings = []
+            if sig["confidence"] >= 60:
+                opt = calc_trade(sig["entry"], sig["stop"], sig["target"],
+                                 sig["direction"], dte, account_size, risk_pct, current_price)
+
+                # Run 7-point gate
+                gates, gates_passed, elevate = run_seven_point_gate(
+                    df, sig, opt, iv_rank, earnings_days, opt["actual_dte"])
+
+                # Gate summary bar
+                est_days, dte_rec = estimate_move_timeframe(df, sig["pattern_label"])
+                gate_color  = "#00d4aa" if gates_passed >= 6 else "#f0c040" if gates_passed >= 4 else "#ff4d6d"
+                elev_badge  = f"<span style='background:#00d4aa22;color:#00d4aa;padding:2px 8px;border-radius:10px;font-size:0.72rem;margin-left:8px'>ELEVATED - PRIME SETUP</span>" if elevate else ""
+
+                gates_dots = ""
+                for gname, gdata in gates.items():
+                    dot = "dot-green" if gdata["pass"] else ("dot-red" if gdata["critical"] else "dot-yellow")
+                    gates_dots += f"<div class='factor-row'><span class='{dot}'></span><span style='color:{'#e0e6f0' if gdata['pass'] else '#8899aa'};font-size:0.78rem'><b>{gname}:</b> {gdata['label']}</span></div>"
+
+                st.markdown(f"""
+                <div class='gate-box'>
+                    <div style='display:flex;align-items:center;margin-bottom:8px'>
+                        <span style='color:{gate_color};font-family:monospace;font-size:0.78rem;font-weight:700'>7-POINT GATE: {gates_passed}/7 PASSED</span>
+                        {elev_badge}
+                    </div>
+                    {gates_dots}
+                    <div style='color:#8899aa;font-size:0.75rem;margin-top:6px'>
+                        Pattern timeframe est: ~{est_days} days | Recommended DTE: {dte_rec}+ days
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Warnings
                 if not opt["delta_ok"]:
-                    warnings.append(f"Delta {opt['delta']:.2f} is outside ideal 0.35-0.85 range")
-                if opt["profit_at_target"] < 50:
-                    warnings.append("Profit at target is low - consider wider expiration or more contracts")
-                for w in warnings:
-                    st.markdown(f"<div style='background:#1a150a;border:1px solid #f0c040;border-radius:6px;padding:8px 12px;margin-top:6px;color:#f0c040;font-size:0.8rem'>⚠️ {w}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='background:#1a150a;border:1px solid #f0c040;border-radius:6px;padding:8px 12px;margin-top:6px;color:#f0c040;font-size:0.8rem'>⚠️ Delta {opt['delta']:.2f} outside 0.35-0.85 ideal range</div>", unsafe_allow_html=True)
+
+                # Trade card
                 delta_color = "#00d4aa" if opt["delta_ok"] else "#f0c040"
                 st.markdown(f"""
                 <div class='trade-box {"" if is_bull else "bear"}'>
@@ -622,58 +751,79 @@ with tab1:
                         <div><div style='color:#8899aa;font-size:0.72rem'>CONTRACTS</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>{opt['contracts']}</div></div>
                         <div><div style='color:#8899aa;font-size:0.72rem'>PROFIT AT TARGET</div><div style='font-size:1.2rem;font-weight:700;color:#00d4aa'>${opt['profit_at_target']:,.0f}</div></div>
                     </div>
-                    <div style='margin-top:10px;padding-top:8px;border-top:1px solid #1e2d40'>
-                        <div style='color:#8899aa;font-size:0.72rem'>EXPIRES</div>
-                        <div style='font-weight:700'>{opt['expiration']}</div>
+                    <div style='margin-top:8px;padding-top:8px;border-top:1px solid #1e2d40;display:flex;justify-content:space-between'>
+                        <div><div style='color:#8899aa;font-size:0.72rem'>EXPIRES</div><div style='font-weight:700'>{opt['expiration']}</div></div>
+                        <div style='text-align:right'><div style='color:#8899aa;font-size:0.72rem'>POSITION SIZE</div><div style='font-weight:700'>${opt['position_dollars']:.0f} <span style='color:#8899aa;font-size:0.75rem'>({opt['pct_of_account']}% of acct)</span></div></div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+
+                # Exit rules — always printed below the card
+                st.markdown(f"""
+                <div class='exit-rules'>
+                    <div style='color:#00d4aa;font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:6px'>EXIT RULES - DECIDE BEFORE YOU ENTER</div>
+                    <div style='margin:4px 0'><b>Take 50% profit</b> when option value reaches <b style='color:#00d4aa'>${opt['exit_take_half']:.2f}</b> per share (100% gain on the option). Let the other 50% run.</div>
+                    <div style='margin:4px 0'><b>Close 100%</b> if {selected_ticker} stock closes {'below' if is_bull else 'above'} <b style='color:#ff4d6d'>${opt['exit_stop_stock']:.2f}</b> - pattern is invalid, exit no questions asked.</div>
+                    <div style='margin:4px 0;color:#8899aa;font-size:0.8rem'>Never hold through earnings. Never add to a losing position.</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # AI Brief placeholder
+                if ANTHROPIC_API_KEY:
+                    if st.button(f"🤖 Get AI Analysis #{i+1}", key=f"ai_{i}"):
+                        st.info("AI Analysis coming soon - API key detected, feature in development.")
+                else:
+                    st.markdown(f"<div class='ai-placeholder'>🤖 AI Trade Brief - Add ANTHROPIC_API_KEY in Railway to enable instant AI synthesis of this setup</div>", unsafe_allow_html=True)
+
+                # Action buttons
                 bcol1, bcol2 = st.columns(2)
                 with bcol1:
-                    if st.button(f"📋 Log Signal #{i+1}", key=f"log_{i}"):
-                        log_signal(selected_ticker, sig["direction"], opt["strike"], opt["target"], opt["stop"], sig["confidence"], sig["pattern_label"])
-                        st.success("Logged!")
+                    if st.button(f"📋 Log to Journal #{i+1}", key=f"log_{i}"):
+                        log_trade(selected_ticker, sig, opt, gates_passed, 7, elevate)
+                        st.success("Logged to journal!")
                 with bcol2:
-                    share_text = build_share_text(selected_ticker, sig, opt, mtext)
+                    share_text = build_share_text(selected_ticker, sig, opt, gates_passed, 7, elevate, mtext)
                     st.download_button(f"📤 Share #{i+1}", data=share_text,
                         file_name=f"{selected_ticker}_signal_{datetime.now().strftime('%m%d_%H%M')}.txt",
                         mime="text/plain", key=f"share_{i}")
 
-            if i<len(candidates)-1:
+            if i < len(candidates)-1:
                 st.markdown("<hr style='border-color:#1e2d40;margin:12px 0'>", unsafe_allow_html=True)
 
-# -- TAB 2: Chart --------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 2: CHART
+# ─────────────────────────────────────────────────────────────────────────────
 with tab2:
-    chart_db=[s for s in detect_double_bottom(df,selected_ticker,rr_min=2.0) if s.confirmed]
-    chart_dt=[s for s in detect_double_top(df,selected_ticker,rr_min=2.0) if s.confirmed]
-    chart_br=[s for s in detect_break_and_retest(df,selected_ticker,rr_min=2.0) if s.confirmed]
-    chart_setups=chart_db+chart_dt+chart_br
+    chart_db = [s for s in detect_double_bottom(df,selected_ticker,rr_min=2.0) if s.confirmed]
+    chart_dt = [s for s in detect_double_top(df,selected_ticker,rr_min=2.0) if s.confirmed]
+    chart_br = [s for s in detect_break_and_retest(df,selected_ticker,rr_min=2.0) if s.confirmed]
+    chart_setups = chart_db + chart_dt + chart_br
 
-    tf_formats={"5 Min":"%H:%M","15 Min":"%H:%M","1 Hour":"%b %d %H:%M","4 Hour":"%b %d","Daily":"%b %d '%y"}
-    tick_format=tf_formats.get(selected_tf,"%b %d")
-    price_min=float(df["low"].min())*0.995
-    price_max=float(df["high"].max())*1.005
-    price_range=price_max-price_min
-    raw_tick=price_range/8
-    magnitude=10**(len(str(int(max(raw_tick,1))))-1)
-    tick_interval=max(round(raw_tick/magnitude)*magnitude,0.01)
+    tf_formats = {"5 Min":"%H:%M","15 Min":"%H:%M","1 Hour":"%b %d %H:%M","4 Hour":"%b %d","Daily":"%b %d '%y"}
+    tick_format = tf_formats.get(selected_tf,"%b %d")
+    price_min   = float(df["low"].min())*0.995
+    price_max   = float(df["high"].max())*1.005
+    price_range = price_max - price_min
+    raw_tick    = price_range/8
+    magnitude   = 10**(len(str(int(max(raw_tick,1))))-1)
+    tick_interval = max(round(raw_tick/magnitude)*magnitude, 0.01)
 
-    fig=make_subplots(rows=2,cols=1,shared_xaxes=True,row_heights=[0.78,0.22],vertical_spacing=0.02)
+    fig = make_subplots(rows=2,cols=1,shared_xaxes=True,row_heights=[0.78,0.22],vertical_spacing=0.02)
     fig.add_trace(go.Candlestick(x=df["timestamp"],open=df["open"],high=df["high"],
         low=df["low"],close=df["close"],name=selected_ticker,
         increasing_line_color="#00d4aa",decreasing_line_color="#ff4d6d",
         increasing_fillcolor="#00d4aa",decreasing_fillcolor="#ff4d6d",line_width=1),row=1,col=1)
-    ema_line=df["close"].ewm(span=20).mean()
+    ema_line  = df["close"].ewm(span=20).mean()
     fig.add_trace(go.Scatter(x=df["timestamp"],y=ema_line,name="EMA 20",
         line=dict(color="#f0c040",width=1.5,dash="dot"),
         hovertemplate="EMA 20: $%{y:.2f}<extra></extra>"),row=1,col=1)
-    tp=(df["high"]+df["low"]+df["close"])/3
-    vwap_line=(tp*df["volume"]).cumsum()/df["volume"].cumsum()
+    tp        = (df["high"]+df["low"]+df["close"])/3
+    vwap_line = (tp*df["volume"]).cumsum()/df["volume"].cumsum()
     fig.add_trace(go.Scatter(x=df["timestamp"],y=vwap_line,name="VWAP",
         line=dict(color="#9966ff",width=1.5,dash="dash"),
         hovertemplate="VWAP: $%{y:.2f}<extra></extra>"),row=1,col=1)
     for s in chart_setups[:3]:
-        lc="#00d4aa" if s.direction=="bullish" else "#ff4d6d"
+        lc = "#00d4aa" if s.direction=="bullish" else "#ff4d6d"
         fig.add_hline(y=s.entry_price,line_dash="solid",line_color=lc,line_width=1.5,opacity=0.8,
             annotation_text=f"  Entry ${s.entry_price:.2f}",annotation_font_color=lc,annotation_font_size=11,row=1,col=1)
         fig.add_hline(y=s.target,line_dash="dash",line_color="#00d4aa",line_width=1,opacity=0.6,
@@ -682,7 +832,7 @@ with tab2:
             annotation_text=f"  Stop ${s.stop_loss:.2f}",annotation_font_color="#ff4d6d",annotation_font_size=11,row=1,col=1)
         fig.add_hrect(y0=min(s.entry_price,s.target),y1=max(s.entry_price,s.target),
             fillcolor="rgba(0,212,170,0.05)",line_width=0,row=1,col=1)
-    vol_colors=["#00d4aa" if c>=o else "#ff4d6d" for c,o in zip(df["close"],df["open"])]
+    vol_colors = ["#00d4aa" if c>=o else "#ff4d6d" for c,o in zip(df["close"],df["open"])]
     fig.add_trace(go.Bar(x=df["timestamp"],y=df["volume"],marker_color=vol_colors,opacity=0.5,name="Volume",
         hovertemplate="%{x}<br>Vol: %{y:,.0f}<extra></extra>"),row=2,col=1)
     fig.update_layout(paper_bgcolor="#0a0e17",plot_bgcolor="#0d1219",font=dict(color="#e0e6f0",size=12),
@@ -696,103 +846,149 @@ with tab2:
     fig.update_yaxes(gridcolor="#1e2d40",tickformat="$.2f",dtick=tick_interval,
         range=[price_min,price_max],showspikes=True,spikecolor="#1e2d40",row=1,col=1)
     fig.update_yaxes(gridcolor="#1e2d40",tickformat=".2s",row=2,col=1)
-    st.plotly_chart(fig,use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True)
     if chart_setups:
         st.markdown("""<div style='display:flex;gap:20px;flex-wrap:wrap;padding:8px 4px;font-size:0.8rem;color:#8899aa'>
-            <span><span style='color:#00d4aa'>-----</span> Entry</span>
-            <span><span style='color:#00d4aa'>- - -</span> Target</span>
-            <span><span style='color:#ff4d6d'>.....</span> Stop Loss</span>
-            <span><span style='color:#f0c040'>.....</span> EMA 20</span>
-            <span><span style='color:#9966ff'>- - -</span> VWAP</span>
+            <span>Entry line</span><span>- - - Target</span><span>.... Stop Loss</span>
+            <span style='color:#f0c040'>.... EMA 20</span><span style='color:#9966ff'>- - - VWAP</span>
         </div>""", unsafe_allow_html=True)
 
-# -- TAB 3: Backtest -----------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 3: BACKTEST
+# ─────────────────────────────────────────────────────────────────────────────
 with tab3:
     st.markdown("<div class='section-title'>BACKTEST</div>", unsafe_allow_html=True)
-    if st.button("Run Backtest",type="primary"):
+    if st.button("Run Backtest", type="primary"):
         with st.spinner("Analyzing..."):
-            report,equity=run_backtest(df,selected_ticker)
-        c1,c2,c3,c4=st.columns(4)
-        c1.metric("Win Rate",f"{report.win_rate}%")
-        c2.metric("Trades",report.total_trades)
-        c3.metric("Avg R:R",f"{report.avg_rr}x")
-        c4.metric("Expectancy",f"{report.expectancy}R")
-        if len(equity)>1:
-            fig_eq=go.Figure(go.Scatter(y=equity,mode="lines+markers",
+            report, equity = run_backtest(df, selected_ticker)
+        c1,c2,c3,c4 = st.columns(4)
+        c1.metric("Win Rate",   f"{report.win_rate}%")
+        c2.metric("Trades",     report.total_trades)
+        c3.metric("Avg R:R",    f"{report.avg_rr}x")
+        c4.metric("Expectancy", f"{report.expectancy}R")
+        if len(equity) > 1:
+            fig_eq = go.Figure(go.Scatter(y=equity,mode="lines+markers",
                 line=dict(color="#00d4aa",width=2),fill="tozeroy",fillcolor="rgba(0,212,170,0.1)"))
             fig_eq.update_layout(paper_bgcolor="#0a0e17",plot_bgcolor="#0d1219",
                 font=dict(color="#e0e6f0"),height=280,title="Equity Curve",margin=dict(l=0,r=0,t=40,b=0))
             fig_eq.update_xaxes(gridcolor="#1e2d40")
             fig_eq.update_yaxes(gridcolor="#1e2d40")
-            st.plotly_chart(fig_eq,use_container_width=True)
+            st.plotly_chart(fig_eq, use_container_width=True)
         if report.trades:
             st.dataframe(pd.DataFrame([{"Pattern":t.pattern,"Result":t.outcome.upper(),
                 "Entry":f"${t.entry_price:.2f}","Exit":f"${t.exit_price:.2f}",
-                "P&L":f"{t.pnl_pct:+.1f}%"} for t in report.trades]),use_container_width=True)
+                "P&L":f"{t.pnl_pct:+.1f}%"} for t in report.trades]), use_container_width=True)
     else:
         st.info("Click Run Backtest to analyze this ticker.")
 
-# -- TAB 4: Scan ---------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 4: SCAN
+# ─────────────────────────────────────────────────────────────────────────────
 with tab4:
     st.markdown("<div class='section-title'>WATCHLIST SCAN</div>", unsafe_allow_html=True)
-    if st.button("🔍 SCAN ALL TICKERS",type="primary"):
-        results=[]
-        prog=st.progress(0); status=st.empty()
-        for i,ticker in enumerate(WATCHLIST):
+    if st.button("SCAN ALL TICKERS", type="primary"):
+        results = []
+        prog = st.progress(0); status = st.empty()
+        for i, ticker in enumerate(WATCHLIST):
             status.text(f"Scanning {ticker}...")
             prog.progress((i+1)/len(WATCHLIST))
             try:
-                tdf=fetch_ohlcv(ticker,tf_mult,tf_span,tf_days)
-                price=fetch_current_price(ticker) or float(tdf["close"].iloc[-1])
-                cands=build_candidates(tdf,ticker,toggles,account_size,risk_pct,dte)
+                tdf   = fetch_ohlcv(ticker, tf_mult, tf_span, tf_days)
+                price = fetch_current_price(ticker) or float(tdf["close"].iloc[-1])
+                cands = build_candidates(tdf, ticker, toggles, account_size, risk_pct, dte)
+                tiv,_ = fetch_iv_rank(ticker)
                 if cands:
-                    best=cands[0]
-                    conf=best["confidence"]
-                    results.append({"Ticker":ticker,"Price":f"${price:.2f}",
-                        "Confidence":f"{conf}%",
-                        "Status":"🟢 STRONG" if conf>=80 else "🟡 WATCH" if conf>=60 else "🔴 WEAK",
-                        "Action":"📈 CALL" if best["direction"]=="bullish" else "📉 PUT",
-                        "Setup":best["pattern_label"]})
+                    best = cands[0]
+                    conf = best["confidence"]
+                    opt  = calc_trade(best["entry"],best["stop"],best["target"],
+                                      best["direction"],dte,account_size,risk_pct,price)
+                    _, gates_passed, elevate = run_seven_point_gate(
+                        tdf, best, opt, tiv, check_earnings(ticker), opt["actual_dte"])
+                    results.append({
+                        "Ticker":   ticker,
+                        "Price":    f"${price:.2f}",
+                        "IV Rank":  f"{tiv}%" if tiv else "N/A",
+                        "Signal":   "CALL" if best["direction"]=="bullish" else "PUT",
+                        "Pattern":  best["pattern_label"],
+                        "Conf":     f"{conf}%",
+                        "Gate":     f"{gates_passed}/7",
+                        "Status":   "PRIME" if elevate else ("WATCH" if conf>=60 else "WEAK"),
+                    })
             except:
                 pass
         prog.empty(); status.empty()
         if results:
-            results.sort(key=lambda x:int(x["Confidence"].replace("%","")),reverse=True)
+            results.sort(key=lambda x:(x["Status"]=="PRIME",int(x["Conf"].replace("%",""))),reverse=True)
             st.success(f"Found {len(results)} signals")
-            st.dataframe(pd.DataFrame(results),use_container_width=True)
+            st.dataframe(pd.DataFrame(results), use_container_width=True)
         else:
             st.info("No signals right now. Try again later or switch timeframe.")
 
-# -- TAB 5: Signal Log ---------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 5: TRADE JOURNAL
+# ─────────────────────────────────────────────────────────────────────────────
 with tab5:
-    st.markdown("<div class='section-title'>SIGNAL LOG & TICKER STATS</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>TRADE JOURNAL</div>", unsafe_allow_html=True)
 
-    # Ticker signal stats
-    stats=get_ticker_signal_stats()
+    journal = load_journal()
+
+    # Stats by ticker
+    stats = get_journal_stats()
     if stats:
-        st.markdown("**Signal Frequency by Ticker** - live tracked since you started logging")
-        stat_rows=[{"Ticker":t,"Total Signals":v["total"],"Calls":v["calls"],
-                    "Puts":v["puts"],"Wins":v["wins"]} for t,v in
-                   sorted(stats.items(),key=lambda x:x[1]["total"],reverse=True)]
-        st.dataframe(pd.DataFrame(stat_rows),use_container_width=True)
+        st.markdown("**Performance by Ticker**")
+        stat_rows = []
+        for t, v in sorted(stats.items(), key=lambda x:x[1]["total"], reverse=True):
+            win_rate = f"{int(v['wins']/(v['wins']+v['losses'])*100)}%" if (v['wins']+v['losses'])>0 else "N/A"
+            stat_rows.append({"Ticker":t,"Signals":v["total"],"Calls":v["calls"],
+                               "Puts":v["puts"],"Open":v["open"],
+                               "Wins":v["wins"],"Losses":v["losses"],"Win Rate":win_rate})
+        st.dataframe(pd.DataFrame(stat_rows), use_container_width=True)
         st.markdown("<hr style='border-color:#1e2d40;margin:16px 0'>", unsafe_allow_html=True)
 
-    log=load_signal_log()
-    if not log:
-        st.info("No signals logged yet. Click 'Log Signal' on any 60%+ signal to start tracking.")
+    if not journal:
+        st.info("No trades logged yet. Click 'Log to Journal' on any signal to start tracking.")
     else:
-        st.markdown("**Full Signal History**")
-        df_log=pd.DataFrame(log[::-1])
-        st.dataframe(df_log,use_container_width=True)
-        col_a, col_b = st.columns(2)
+        st.markdown("**Full Trade History**")
+
+        # Allow marking results
+        st.markdown("**Update a Trade Result:**")
+        uc1, uc2, uc3 = st.columns(3)
+        with uc1:
+            update_idx = st.number_input("Trade # (from table, newest=1)", min_value=1, max_value=len(journal), value=1)
+        with uc2:
+            result_choice = st.selectbox("Result", ["Open","Win - Full","Win - Partial","Loss","Expired Worthless"])
+        with uc3:
+            pnl_input = st.text_input("P&L $ (optional)", "")
+        if st.button("Update Result"):
+            idx = len(journal) - update_idx
+            journal[idx]["Result"] = result_choice
+            if pnl_input:
+                journal[idx]["P&L $"] = pnl_input
+            st.session_state.trade_journal = journal
+            st.success(f"Updated trade #{update_idx}")
+            st.rerun()
+
+        st.markdown("<hr style='border-color:#1e2d40;margin:12px 0'>", unsafe_allow_html=True)
+
+        df_journal = pd.DataFrame(journal[::-1])
+        st.dataframe(df_journal, use_container_width=True)
+
+        col_a, col_b, col_c = st.columns(3)
         with col_a:
-            if st.button("Clear Log"):
-                st.session_state.signal_log=[]
+            if st.button("Clear Journal"):
+                st.session_state.trade_journal = []
                 st.rerun()
         with col_b:
-            csv=df_log.to_csv(index=False)
-            st.download_button("📥 Export Log as CSV", data=csv,
-                file_name=f"signal_log_{datetime.now().strftime('%m%d%Y')}.csv",
+            csv = df_journal.to_csv(index=False)
+            st.download_button("Export Journal CSV", data=csv,
+                file_name=f"trade_journal_{datetime.now().strftime('%m%d%Y')}.csv",
                 mime="text/csv")
+        with col_c:
+            # Summary stats
+            total  = len(journal)
+            wins   = sum(1 for t in journal if "Win" in t.get("Result",""))
+            losses = sum(1 for t in journal if "Loss" in t.get("Result",""))
+            if wins+losses > 0:
+                st.metric("Live Win Rate", f"{int(wins/(wins+losses)*100)}%", f"{wins}W / {losses}L")
 
-st.markdown("<div style='text-align:center;padding:20px;color:#8899aa;font-size:0.75rem;border-top:1px solid #1e2d40;margin-top:20px'>OPTIONS SCREENER v5.0 . NOT FINANCIAL ADVICE</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align:center;padding:20px;color:#8899aa;font-size:0.75rem;border-top:1px solid #1e2d40;margin-top:20px'>OPTIONS SCREENER v6.0 - NOT FINANCIAL ADVICE</div>", unsafe_allow_html=True)
