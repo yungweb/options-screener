@@ -289,6 +289,134 @@ def run_seven_point_gate(df, sig, opt, iv_rank, earnings_days, dte_used):
     elevate         = critical_pass and non_crit_pass >= 2
     return gates, passed, elevate
 
+# ── Entry confirmation candles ────────────────────────────────────────────────
+def check_entry_confirmation(df, direction):
+    """
+    Checks last candles to see if price is moving in signal direction.
+    Calls: need 2 consecutive green candles, each close higher than previous.
+    Puts:  need 2 consecutive red candles, each close lower than previous.
+    Returns status: CONFIRMED / WAITING / AGAINST
+    """
+    if len(df) < 4:
+        return {"confirmed": False, "status": "WAITING", "candles": [], "message": "Not enough data"}
+
+    recent = df.tail(5)
+    is_bull = direction == "bullish"
+
+    candle_dirs = []
+    for _, row in recent.iterrows():
+        if float(row["close"]) > float(row["open"]):   candle_dirs.append("green")
+        elif float(row["close"]) < float(row["open"]): candle_dirs.append("red")
+        else:                                            candle_dirs.append("doji")
+
+    c1 = recent.iloc[-2]
+    c2 = recent.iloc[-1]
+
+    if is_bull:
+        both_green    = float(c1["close"]) > float(c1["open"]) and float(c2["close"]) > float(c2["open"])
+        higher_closes = float(c2["close"]) > float(c1["close"])
+        confirmed     = both_green and higher_closes
+        last_green    = candle_dirs[-1] == "green"
+        if confirmed:
+            status  = "CONFIRMED"
+            message = f"2 bullish candles confirmed - buyers in control. Entry window open near ${float(c2['close']):.2f}"
+        elif last_green:
+            status  = "WAITING"
+            message = "1 of 2 bullish candles printed. Need 1 more green candle closing higher."
+        else:
+            status  = "AGAINST"
+            message = "Price still dropping. Signal valid but entry is early - wait for 2 consecutive green candles."
+    else:
+        both_red     = float(c1["close"]) < float(c1["open"]) and float(c2["close"]) < float(c2["open"])
+        lower_closes = float(c2["close"]) < float(c1["close"])
+        confirmed    = both_red and lower_closes
+        last_red     = candle_dirs[-1] == "red"
+        if confirmed:
+            status  = "CONFIRMED"
+            message = f"2 bearish candles confirmed - sellers in control. Entry window open near ${float(c2['close']):.2f}"
+        elif last_red:
+            status  = "WAITING"
+            message = "1 of 2 bearish candles printed. Need 1 more red candle closing lower."
+        else:
+            status  = "AGAINST"
+            message = "Price still climbing. Signal valid but entry is early - wait for 2 consecutive red candles."
+
+    return {"confirmed": confirmed, "status": status, "candles": candle_dirs, "message": message}
+
+# ── Watch queue ───────────────────────────────────────────────────────────────
+WATCH_TIMEOUT_MINS = 30
+
+def init_watch_queue():
+    if "watch_queue" not in st.session_state:
+        st.session_state.watch_queue = {}
+
+def add_to_watch_queue(ticker, direction, sig, opt):
+    init_watch_queue()
+    key = f"{ticker}_{direction}"
+    if key not in st.session_state.watch_queue:
+        st.session_state.watch_queue[key] = {
+            "ticker":    ticker,
+            "direction": direction,
+            "action":    "CALL" if direction == "bullish" else "PUT",
+            "strike":    opt["strike"],
+            "entry":     opt["entry"],
+            "target":    opt["target"],
+            "stop":      opt["stop"],
+            "pattern":   sig["pattern_label"],
+            "confidence":sig["confidence"],
+            "added_at":  datetime.now(),
+            "last_checked": None,
+            "status":    "WAITING",
+            "message":   "Watching for 2 confirmation candles...",
+            "alerted":   False,
+        }
+
+def remove_from_watch_queue(key):
+    init_watch_queue()
+    if key in st.session_state.watch_queue:
+        del st.session_state.watch_queue[key]
+
+def run_background_watch_checks(tf_mult, tf_span, tf_days):
+    """
+    Runs on EVERY app refresh regardless of selected ticker.
+    Fetches fresh candle data for every watched ticker and rechecks confirmation.
+    Returns True if any ticker just flipped to CONFIRMED for the first time.
+    """
+    init_watch_queue()
+    queue    = st.session_state.watch_queue
+    any_new_confirm = False
+    to_remove = []
+
+    for key, item in queue.items():
+        # Timeout after 30 minutes
+        elapsed = (datetime.now() - item["added_at"]).total_seconds() / 60
+        if elapsed > WATCH_TIMEOUT_MINS:
+            to_remove.append(key)
+            continue
+
+        try:
+            fresh_df = fetch_ohlcv(item["ticker"], tf_mult, tf_span, tf_days)
+            conf     = check_entry_confirmation(fresh_df, item["direction"])
+            was_confirmed_before = item["status"] == "CONFIRMED"
+
+            item["status"]       = conf["status"]
+            item["message"]      = conf["message"]
+            item["candles"]      = conf.get("candles", [])
+            item["last_checked"] = datetime.now()
+
+            # First time flipping to confirmed - trigger alert
+            if conf["confirmed"] and not was_confirmed_before and not item["alerted"]:
+                item["alerted"]    = True
+                any_new_confirm    = True
+        except:
+            item["message"] = "Data fetch failed - retrying..."
+
+    for key in to_remove:
+        del queue[key]
+
+    st.session_state.watch_queue = queue
+    return any_new_confirm
+
 def get_trend(df):
     close=df["close"]; high=df["high"]; low=df["low"]
     price=float(close.iloc[-1])
@@ -475,7 +603,7 @@ with st.sidebar:
     dte          = st.selectbox("Days to Expiration", [14,21,30,45,60], index=2)
     st.markdown("---")
     st.markdown("**AUTO REFRESH**")
-    refresh_on       = st.toggle("Live refresh", value=False)
+    refresh_on       = st.toggle("Live refresh (manual)", value=False)
     refresh_interval = st.selectbox("Interval",["1 min","5 min","15 min"],index=1) if refresh_on else None
     st.markdown("---")
     if POLYGON_API_KEY: st.success("LIVE DATA")
@@ -483,9 +611,16 @@ with st.sidebar:
     if ANTHROPIC_API_KEY: st.success("AI BRIEF READY")
     else:                 st.info("AI Brief: add ANTHROPIC_API_KEY to enable")
 
-if refresh_on and AUTOREFRESH_AVAILABLE and refresh_interval:
-    ms = {"1 min":60000,"5 min":300000,"15 min":900000}.get(refresh_interval,300000)
-    st_autorefresh(interval=ms, key="autorefresh")
+# Smart auto-refresh - activates automatically when watch queue has pending signals
+init_watch_queue()
+_queue_active = any(item["status"] != "CONFIRMED" for item in st.session_state.watch_queue.values())
+if AUTOREFRESH_AVAILABLE:
+    if _queue_active:
+        # Watch queue running - auto refresh every 60 seconds no manual toggle needed
+        st_autorefresh(interval=60000, key="watch_autorefresh")
+    elif refresh_on and refresh_interval:
+        ms = {"1 min":60000,"5 min":300000,"15 min":900000}.get(refresh_interval,300000)
+        st_autorefresh(interval=ms, key="manual_autorefresh")
 
 tf_mult,tf_span,tf_days = TIMEFRAMES[selected_tf]
 df            = fetch_ohlcv(selected_ticker, tf_mult, tf_span, tf_days)
@@ -494,6 +629,73 @@ prev_close    = float(df["close"].iloc[-2]) if len(df)>1 else current_price
 pct_change    = ((current_price-prev_close)/prev_close)*100
 iv_rank, hv   = fetch_iv_rank(selected_ticker)
 earnings_days = check_earnings(selected_ticker)
+
+# ── Background watch loop - runs every refresh for ALL watched tickers ────────
+any_new_confirm = run_background_watch_checks(tf_mult, tf_span, tf_days)
+
+# Sound alert when any ticker just confirmed
+if any_new_confirm:
+    st.markdown("""
+    <audio autoplay>
+      <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAA
+EAAQARAAAAIgAA//8AZGFOaghzCAFyCAFzCAFyCAFzCAFzCAFzCAFyCAFzCAFzCAFy
+CAFzCAFzCAFzCAFyCAFzCAFzCAFyCAFzCAFzCAFzCAFyCAFzCAFzCAFyCAFzCAFzCAF" type="audio/wav">
+    </audio>
+    """, unsafe_allow_html=True)
+
+# ── Watch queue banner - always visible regardless of selected ticker ─────────
+init_watch_queue()
+queue = st.session_state.watch_queue
+if queue:
+    for key, item in list(queue.items()):
+        elapsed_mins = int((datetime.now() - item["added_at"]).total_seconds() / 60)
+        elapsed_secs = int((datetime.now() - item["added_at"]).total_seconds() % 60)
+        last_chk = ""
+        if item["last_checked"]:
+            secs_ago = int((datetime.now() - item["last_checked"]).total_seconds())
+            last_chk = f" | checked {secs_ago}s ago"
+
+        # Build candle history dots
+        candle_html = ""
+        for c in item.get("candles", []):
+            if c == "green":   candle_html += "<span style='color:#00d4aa;font-size:1rem'>&#9650;</span> "
+            elif c == "red":   candle_html += "<span style='color:#ff4d6d;font-size:1rem'>&#9660;</span> "
+            else:              candle_html += "<span style='color:#8899aa;font-size:0.8rem'>&#9644;</span> "
+
+        status = item["status"]
+        if status == "CONFIRMED":
+            banner_style = "background:#061a10;border:2px solid #00d4aa;border-radius:8px;padding:12px 16px;margin:4px 0;"
+            icon  = "✅"
+            stxt  = "<span style='color:#00d4aa;font-weight:700;font-size:1rem'>ENTRY CONFIRMED</span>"
+        elif status == "WAITING":
+            banner_style = "background:#0d1219;border:2px solid #f0c040;border-radius:8px;padding:12px 16px;margin:4px 0;"
+            icon  = "👁"
+            stxt  = "<span style='color:#f0c040;font-weight:700'>WATCHING</span>"
+        else:
+            banner_style = "background:#1a0a0a;border:2px solid #ff4d6d;border-radius:8px;padding:12px 16px;margin:4px 0;"
+            icon  = "⏳"
+            stxt  = "<span style='color:#ff4d6d;font-weight:700'>ENTRY EARLY</span>"
+
+        col_banner, col_dismiss = st.columns([6,1])
+        with col_banner:
+            st.markdown(f"""
+            <div style='{banner_style}'>
+                <div style='display:flex;justify-content:space-between;align-items:center'>
+                    <div>
+                        <span style='font-size:1.1rem'>{icon}</span>
+                        <b style='margin-left:6px'>{item['ticker']} {item['action']}</b>
+                        <span style='color:#8899aa;font-size:0.82rem;margin-left:8px'>{item['pattern']} | Strike ${item['strike']:.2f}</span>
+                    </div>
+                    <div style='color:#8899aa;font-size:0.75rem;font-family:monospace'>{elapsed_mins}m {elapsed_secs}s{last_chk}</div>
+                </div>
+                <div style='margin-top:6px'>{stxt} &nbsp; {candle_html}</div>
+                <div style='color:#e0e6f0;font-size:0.82rem;margin-top:4px'>{item['message']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_dismiss:
+            if st.button("Dismiss", key=f"dismiss_{key}"):
+                remove_from_watch_queue(key)
+                st.rerun()
 
 mstatus, mtext = get_market_status()
 css_class = {"open":"market-open","pre":"market-pre","after":"market-pre","closed":"market-closed"}.get(mstatus,"market-closed")
@@ -639,13 +841,50 @@ with tab1:
                 </div>
                 """, unsafe_allow_html=True)
 
+                # Entry confirmation check
+                conf_result = check_entry_confirmation(df, sig["direction"])
+                conf_status = conf_result["status"]
+                if conf_status == "CONFIRMED":
+                    conf_bg    = "#061a10"; conf_border = "#00d4aa"; conf_color = "#00d4aa"
+                    conf_icon  = "✅"
+                elif conf_status == "WAITING":
+                    conf_bg    = "#0d1219"; conf_border = "#f0c040"; conf_color = "#f0c040"
+                    conf_icon  = "👁"
+                else:
+                    conf_bg    = "#1a0a0a"; conf_border = "#ff4d6d"; conf_color = "#ff4d6d"
+                    conf_icon  = "⏳"
+
+                candle_html = ""
+                for c in conf_result.get("candles", []):
+                    if c == "green":   candle_html += "<span style='color:#00d4aa'>&#9650;</span> "
+                    elif c == "red":   candle_html += "<span style='color:#ff4d6d'>&#9660;</span> "
+                    else:              candle_html += "<span style='color:#8899aa'>&#9644;</span> "
+
+                st.markdown(f"""
+                <div style='background:{conf_bg};border:1px solid {conf_border};border-radius:8px;padding:10px 14px;margin-top:8px'>
+                    <div style='color:{conf_color};font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:4px'>ENTRY TIMING CHECK</div>
+                    <div style='display:flex;align-items:center;gap:10px'>
+                        <span style='font-size:1.1rem'>{conf_icon}</span>
+                        <span style='font-weight:700;color:{conf_color}'>{conf_status}</span>
+                        <span style='color:#8899aa;font-size:0.82rem'>Recent candles: {candle_html}</span>
+                    </div>
+                    <div style='color:#e0e6f0;font-size:0.82rem;margin-top:4px'>{conf_result["message"]}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Auto-add 7/7 signals to watch queue
+                watch_key = f"{selected_ticker}_{sig['direction']}"
+                already_watching = watch_key in st.session_state.get("watch_queue", {})
+                if elevate and not already_watching and conf_status != "CONFIRMED":
+                    add_to_watch_queue(selected_ticker, sig["direction"], sig, opt)
+
                 if ANTHROPIC_API_KEY:
                     if st.button(f"Get AI Analysis #{i+1}", key=f"ai_{i}"):
                         st.info("AI Analysis - API key detected, feature activates in next update.")
                 else:
                     st.markdown("<div class='ai-placeholder'>AI Trade Brief - Add ANTHROPIC_API_KEY in Railway environment variables to enable instant AI synthesis of this setup</div>", unsafe_allow_html=True)
 
-                bcol1, bcol2 = st.columns(2)
+                bcol1, bcol2, bcol3 = st.columns(3)
                 with bcol1:
                     if st.button(f"Log to Journal #{i+1}", key=f"log_{i}"):
                         log_trade(selected_ticker, sig, opt, gates_passed, 7, elevate)
@@ -655,6 +894,16 @@ with tab1:
                     st.download_button(f"Share #{i+1}", data=share_text,
                         file_name=f"{selected_ticker}_signal_{datetime.now().strftime('%m%d_%H%M')}.txt",
                         mime="text/plain", key=f"share_{i}")
+                with bcol3:
+                    if not already_watching:
+                        if st.button(f"Watch #{i+1}", key=f"watch_{i}"):
+                            add_to_watch_queue(selected_ticker, sig["direction"], sig, opt)
+                            st.success("Added to watch queue!")
+                            st.rerun()
+                    else:
+                        if st.button(f"Stop Watching #{i+1}", key=f"unwatch_{i}"):
+                            remove_from_watch_queue(watch_key)
+                            st.rerun()
 
             if i < len(candidates)-1:
                 st.markdown("<hr style='border-color:#1e2d40;margin:12px 0'>", unsafe_allow_html=True)
