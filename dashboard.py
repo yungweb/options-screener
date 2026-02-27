@@ -182,16 +182,23 @@ def estimate_move_timeframe(pattern_label):
     else:                          est_days = 10
     return est_days, int(est_days * 1.5)
 
-def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, current_price, iv=0.45, atr=None):
+def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, current_price, iv=0.45, atr=None, trade_style="swing"):
     is_call    = direction == "bullish"
     exp_date   = get_expiration_date(days_to_exp)
     actual_dte = max((exp_date - date.today()).days, 1)
 
-    raw_strike = current_price * 1.02 if is_call else current_price * 0.98
-    strike     = round(raw_strike / 0.5) * 0.5
-    premium    = round(current_price * iv * (actual_dte/365)**0.5 * 0.4, 2)
-    premium    = max(premium, 0.10)
-    breakeven  = (strike + premium) if is_call else (strike - premium)
+    # Strike selection: Quick = ATM (best for fast moves), Swing = 2% OTM (leveraged)
+    if trade_style == "quick":
+        raw_strike = current_price  # ATM for quick trades
+    else:
+        raw_strike = current_price * 1.02 if is_call else current_price * 0.98
+    strike  = round(raw_strike / 0.5) * 0.5
+
+    # IV adjustment: quick trades use higher IV estimate (short-dated premiums are inflated)
+    iv_adj  = min(iv * 1.3, 0.80) if actual_dte <= 7 else iv
+    premium = round(current_price * iv_adj * (max(actual_dte, 1)/365)**0.5 * 0.4, 2)
+    premium = max(premium, 0.05)
+    breakeven = (strike + premium) if is_call else (strike - premium)
 
     # ── Target sanity check ───────────────────────────────────────────────────
     # Use the pattern's measured move as-is. Only apply a sanity cap so we never
@@ -897,7 +904,7 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
         """, unsafe_allow_html=True)
 
         if sig["confidence"] >= 60:
-            opt = calc_trade(sig["entry"],sig["stop"],sig["target"],sig["direction"],dte,account_size,risk_pct,current_price,atr=atr)
+            opt = calc_trade(sig["entry"],sig["stop"],sig["target"],sig["direction"],dte,account_size,risk_pct,current_price,atr=atr,trade_style=trade_style)
             gates, gates_passed, elevate = run_seven_point_gate(df,sig,opt,iv_rank,earnings_days,opt["actual_dte"])
             est_days, dte_rec = estimate_move_timeframe(sig["pattern_label"])
             gate_color = "#00d4aa" if gates_passed>=6 else "#f0c040" if gates_passed>=4 else "#ff4d6d"
@@ -1235,37 +1242,59 @@ if queue:
             else:              candle_html += "<span style='color:#8899aa;font-size:0.8rem'>&#9644;</span> "
 
         status = item["status"]
-        if status == "CONFIRMED":
-            banner_style = "background:#061a10;border:2px solid #00d4aa;border-radius:8px;padding:12px 16px;margin:4px 0;"
-            icon  = "✅"
-            stxt  = "<span style='color:#00d4aa;font-weight:700;font-size:1rem'>ENTRY CONFIRMED</span>"
-        elif status == "WAITING":
-            banner_style = "background:#0d1219;border:2px solid #f0c040;border-radius:8px;padding:12px 16px;margin:4px 0;"
-            icon  = "👁"
-            stxt  = "<span style='color:#f0c040;font-weight:700'>WATCHING</span>"
-        else:
-            banner_style = "background:#1a0a0a;border:2px solid #ff4d6d;border-radius:8px;padding:12px 16px;margin:4px 0;"
-            icon  = "⏳"
-            stxt  = "<span style='color:#ff4d6d;font-weight:700'>ENTRY EARLY</span>"
-
         col_banner, col_dismiss = st.columns([6,1])
-        with col_banner:
-            st.markdown(f"""
-            <div style='{banner_style}'>
-                <div style='display:flex;justify-content:space-between;align-items:center'>
-                    <div>
-                        <span style='font-size:1.1rem'>{icon}</span>
-                        <b style='margin-left:6px'>{item['ticker']} {item['action']}</b>
-                        <span style='color:#8899aa;font-size:0.82rem;margin-left:8px'>{item['pattern']} | Strike ${item['strike']:.2f}</span>
+
+        if status == "CONFIRMED":
+            # Full trade card - boom get in now
+            is_bull_w = item["direction"] == "bullish"
+            dir_color_w = "#00d4aa" if is_bull_w else "#ff4d6d"
+            with col_banner:
+                st.markdown(f"""
+                <div style='background:#061a10;border:2px solid #00d4aa;border-radius:10px;padding:14px 16px;margin:4px 0;animation:none'>
+                    <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px'>
+                        <div>
+                            <span style='color:#00d4aa;font-family:monospace;font-size:0.72rem;letter-spacing:2px'>✅ ENTRY CONFIRMED - GET IN NOW</span><br>
+                            <span style='font-size:1.1rem;font-weight:700;color:{dir_color_w}'>BUY {"CALL" if is_bull_w else "PUT"} - {item["ticker"]}</span>
+                            <span style='color:#8899aa;font-size:0.82rem;margin-left:8px'>{item["pattern"]}</span>
+                        </div>
+                        <div style='text-align:right;color:#8899aa;font-size:0.75rem;font-family:monospace'>{elapsed_mins}m {elapsed_secs}s{last_chk}</div>
                     </div>
-                    <div style='color:#8899aa;font-size:0.75rem;font-family:monospace'>{elapsed_mins}m {elapsed_secs}s{last_chk}</div>
+                    <div style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;font-size:0.85rem;margin-top:6px'>
+                        <div><div style='color:#8899aa;font-size:0.7rem'>STRIKE</div><div style='font-weight:700;color:{dir_color_w}'>${item["strike"]:.2f}</div></div>
+                        <div><div style='color:#8899aa;font-size:0.7rem'>ENTRY</div><div style='font-weight:700'>${item["entry"]:.2f}</div></div>
+                        <div><div style='color:#8899aa;font-size:0.7rem'>TARGET</div><div style='font-weight:700;color:#00d4aa'>${item["target"]:.2f}</div></div>
+                        <div><div style='color:#8899aa;font-size:0.7rem'>STOP OUT</div><div style='font-weight:700;color:#ff4d6d'>${item["stop"]:.2f}</div></div>
+                    </div>
+                    <div style='margin-top:8px;color:#e0e6f0;font-size:0.78rem'>
+                        Candles: {candle_html} &nbsp; <span style='color:#00d4aa'>2 confirmation candles printed — execute at market price</span>
+                    </div>
                 </div>
-                <div style='margin-top:6px'>{stxt} &nbsp; {candle_html}</div>
-                <div style='color:#e0e6f0;font-size:0.82rem;margin-top:4px'>{item['message']}</div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
+        else:
+            if status == "WAITING":
+                banner_style = "background:#0d1219;border:2px solid #f0c040;border-radius:8px;padding:12px 16px;margin:4px 0;"
+                icon = "👁"; stxt = "<span style='color:#f0c040;font-weight:700'>WATCHING</span>"
+            else:
+                banner_style = "background:#1a0a0a;border:2px solid #ff4d6d;border-radius:8px;padding:12px 16px;margin:4px 0;"
+                icon = "⏳"; stxt = "<span style='color:#ff4d6d;font-weight:700'>ENTRY EARLY</span>"
+            with col_banner:
+                st.markdown(f"""
+                <div style='{banner_style}'>
+                    <div style='display:flex;justify-content:space-between;align-items:center'>
+                        <div>
+                            <span style='font-size:1.1rem'>{icon}</span>
+                            <b style='margin-left:6px'>{item['ticker']} {"CALL" if item["direction"]=="bullish" else "PUT"}</b>
+                            <span style='color:#8899aa;font-size:0.82rem;margin-left:8px'>{item['pattern']} | Strike ${item['strike']:.2f}</span>
+                        </div>
+                        <div style='color:#8899aa;font-size:0.75rem;font-family:monospace'>{elapsed_mins}m {elapsed_secs}s{last_chk}</div>
+                    </div>
+                    <div style='margin-top:6px'>{stxt} &nbsp; {candle_html}</div>
+                    <div style='color:#e0e6f0;font-size:0.82rem;margin-top:4px'>{item['message']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
         with col_dismiss:
-            if st.button("Dismiss", key=f"dismiss_{key}"):
+            if st.button("✕", key=f"dismiss_{key}", help="Dismiss"):
                 remove_from_watch_queue(key)
                 st.rerun()
 
@@ -1319,20 +1348,12 @@ with tab1:
         # Use first candidate list that has signals for shared logic below
         candidates = cands_quick if not no_quick else cands_swing
         # Side-by-side columns: Quick (purple) | Swing (blue)
-        st.markdown("""
-        <div style='display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:6px'>
-            <div style='background:#1a0a3a;border-radius:6px;padding:6px 12px;text-align:center;
-                 color:#aa88ff;font-family:monospace;font-size:0.75rem;letter-spacing:1px'>
-                ⚡ QUICK &nbsp; DTE: ' + str(dte_quick) + ' days
-            </div>
-            <div style='background:#0a1a2a;border-radius:6px;padding:6px 12px;text-align:center;
-                 color:#6699cc;font-family:monospace;font-size:0.75rem;letter-spacing:1px'>
-                📅 SWING &nbsp; DTE: ' + str(dte_swing) + ' days
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
         col_q, col_s = st.columns(2)
+        with col_q:
+            st.markdown(f"<div style='background:#1a0a3a;border-radius:6px;padding:6px 12px;text-align:center;color:#aa88ff;font-family:monospace;font-size:0.75rem;letter-spacing:1px'>⚡ QUICK &nbsp;|&nbsp; {dte_quick}DTE</div>", unsafe_allow_html=True)
+        with col_s:
+            st.markdown(f"<div style='background:#0a1a2a;border-radius:6px;padding:6px 12px;text-align:center;color:#6699cc;font-family:monospace;font-size:0.75rem;letter-spacing:1px'>📅 SWING &nbsp;|&nbsp; {dte_swing}DTE</div>", unsafe_allow_html=True)
+
         with col_q:
             render_signal_cards(cands_quick, selected_ticker, dte_quick, "quick", "q",
                                 df, current_price, atr, iv_rank, earnings_days,
@@ -1423,7 +1444,7 @@ with tab4:
                 tiv,_ = fetch_iv_rank(ticker)
                 if cands:
                     best = cands[0]
-                    opt  = calc_trade(best["entry"],best["stop"],best["target"],best["direction"],dte,account_size,risk_pct,price,atr=atr)
+                    opt  = calc_trade(best["entry"],best["stop"],best["target"],best["direction"],dte,account_size,risk_pct,price,atr=atr,trade_style=trade_style)
                     _,gp,elevate = run_seven_point_gate(tdf,best,opt,tiv,check_earnings(ticker),opt["actual_dte"])
                     results.append({"Ticker":ticker,"Price":f"${price:.2f}",
                         "IV Rank":f"{tiv}%" if tiv else "N/A",
