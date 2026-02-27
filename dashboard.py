@@ -821,6 +821,289 @@ def parse_ai_brief(text):
         elif line.startswith("EDGE:"):    parsed["edge"]      = line.replace("EDGE:","").strip()
     return parsed
 
+def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
+                        df, current_price, atr, iv_rank, earnings_days,
+                        mstatus, mtext, account_size, risk_pct,
+                        htf_trend, htf_rsi, htf_ema, liq_ok):
+    """Renders signal cards for a given candidate list. Called once per column."""
+    if not candidates:
+        st.markdown(
+            "<div style='background:#111827;border:1px solid #1e2d40;border-radius:12px;"
+            "padding:20px;text-align:center;color:#8899aa;font-size:0.85rem'>"
+            "No signals found for this mode.</div>", unsafe_allow_html=True)
+        return
+
+    rank_labels   = ["BEST","BETTER","GOOD"]
+    rank_classes  = ["rank-best","rank-better","rank-good"]
+    badge_classes = ["badge-best","badge-better","badge-good"]
+    conf_classes  = ["conf-num-best","conf-num-better","conf-num-good"]
+    rank_icons    = ["🥇","🥈","🥉"]
+
+    for i, sig in enumerate(candidates):
+        rl = rank_labels[i]  if i<3 else f"#{i+1}"
+        rc = rank_classes[i] if i<3 else "rank-good"
+        bc = badge_classes[i]if i<3 else "badge-good"
+        cc = conf_classes[i] if i<3 else "conf-num-good"
+        ri = rank_icons[i]   if i<3 else ""
+
+        is_bull   = sig["direction"] == "bullish"
+        dir_color = "#00d4aa" if is_bull else "#ff4d6d"
+        dir_label = "BUY CALL" if is_bull else "BUY PUT"
+
+        # Trade style badge
+        sig_style = trade_style  # passed as parameter
+        if sig_style == "quick":
+            style_badge = "<span style='background:#1a0a3a;color:#aa88ff;font-family:monospace;font-size:0.68rem;padding:2px 7px;border-radius:10px;margin-left:6px'>⚡ QUICK</span>"
+        else:
+            style_badge = "<span style='background:#0a1a2a;color:#6699cc;font-family:monospace;font-size:0.68rem;padding:2px 7px;border-radius:10px;margin-left:6px'>📅 SWING</span>"
+
+        # Liquidity warning (silent fail - only shows if explicitly illiquid)
+        liq_warn = "" if liq_ok else "<span style='color:#f0c040;font-size:0.75rem;margin-left:8px'>⚠ Low liquidity</span>"
+
+        # Regime indicator (1 line, subtle)
+        sig_regime   = sig.get("regime","unknown")
+        regime_icon  = "📈" if sig_regime=="trending" else "↔️" if sig_regime=="choppy" else ""
+        regime_label = sig_regime.upper() if sig_regime != "unknown" else ""
+
+        conflict_html = ""
+        if sig.get("conflict"):
+            pname = sig.get("conflict_pattern","pattern")
+            conflict_html = f"<div class='conflict-warn'>Pattern {pname} found but trend overrides - showing {'PUT' if not is_bull else 'CALL'}.</div>"
+
+        # Quick trade warning if market closed
+        quick_warn_html = ""
+        if sig_style == "quick" and mstatus != "open":
+            quick_warn_html = "<div style='background:#1a150a;border:1px solid #f0c040;border-radius:6px;padding:8px 12px;margin-bottom:6px;color:#f0c040;font-size:0.8rem'>⚡ Quick trades require market to be open. Levels shown are based on current price.</div>"
+
+        dots_html = ""
+        for f in sig["factors"].values():
+            dot = "dot-green" if f["pass"] else "dot-red"
+            dots_html += f"<div class='factor-row'><span class='{dot}'></span><span style='color:{'#e0e6f0' if f['pass'] else '#8899aa'}'>{f['label']}</span></div>"
+
+        st.markdown(f"""
+        {conflict_html}
+        {quick_warn_html}
+        <div class='{rc}'>
+            <div style='display:flex;justify-content:space-between;align-items:flex-start'>
+                <div>
+                    <span class='rank-badge {bc}'>{ri} {rl}</span>{style_badge}{liq_warn}
+                    <div style='font-size:1.1rem;font-weight:700;color:{dir_color};margin-top:4px'>{dir_label} - {ticker}</div>
+                    <div style='color:#8899aa;font-size:0.82rem;margin-top:2px'>{sig['pattern_label']} &nbsp;<span style='font-size:0.75rem'>{regime_icon} {regime_label}</span></div>
+                </div>
+                <div class='{cc}'>{sig['confidence']}%</div>
+            </div>
+            <div style='margin-top:10px'>{dots_html}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if sig["confidence"] >= 60:
+            opt = calc_trade(sig["entry"],sig["stop"],sig["target"],sig["direction"],dte,account_size,risk_pct,current_price,atr=atr)
+            gates, gates_passed, elevate = run_seven_point_gate(df,sig,opt,iv_rank,earnings_days,opt["actual_dte"])
+            est_days, dte_rec = estimate_move_timeframe(sig["pattern_label"])
+            gate_color = "#00d4aa" if gates_passed>=6 else "#f0c040" if gates_passed>=4 else "#ff4d6d"
+            elev_badge = "<span style='background:#00d4aa22;color:#00d4aa;padding:2px 8px;border-radius:10px;font-size:0.72rem;margin-left:8px'>PRIME SETUP</span>" if elevate else ""
+            gates_dots = ""
+            for gname, gdata in gates.items():
+                if gdata["critical"] and not gdata["pass"]: dot = "dot-red"
+                elif gdata["pass"]:                          dot = "dot-green"
+                else:                                        dot = "dot-yellow"
+                g_color = "#e0e6f0" if gdata["pass"] else "#8899aa"
+                # Sanitize label - remove any characters that could break HTML
+                g_label = str(gdata["label"]).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;").replace("'","&#39;")
+                gates_dots += "<div class='factor-row'><span class='" + dot + "'></span><span style='color:" + g_color + ";font-size:0.78rem'><b>" + gname + ":</b> " + g_label + "</span></div>"
+
+            # Build as plain string - no f-string so special chars in labels cant break it
+            gate_html = (
+                "<div class='gate-box'>"
+                "<div style='display:flex;align-items:center;margin-bottom:8px'>"
+                "<span style='color:" + gate_color + ";font-family:monospace;font-size:0.78rem;font-weight:700'>7-POINT GATE: " + str(gates_passed) + "/7 PASSED</span>"
+                + elev_badge +
+                "</div>"
+                + gates_dots +
+                "<div style='color:#8899aa;font-size:0.75rem;margin-top:6px'>Pattern needs ~" + str(est_days) + " days to play out | Recommended DTE: " + str(dte_rec) + "+ days</div>"
+                "</div>"
+            )
+            st.markdown(gate_html, unsafe_allow_html=True)
+
+            # ── HTF Confluence ────────────────────────────────────────────
+            if htf_trend is not None:
+                htf_agrees = htf_trend == sig["direction"]
+                htf_color  = "#00d4aa" if htf_agrees else "#ff4d6d"
+                htf_icon   = "✅" if htf_agrees else "⚠️"
+                htf_label  = ("DAILY TREND CONFIRMS" if htf_agrees else "DAILY TREND CONFLICTS")
+                htf_detail = "Daily chart agrees — higher timeframe is aligned." if htf_agrees else "Daily chart is moving the other way. Extra caution — counter-trend trade."
+                htf_html = (
+                    "<div style='background:#0d1219;border:1px solid " + htf_color + "33;border-radius:8px;padding:10px 14px;margin-top:6px'>"
+                    "<div style='display:flex;align-items:center;gap:8px'>"
+                    "<span>" + htf_icon + "</span>"
+                    "<span style='color:" + htf_color + ";font-family:monospace;font-size:0.72rem;font-weight:700'>" + htf_label + "</span>"
+                    "<span style='color:#8899aa;font-size:0.78rem;margin-left:4px'>Daily trend: " + htf_trend.upper() + " | RSI " + str(htf_rsi) + " | EMA20 $" + str(htf_ema) + "</span>"
+                    "</div>"
+                    "<div style='color:#8899aa;font-size:0.78rem;margin-top:4px'>" + htf_detail + "</div>"
+                    "</div>"
+                )
+                st.markdown(htf_html, unsafe_allow_html=True)
+
+            # ── Move probability ──────────────────────────────────────────
+            tr_color = "#00d4aa" if opt["target_realistic"]=="Likely" else "#f0c040" if opt["target_realistic"]=="Possible" else "#ff4d6d"
+            atr_txt  = (str(opt["atr_multiples"]) + "x ATR needed") if opt["atr_multiples"] else ""
+            move_html = (
+                "<div style='background:#0d1219;border:1px solid #1e2d40;border-radius:8px;padding:10px 14px;margin-top:6px'>"
+                "<div style='display:flex;justify-content:space-between;align-items:center'>"
+                "<span style='color:#8899aa;font-family:monospace;font-size:0.72rem'>MOVE REQUIRED</span>"
+                "<span style='color:" + tr_color + ";font-weight:700;font-size:0.85rem'>" + opt["target_realistic"].upper() + "</span>"
+                "</div>"
+                "<div style='margin-top:4px;font-size:0.82rem'>"
+                "Price needs to move <b style='color:#e0e6f0'>" + str(opt["move_pct"]) + "%</b>"
+                + (" &nbsp;|&nbsp; <span style='color:#8899aa'>" + atr_txt + "</span>" if atr_txt else "") +
+                "</div>"
+                "<div style='color:#8899aa;font-size:0.75rem;margin-top:2px'>"
+                + ("Likely = &le;2x ATR &nbsp; Possible = 2-4x ATR &nbsp; Ambitious = 4x+ ATR" if opt["atr_multiples"] else "") +
+                "</div>"
+                "</div>"
+            )
+            st.markdown(move_html, unsafe_allow_html=True)
+
+            if not opt["delta_ok"]:
+                st.markdown(f"<div style='background:#1a150a;border:1px solid #f0c040;border-radius:6px;padding:8px 12px;margin-top:6px;color:#f0c040;font-size:0.8rem'>Delta {opt['delta']:.2f} outside 0.35-0.85 ideal range</div>", unsafe_allow_html=True)
+
+            delta_color = "#00d4aa" if opt["delta_ok"] else "#f0c040"
+            st.markdown(f"""
+            <div class='trade-box {"" if is_bull else "bear"}'>
+                <div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.88rem'>
+                    <div><div style='color:#8899aa;font-size:0.72rem'>STRIKE</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>${opt['strike']:.2f}</div></div>
+                    <div><div style='color:#8899aa;font-size:0.72rem'>PAY MAX</div><div style='font-weight:700'>${opt['premium']:.2f}/sh</div></div>
+                    <div><div style='color:#8899aa;font-size:0.72rem'>ENTRY</div><div style='font-weight:700'>${opt['entry']:.2f}</div></div>
+                    <div><div style='color:#8899aa;font-size:0.72rem'>DELTA</div><div style='font-weight:700;color:{delta_color}'>{opt['delta']:.2f}</div></div>
+                    <div><div style='color:#8899aa;font-size:0.72rem'>EXIT TARGET</div><div style='font-weight:700;color:#00d4aa'>${opt['target']:.2f}</div></div>
+                    <div><div style='color:#8899aa;font-size:0.72rem'>STOP OUT</div><div style='font-weight:700;color:#ff4d6d'>${opt['stop']:.2f}</div></div>
+                    <div><div style='color:#8899aa;font-size:0.72rem'>R:R RATIO</div><div style='font-weight:700;color:#00d4aa'>{opt['rr']}x</div></div>
+                    <div><div style='color:#8899aa;font-size:0.72rem'>MAX LOSS</div><div style='font-weight:700;color:#ff4d6d'>${opt['max_loss']:.0f}</div></div>
+                    <div><div style='color:#8899aa;font-size:0.72rem'>CONTRACTS</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>{opt['contracts']}</div></div>
+                    <div><div style='color:#8899aa;font-size:0.72rem'>PROFIT AT TARGET</div><div style='font-size:1.2rem;font-weight:700;color:#00d4aa'>${opt['profit_at_target']:,.0f}</div></div>
+                </div>
+                <div style='margin-top:8px;padding-top:8px;border-top:1px solid #1e2d40;display:flex;justify-content:space-between;align-items:center'>
+                    <div><div style='color:#8899aa;font-size:0.72rem'>EXPIRES</div><div style='font-weight:700'>{opt['expiration']}</div></div>
+                    <div style='text-align:right'><div style='color:#8899aa;font-size:0.72rem'>POSITION SIZE</div><div style='font-weight:700'>${opt['position_dollars']:.0f} <span style='color:#8899aa;font-size:0.75rem'>({opt['pct_of_account']}% of account)</span></div></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            if sig_style == "quick":
+                exit_hold = "Close within 20-60 minutes regardless of outcome. Do not hold into close."
+                exit_take = f"Take 50% off at ${opt['exit_take_half']:.2f}/sh (100% gain on option). Let rest run with tight mental stop."
+            else:
+                exit_take = f"Take 50% off when option reaches ${opt['exit_take_half']:.2f}/sh (100% gain). Let remaining 50% run with no stop."
+                exit_hold = "Never hold through earnings. Never add to a losing position. Never let a winner turn into a loser."
+
+            st.markdown(f"""
+            <div class='exit-rules'>
+                <div style='color:#00d4aa;font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:6px'>EXIT RULES - DECIDE BEFORE YOU ENTER</div>
+                <div style='margin:4px 0'><b>Take 50% off:</b> {exit_take}</div>
+                <div style='margin:4px 0'><b>Close 100%</b> if {ticker} closes {'below' if is_bull else 'above'} <b style='color:#ff4d6d'>${opt['exit_stop_stock']:.2f}</b> - pattern failed, no questions asked.</div>
+                <div style='margin:4px 0;color:#8899aa;font-size:0.8rem'>{exit_hold}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Entry timing check + watch queue - market hours only
+            watch_key = f"{ticker}_{sig['direction']}"
+            already_watching = watch_key in st.session_state.get("watch_queue", {})
+            conf_status = "N/A"
+
+            if mstatus == "open":
+                conf_result = check_entry_confirmation(df, sig["direction"])
+                conf_status = conf_result["status"]
+                if conf_status == "CONFIRMED":
+                    conf_bg = "#061a10"; conf_border = "#00d4aa"; conf_color = "#00d4aa"; conf_icon = "✅"
+                elif conf_status == "WAITING":
+                    conf_bg = "#0d1219"; conf_border = "#f0c040"; conf_color = "#f0c040"; conf_icon = "👁"
+                else:
+                    conf_bg = "#1a0a0a"; conf_border = "#ff4d6d"; conf_color = "#ff4d6d"; conf_icon = "⏳"
+
+                candle_html = ""
+                for c in conf_result.get("candles", []):
+                    if c == "green":   candle_html += "<span style='color:#00d4aa'>&#9650;</span> "
+                    elif c == "red":   candle_html += "<span style='color:#ff4d6d'>&#9660;</span> "
+                    else:              candle_html += "<span style='color:#8899aa'>&#9644;</span> "
+
+                st.markdown(f"""
+                <div style='background:{conf_bg};border:1px solid {conf_border};border-radius:8px;padding:10px 14px;margin-top:8px'>
+                    <div style='color:{conf_color};font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:4px'>ENTRY TIMING CHECK</div>
+                    <div style='display:flex;align-items:center;gap:10px'>
+                        <span style='font-size:1.1rem'>{conf_icon}</span>
+                        <span style='font-weight:700;color:{conf_color}'>{conf_status}</span>
+                        <span style='color:#8899aa;font-size:0.82rem'>Recent candles: {candle_html}</span>
+                    </div>
+                    <div style='color:#e0e6f0;font-size:0.82rem;margin-top:4px'>{conf_result["message"]}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Auto-add 7/7 elevated signals to watch queue
+                if elevate and not already_watching and conf_status != "CONFIRMED":
+                    add_to_watch_queue(ticker, sig["direction"], sig, opt)
+            else:
+                st.markdown("<div style='background:#0d1219;border:1px solid #1e2d40;border-radius:8px;padding:10px 14px;margin-top:8px;color:#8899aa;font-size:0.82rem'>⏸ Entry timing check runs during market hours only (9:30 AM - 4:00 PM ET)</div>", unsafe_allow_html=True)
+
+            if mstatus == "open":
+                if ANTHROPIC_API_KEY:
+                    ai_key = f"ai_result_{ticker}_{i}"
+                    if st.button(f"🤖 Get AI Brief #{i+1}", key=f"{key_prefix}_ai_{i}"):
+                        with st.spinner("Analyzing setup..."):
+                            try:
+                                ai_text   = get_ai_brief(ticker, sig, opt, gates, gates_passed, iv_rank, earnings_days, conf_status)
+                                ai_parsed = parse_ai_brief(ai_text)
+                                st.session_state[ai_key] = ai_parsed
+                            except Exception as e:
+                                st.session_state[ai_key] = {"error": str(e)}
+
+                    if ai_key in st.session_state:
+                        ai = st.session_state[ai_key]
+                        if "error" in ai:
+                            st.error(f"AI call failed: {ai['error']}")
+                        else:
+                            rating = ai.get("rating","")
+                            if "Strong" in rating:     r_color = "#00d4aa"; r_bg = "#061a10"; r_border = "#00d4aa"
+                            elif "Moderate" in rating: r_color = "#f0c040"; r_bg = "#1a150a"; r_border = "#f0c040"
+                            else:                      r_color = "#ff4d6d"; r_bg = "#1a0a0a"; r_border = "#ff4d6d"
+                            st.markdown(f"""
+                            <div style='background:{r_bg};border:1px solid {r_border};border-radius:8px;padding:14px;margin-top:8px'>
+                                <div style='color:#8899aa;font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:6px'>AI TRADE BRIEF</div>
+                                <div style='font-size:1.1rem;font-weight:700;color:{r_color};margin-bottom:10px'>🤖 {rating}</div>
+                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#8899aa'>REASONING</span><br>{ai.get("reasoning","")}</div>
+                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#ff4d6d'>KEY RISK</span><br>{ai.get("risk","")}</div>
+                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#00d4aa'>EDGE</span><br>{ai.get("edge","")}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                else:
+                    st.markdown("<div class='ai-placeholder'>🤖 AI Trade Brief - Add ANTHROPIC_API_KEY in Railway to enable</div>", unsafe_allow_html=True)
+            else:
+                st.markdown("<div style='background:#0d1219;border:1px solid #1e2d40;border-radius:8px;padding:10px 14px;margin-top:8px;color:#8899aa;font-size:0.82rem'>🤖 AI Trade Brief runs during market hours only (9:30 AM - 4:00 PM ET)</div>", unsafe_allow_html=True)
+
+            bcol1, bcol2, bcol3 = st.columns(3)
+            with bcol1:
+                if st.button(f"Log to Journal #{i+1}", key=f"{key_prefix}_log_{i}"):
+                    log_trade(ticker, sig, opt, gates_passed, 7, elevate)
+                    st.success("Logged!")
+            with bcol2:
+                share_text = build_share_text(ticker,sig,opt,gates_passed,7,elevate,mtext)
+                st.download_button(f"Share #{i+1}", data=share_text,
+                    file_name=f"{ticker}_signal_{datetime.now().strftime('%m%d_%H%M')}.txt",
+                    mime="text/plain", key=f"{key_prefix}_share_{i}")
+            with bcol3:
+                if not already_watching:
+                    if st.button(f"Watch #{i+1}", key=f"{key_prefix}_watch_{i}"):
+                        add_to_watch_queue(ticker, sig["direction"], sig, opt)
+                        st.success("Added to watch queue!")
+                        st.rerun()
+                else:
+                    if st.button(f"Stop Watching #{i+1}", key=f"{key_prefix}_unwatch_{i}"):
+                        remove_from_watch_queue(watch_key)
+                        st.rerun()
+
+        if i < len(candidates) - 1:
+            st.markdown("<hr style='border-color:#1e2d40;margin:12px 0'>", unsafe_allow_html=True)
+
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## OPTIONS SCREENER v6")
@@ -829,14 +1112,6 @@ with st.sidebar:
     custom = st.text_input("Or type any ticker","").upper().strip()
     if custom: selected_ticker = custom
     selected_tf = st.selectbox("TIMEFRAME", list(TIMEFRAMES.keys()), index=2)
-    st.markdown("---")
-    st.markdown("**TRADE STYLE**")
-    trade_style = st.radio("Mode", ["⚡ Quick (weekly/0DTE)", "📅 Swing (2-4 week)"], index=1, horizontal=True)
-    trade_style = "quick" if "Quick" in trade_style else "swing"
-    if trade_style == "quick":
-        st.caption("Tight ATR targets. 20min-2hr hold. Market hours only.")
-    else:
-        st.caption("Pattern measured move. Multi-day hold.")
     st.markdown("---")
     st.markdown("**PATTERNS TO SCAN**")
     tog_db    = st.toggle("Double Bottom (calls)", value=True)
@@ -848,11 +1123,13 @@ with st.sidebar:
     st.markdown("**ACCOUNT SETTINGS**")
     account_size = st.number_input("Account Size ($)", value=10000, step=1000)
     risk_pct     = st.slider("Risk per Trade (%)", 0.5, 5.0, 1.0, 0.5) / 100
-    if trade_style == "quick":
-        dte = st.selectbox("Days to Expiration", [0,1,2,3,5,7], index=2,
-                           help="0 = 0DTE (today), 1-7 = this week's expiry")
-    else:
-        dte = st.selectbox("Days to Expiration", [14,21,30,45,60], index=2)
+    st.markdown("**⚡ Quick DTE** (weekly/0DTE)")
+    dte_quick = st.selectbox("Quick expiry", [0,1,2,3,5,7], index=2,
+                             help="0 = 0DTE, 1-7 = this week", label_visibility="collapsed")
+    st.markdown("**📅 Swing DTE** (multi-week)")
+    dte_swing = st.selectbox("Swing expiry", [14,21,30,45,60], index=2,
+                             label_visibility="collapsed")
+    trade_style = "both"  # always show both
     st.markdown("---")
     st.markdown("**AUTO REFRESH**")
     refresh_on       = st.toggle("Live refresh (manual)", value=False)
@@ -1027,282 +1304,45 @@ if div:
 tab1,tab2,tab3,tab4,tab5 = st.tabs(["SIGNALS","CHART","BACKTEST","SCAN","JOURNAL"])
 
 with tab1:
-    candidates = build_candidates(df, selected_ticker, toggles, account_size, risk_pct, dte, trade_style=trade_style, atr=atr)
-    if not candidates:
+    cands_quick = build_candidates(df, selected_ticker, toggles, account_size, risk_pct, dte_quick, trade_style="quick", atr=atr)
+    cands_swing = build_candidates(df, selected_ticker, toggles, account_size, risk_pct, dte_swing, trade_style="swing", atr=atr)
+
+    no_quick = len(cands_quick) == 0
+    no_swing = len(cands_swing) == 0
+
+    if no_quick and no_swing:
         st.markdown("""<div style='background:#111827;border:2px solid #1e2d40;border-radius:12px;padding:24px;text-align:center;color:#8899aa'>
             <div style='font-size:1rem;font-weight:700;margin:8px 0'>NO SIGNALS FOUND</div>
             <div style='font-size:0.85rem'>Try Daily or 4 Hour timeframe, enable more patterns, or check a different ticker.</div>
         </div>""", unsafe_allow_html=True)
     else:
-        rank_labels   = ["BEST","BETTER","GOOD"]
-        rank_classes  = ["rank-best","rank-better","rank-good"]
-        badge_classes = ["badge-best","badge-better","badge-good"]
-        conf_classes  = ["conf-num-best","conf-num-better","conf-num-good"]
-        rank_icons    = ["🥇","🥈","🥉"]
-
-        for i, sig in enumerate(candidates):
-            rl = rank_labels[i]  if i<3 else f"#{i+1}"
-            rc = rank_classes[i] if i<3 else "rank-good"
-            bc = badge_classes[i]if i<3 else "badge-good"
-            cc = conf_classes[i] if i<3 else "conf-num-good"
-            ri = rank_icons[i]   if i<3 else ""
-
-            is_bull   = sig["direction"] == "bullish"
-            dir_color = "#00d4aa" if is_bull else "#ff4d6d"
-            dir_label = "BUY CALL" if is_bull else "BUY PUT"
-
-            # Trade style badge
-            sig_style = sig.get("trade_style", trade_style)
-            if sig_style == "quick":
-                style_badge = "<span style='background:#1a0a3a;color:#aa88ff;font-family:monospace;font-size:0.68rem;padding:2px 7px;border-radius:10px;margin-left:6px'>⚡ QUICK</span>"
-            else:
-                style_badge = "<span style='background:#0a1a2a;color:#6699cc;font-family:monospace;font-size:0.68rem;padding:2px 7px;border-radius:10px;margin-left:6px'>📅 SWING</span>"
-
-            # Liquidity warning (silent fail - only shows if explicitly illiquid)
-            liq_warn = "" if liq_ok else "<span style='color:#f0c040;font-size:0.75rem;margin-left:8px'>⚠ Low liquidity</span>"
-
-            # Regime indicator (1 line, subtle)
-            sig_regime   = sig.get("regime","unknown")
-            regime_icon  = "📈" if sig_regime=="trending" else "↔️" if sig_regime=="choppy" else ""
-            regime_label = sig_regime.upper() if sig_regime != "unknown" else ""
-
-            conflict_html = ""
-            if sig.get("conflict"):
-                pname = sig.get("conflict_pattern","pattern")
-                conflict_html = f"<div class='conflict-warn'>Pattern {pname} found but trend overrides - showing {'PUT' if not is_bull else 'CALL'}.</div>"
-
-            # Quick trade warning if market closed
-            quick_warn_html = ""
-            if sig_style == "quick" and mstatus != "open":
-                quick_warn_html = "<div style='background:#1a150a;border:1px solid #f0c040;border-radius:6px;padding:8px 12px;margin-bottom:6px;color:#f0c040;font-size:0.8rem'>⚡ Quick trades require market to be open. Levels shown are based on current price.</div>"
-
-            dots_html = ""
-            for f in sig["factors"].values():
-                dot = "dot-green" if f["pass"] else "dot-red"
-                dots_html += f"<div class='factor-row'><span class='{dot}'></span><span style='color:{'#e0e6f0' if f['pass'] else '#8899aa'}'>{f['label']}</span></div>"
-
-            st.markdown(f"""
-            {conflict_html}
-            {quick_warn_html}
-            <div class='{rc}'>
-                <div style='display:flex;justify-content:space-between;align-items:flex-start'>
-                    <div>
-                        <span class='rank-badge {bc}'>{ri} {rl}</span>{style_badge}{liq_warn}
-                        <div style='font-size:1.1rem;font-weight:700;color:{dir_color};margin-top:4px'>{dir_label} - {selected_ticker}</div>
-                        <div style='color:#8899aa;font-size:0.82rem;margin-top:2px'>{sig['pattern_label']} &nbsp;<span style='font-size:0.75rem'>{regime_icon} {regime_label}</span></div>
-                    </div>
-                    <div class='{cc}'>{sig['confidence']}%</div>
-                </div>
-                <div style='margin-top:10px'>{dots_html}</div>
+        # Use first candidate list that has signals for shared logic below
+        candidates = cands_quick if not no_quick else cands_swing
+        # Side-by-side columns: Quick (purple) | Swing (blue)
+        st.markdown("""
+        <div style='display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:6px'>
+            <div style='background:#1a0a3a;border-radius:6px;padding:6px 12px;text-align:center;
+                 color:#aa88ff;font-family:monospace;font-size:0.75rem;letter-spacing:1px'>
+                ⚡ QUICK &nbsp; DTE: ' + str(dte_quick) + ' days
             </div>
-            """, unsafe_allow_html=True)
+            <div style='background:#0a1a2a;border-radius:6px;padding:6px 12px;text-align:center;
+                 color:#6699cc;font-family:monospace;font-size:0.75rem;letter-spacing:1px'>
+                📅 SWING &nbsp; DTE: ' + str(dte_swing) + ' days
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-            if sig["confidence"] >= 60:
-                opt = calc_trade(sig["entry"],sig["stop"],sig["target"],sig["direction"],dte,account_size,risk_pct,current_price,atr=atr)
-                gates, gates_passed, elevate = run_seven_point_gate(df,sig,opt,iv_rank,earnings_days,opt["actual_dte"])
-                est_days, dte_rec = estimate_move_timeframe(sig["pattern_label"])
-                gate_color = "#00d4aa" if gates_passed>=6 else "#f0c040" if gates_passed>=4 else "#ff4d6d"
-                elev_badge = "<span style='background:#00d4aa22;color:#00d4aa;padding:2px 8px;border-radius:10px;font-size:0.72rem;margin-left:8px'>PRIME SETUP</span>" if elevate else ""
-                gates_dots = ""
-                for gname, gdata in gates.items():
-                    if gdata["critical"] and not gdata["pass"]: dot = "dot-red"
-                    elif gdata["pass"]:                          dot = "dot-green"
-                    else:                                        dot = "dot-yellow"
-                    g_color = "#e0e6f0" if gdata["pass"] else "#8899aa"
-                    # Sanitize label - remove any characters that could break HTML
-                    g_label = str(gdata["label"]).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;").replace("'","&#39;")
-                    gates_dots += "<div class='factor-row'><span class='" + dot + "'></span><span style='color:" + g_color + ";font-size:0.78rem'><b>" + gname + ":</b> " + g_label + "</span></div>"
-
-                # Build as plain string - no f-string so special chars in labels cant break it
-                gate_html = (
-                    "<div class='gate-box'>"
-                    "<div style='display:flex;align-items:center;margin-bottom:8px'>"
-                    "<span style='color:" + gate_color + ";font-family:monospace;font-size:0.78rem;font-weight:700'>7-POINT GATE: " + str(gates_passed) + "/7 PASSED</span>"
-                    + elev_badge +
-                    "</div>"
-                    + gates_dots +
-                    "<div style='color:#8899aa;font-size:0.75rem;margin-top:6px'>Pattern needs ~" + str(est_days) + " days to play out | Recommended DTE: " + str(dte_rec) + "+ days</div>"
-                    "</div>"
-                )
-                st.markdown(gate_html, unsafe_allow_html=True)
-
-                # ── HTF Confluence ────────────────────────────────────────────
-                if htf_trend is not None:
-                    htf_agrees = htf_trend == sig["direction"]
-                    htf_color  = "#00d4aa" if htf_agrees else "#ff4d6d"
-                    htf_icon   = "✅" if htf_agrees else "⚠️"
-                    htf_label  = ("DAILY TREND CONFIRMS" if htf_agrees else "DAILY TREND CONFLICTS")
-                    htf_detail = "Daily chart agrees — higher timeframe is aligned." if htf_agrees else "Daily chart is moving the other way. Extra caution — counter-trend trade."
-                    htf_html = (
-                        "<div style='background:#0d1219;border:1px solid " + htf_color + "33;border-radius:8px;padding:10px 14px;margin-top:6px'>"
-                        "<div style='display:flex;align-items:center;gap:8px'>"
-                        "<span>" + htf_icon + "</span>"
-                        "<span style='color:" + htf_color + ";font-family:monospace;font-size:0.72rem;font-weight:700'>" + htf_label + "</span>"
-                        "<span style='color:#8899aa;font-size:0.78rem;margin-left:4px'>Daily trend: " + htf_trend.upper() + " | RSI " + str(htf_rsi) + " | EMA20 $" + str(htf_ema) + "</span>"
-                        "</div>"
-                        "<div style='color:#8899aa;font-size:0.78rem;margin-top:4px'>" + htf_detail + "</div>"
-                        "</div>"
-                    )
-                    st.markdown(htf_html, unsafe_allow_html=True)
-
-                # ── Move probability ──────────────────────────────────────────
-                tr_color = "#00d4aa" if opt["target_realistic"]=="Likely" else "#f0c040" if opt["target_realistic"]=="Possible" else "#ff4d6d"
-                atr_txt  = (str(opt["atr_multiples"]) + "x ATR needed") if opt["atr_multiples"] else ""
-                move_html = (
-                    "<div style='background:#0d1219;border:1px solid #1e2d40;border-radius:8px;padding:10px 14px;margin-top:6px'>"
-                    "<div style='display:flex;justify-content:space-between;align-items:center'>"
-                    "<span style='color:#8899aa;font-family:monospace;font-size:0.72rem'>MOVE REQUIRED</span>"
-                    "<span style='color:" + tr_color + ";font-weight:700;font-size:0.85rem'>" + opt["target_realistic"].upper() + "</span>"
-                    "</div>"
-                    "<div style='margin-top:4px;font-size:0.82rem'>"
-                    "Price needs to move <b style='color:#e0e6f0'>" + str(opt["move_pct"]) + "%</b>"
-                    + (" &nbsp;|&nbsp; <span style='color:#8899aa'>" + atr_txt + "</span>" if atr_txt else "") +
-                    "</div>"
-                    "<div style='color:#8899aa;font-size:0.75rem;margin-top:2px'>"
-                    + ("Likely = &le;2x ATR &nbsp; Possible = 2-4x ATR &nbsp; Ambitious = 4x+ ATR" if opt["atr_multiples"] else "") +
-                    "</div>"
-                    "</div>"
-                )
-                st.markdown(move_html, unsafe_allow_html=True)
-
-                if not opt["delta_ok"]:
-                    st.markdown(f"<div style='background:#1a150a;border:1px solid #f0c040;border-radius:6px;padding:8px 12px;margin-top:6px;color:#f0c040;font-size:0.8rem'>Delta {opt['delta']:.2f} outside 0.35-0.85 ideal range</div>", unsafe_allow_html=True)
-
-                delta_color = "#00d4aa" if opt["delta_ok"] else "#f0c040"
-                st.markdown(f"""
-                <div class='trade-box {"" if is_bull else "bear"}'>
-                    <div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.88rem'>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>STRIKE</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>${opt['strike']:.2f}</div></div>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>PAY MAX</div><div style='font-weight:700'>${opt['premium']:.2f}/sh</div></div>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>ENTRY</div><div style='font-weight:700'>${opt['entry']:.2f}</div></div>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>DELTA</div><div style='font-weight:700;color:{delta_color}'>{opt['delta']:.2f}</div></div>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>EXIT TARGET</div><div style='font-weight:700;color:#00d4aa'>${opt['target']:.2f}</div></div>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>STOP OUT</div><div style='font-weight:700;color:#ff4d6d'>${opt['stop']:.2f}</div></div>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>R:R RATIO</div><div style='font-weight:700;color:#00d4aa'>{opt['rr']}x</div></div>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>MAX LOSS</div><div style='font-weight:700;color:#ff4d6d'>${opt['max_loss']:.0f}</div></div>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>CONTRACTS</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>{opt['contracts']}</div></div>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>PROFIT AT TARGET</div><div style='font-size:1.2rem;font-weight:700;color:#00d4aa'>${opt['profit_at_target']:,.0f}</div></div>
-                    </div>
-                    <div style='margin-top:8px;padding-top:8px;border-top:1px solid #1e2d40;display:flex;justify-content:space-between;align-items:center'>
-                        <div><div style='color:#8899aa;font-size:0.72rem'>EXPIRES</div><div style='font-weight:700'>{opt['expiration']}</div></div>
-                        <div style='text-align:right'><div style='color:#8899aa;font-size:0.72rem'>POSITION SIZE</div><div style='font-weight:700'>${opt['position_dollars']:.0f} <span style='color:#8899aa;font-size:0.75rem'>({opt['pct_of_account']}% of account)</span></div></div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                if sig_style == "quick":
-                    exit_hold = "Close within 20-60 minutes regardless of outcome. Do not hold into close."
-                    exit_take = f"Take 50% off at ${opt['exit_take_half']:.2f}/sh (100% gain on option). Let rest run with tight mental stop."
-                else:
-                    exit_take = f"Take 50% off when option reaches ${opt['exit_take_half']:.2f}/sh (100% gain). Let remaining 50% run with no stop."
-                    exit_hold = "Never hold through earnings. Never add to a losing position. Never let a winner turn into a loser."
-
-                st.markdown(f"""
-                <div class='exit-rules'>
-                    <div style='color:#00d4aa;font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:6px'>EXIT RULES - DECIDE BEFORE YOU ENTER</div>
-                    <div style='margin:4px 0'><b>Take 50% off:</b> {exit_take}</div>
-                    <div style='margin:4px 0'><b>Close 100%</b> if {selected_ticker} closes {'below' if is_bull else 'above'} <b style='color:#ff4d6d'>${opt['exit_stop_stock']:.2f}</b> - pattern failed, no questions asked.</div>
-                    <div style='margin:4px 0;color:#8899aa;font-size:0.8rem'>{exit_hold}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                # Entry timing check + watch queue - market hours only
-                watch_key = f"{selected_ticker}_{sig['direction']}"
-                already_watching = watch_key in st.session_state.get("watch_queue", {})
-                conf_status = "N/A"
-
-                if mstatus == "open":
-                    conf_result = check_entry_confirmation(df, sig["direction"])
-                    conf_status = conf_result["status"]
-                    if conf_status == "CONFIRMED":
-                        conf_bg = "#061a10"; conf_border = "#00d4aa"; conf_color = "#00d4aa"; conf_icon = "✅"
-                    elif conf_status == "WAITING":
-                        conf_bg = "#0d1219"; conf_border = "#f0c040"; conf_color = "#f0c040"; conf_icon = "👁"
-                    else:
-                        conf_bg = "#1a0a0a"; conf_border = "#ff4d6d"; conf_color = "#ff4d6d"; conf_icon = "⏳"
-
-                    candle_html = ""
-                    for c in conf_result.get("candles", []):
-                        if c == "green":   candle_html += "<span style='color:#00d4aa'>&#9650;</span> "
-                        elif c == "red":   candle_html += "<span style='color:#ff4d6d'>&#9660;</span> "
-                        else:              candle_html += "<span style='color:#8899aa'>&#9644;</span> "
-
-                    st.markdown(f"""
-                    <div style='background:{conf_bg};border:1px solid {conf_border};border-radius:8px;padding:10px 14px;margin-top:8px'>
-                        <div style='color:{conf_color};font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:4px'>ENTRY TIMING CHECK</div>
-                        <div style='display:flex;align-items:center;gap:10px'>
-                            <span style='font-size:1.1rem'>{conf_icon}</span>
-                            <span style='font-weight:700;color:{conf_color}'>{conf_status}</span>
-                            <span style='color:#8899aa;font-size:0.82rem'>Recent candles: {candle_html}</span>
-                        </div>
-                        <div style='color:#e0e6f0;font-size:0.82rem;margin-top:4px'>{conf_result["message"]}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    # Auto-add 7/7 elevated signals to watch queue
-                    if elevate and not already_watching and conf_status != "CONFIRMED":
-                        add_to_watch_queue(selected_ticker, sig["direction"], sig, opt)
-                else:
-                    st.markdown("<div style='background:#0d1219;border:1px solid #1e2d40;border-radius:8px;padding:10px 14px;margin-top:8px;color:#8899aa;font-size:0.82rem'>⏸ Entry timing check runs during market hours only (9:30 AM - 4:00 PM ET)</div>", unsafe_allow_html=True)
-
-                if mstatus == "open":
-                    if ANTHROPIC_API_KEY:
-                        ai_key = f"ai_result_{selected_ticker}_{i}"
-                        if st.button(f"🤖 Get AI Brief #{i+1}", key=f"ai_{i}"):
-                            with st.spinner("Analyzing setup..."):
-                                try:
-                                    ai_text   = get_ai_brief(selected_ticker, sig, opt, gates, gates_passed, iv_rank, earnings_days, conf_status)
-                                    ai_parsed = parse_ai_brief(ai_text)
-                                    st.session_state[ai_key] = ai_parsed
-                                except Exception as e:
-                                    st.session_state[ai_key] = {"error": str(e)}
-
-                        if ai_key in st.session_state:
-                            ai = st.session_state[ai_key]
-                            if "error" in ai:
-                                st.error(f"AI call failed: {ai['error']}")
-                            else:
-                                rating = ai.get("rating","")
-                                if "Strong" in rating:     r_color = "#00d4aa"; r_bg = "#061a10"; r_border = "#00d4aa"
-                                elif "Moderate" in rating: r_color = "#f0c040"; r_bg = "#1a150a"; r_border = "#f0c040"
-                                else:                      r_color = "#ff4d6d"; r_bg = "#1a0a0a"; r_border = "#ff4d6d"
-                                st.markdown(f"""
-                                <div style='background:{r_bg};border:1px solid {r_border};border-radius:8px;padding:14px;margin-top:8px'>
-                                    <div style='color:#8899aa;font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:6px'>AI TRADE BRIEF</div>
-                                    <div style='font-size:1.1rem;font-weight:700;color:{r_color};margin-bottom:10px'>🤖 {rating}</div>
-                                    <div style='margin:6px 0;font-size:0.85rem'><span style='color:#8899aa'>REASONING</span><br>{ai.get("reasoning","")}</div>
-                                    <div style='margin:6px 0;font-size:0.85rem'><span style='color:#ff4d6d'>KEY RISK</span><br>{ai.get("risk","")}</div>
-                                    <div style='margin:6px 0;font-size:0.85rem'><span style='color:#00d4aa'>EDGE</span><br>{ai.get("edge","")}</div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                    else:
-                        st.markdown("<div class='ai-placeholder'>🤖 AI Trade Brief - Add ANTHROPIC_API_KEY in Railway to enable</div>", unsafe_allow_html=True)
-                else:
-                    st.markdown("<div style='background:#0d1219;border:1px solid #1e2d40;border-radius:8px;padding:10px 14px;margin-top:8px;color:#8899aa;font-size:0.82rem'>🤖 AI Trade Brief runs during market hours only (9:30 AM - 4:00 PM ET)</div>", unsafe_allow_html=True)
-
-                bcol1, bcol2, bcol3 = st.columns(3)
-                with bcol1:
-                    if st.button(f"Log to Journal #{i+1}", key=f"log_{i}"):
-                        log_trade(selected_ticker, sig, opt, gates_passed, 7, elevate)
-                        st.success("Logged!")
-                with bcol2:
-                    share_text = build_share_text(selected_ticker,sig,opt,gates_passed,7,elevate,mtext)
-                    st.download_button(f"Share #{i+1}", data=share_text,
-                        file_name=f"{selected_ticker}_signal_{datetime.now().strftime('%m%d_%H%M')}.txt",
-                        mime="text/plain", key=f"share_{i}")
-                with bcol3:
-                    if not already_watching:
-                        if st.button(f"Watch #{i+1}", key=f"watch_{i}"):
-                            add_to_watch_queue(selected_ticker, sig["direction"], sig, opt)
-                            st.success("Added to watch queue!")
-                            st.rerun()
-                    else:
-                        if st.button(f"Stop Watching #{i+1}", key=f"unwatch_{i}"):
-                            remove_from_watch_queue(watch_key)
-                            st.rerun()
-
-            if i < len(candidates)-1:
-                st.markdown("<hr style='border-color:#1e2d40;margin:12px 0'>", unsafe_allow_html=True)
+        col_q, col_s = st.columns(2)
+        with col_q:
+            render_signal_cards(cands_quick, selected_ticker, dte_quick, "quick", "q",
+                                df, current_price, atr, iv_rank, earnings_days,
+                                mstatus, mtext, account_size, risk_pct,
+                                htf_trend, htf_rsi, htf_ema, liq_ok)
+        with col_s:
+            render_signal_cards(cands_swing, selected_ticker, dte_swing, "swing", "s",
+                                df, current_price, atr, iv_rank, earnings_days,
+                                mstatus, mtext, account_size, risk_pct,
+                                htf_trend, htf_rsi, htf_ema, liq_ok)
 
 with tab2:
     chart_db = [s for s in detect_double_bottom(df,selected_ticker,rr_min=2.0) if s.confirmed]
