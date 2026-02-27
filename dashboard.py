@@ -182,7 +182,7 @@ def estimate_move_timeframe(pattern_label):
     else:                          est_days = 10
     return est_days, int(est_days * 1.5)
 
-def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, current_price, iv=0.45):
+def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, current_price, iv=0.45, atr=None):
     is_call    = direction == "bullish"
     exp_date   = get_expiration_date(days_to_exp)
     actual_dte = max((exp_date - date.today()).days, 1)
@@ -193,10 +193,36 @@ def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, c
     premium    = max(premium, 0.10)
     breakeven  = (strike + premium) if is_call else (strike - premium)
 
-    if is_call and target < breakeven * 1.10:
-        target = round(breakeven * 1.10, 2)
-    elif not is_call and target > breakeven * 0.90:
-        target = round(breakeven * 0.90, 2)
+    # ── Target sanity check ───────────────────────────────────────────────────
+    # Use the pattern's measured move as-is. Only apply a sanity cap so we never
+    # show a target that requires an unrealistic price move.
+    # Cap: target cannot be more than 20% away from current price for stocks,
+    # or more than 4x ATR away. Whichever is less restrictive.
+    max_move_pct = 0.20  # 20% max move
+    if atr and atr > 0:
+        # Allow up to 6x ATR as the measured move (generous for double bottoms)
+        atr_cap_pct = (atr * 6) / current_price
+        max_move_pct = max(max_move_pct, min(atr_cap_pct, 0.35))
+
+    if is_call:
+        max_target = round(current_price * (1 + max_move_pct), 2)
+        stock_target = min(target, max_target)
+    else:
+        min_target = round(current_price * (1 - max_move_pct), 2)
+        stock_target = max(target, min_target)
+
+    # ATR-based move probability
+    move_needed = abs(stock_target - current_price)
+    atr_multiples = round(move_needed / atr, 1) if atr and atr > 0 else None
+    if atr_multiples is not None:
+        if atr_multiples <= 2.0:   target_realistic = "Likely"
+        elif atr_multiples <= 4.0: target_realistic = "Possible"
+        else:                       target_realistic = "Ambitious"
+    else:
+        target_realistic = "Unknown"
+
+    # Move pct for display
+    move_pct = round((move_needed / current_price) * 100, 1)
 
     delta     = estimate_delta(current_price, strike, actual_dte, iv, is_call)
     abs_delta = abs(delta)
@@ -205,22 +231,31 @@ def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, c
     position_dollars = round(max_loss_per * contracts, 2)
     pct_of_account   = round((position_dollars / account) * 100, 1) if account > 0 else 0
 
-    if is_call: profit_per = max(0, (target - strike - premium) * 100)
-    else:       profit_per = max(0, (strike - target - premium) * 100)
+    # Option profit at stock target using intrinsic value estimate
+    if is_call: profit_per = max(0, (stock_target - strike - premium) * 100)
+    else:       profit_per = max(0, (strike - stock_target - premium) * 100)
     total_profit = round(profit_per * contracts, 2)
-    rr = round(abs(target-entry) / abs(entry-stop), 2) if abs(entry-stop) > 0 else 0
+
+    # R:R on the stock move (pattern level)
+    rr_stock = round(abs(stock_target - entry) / abs(entry - stop), 2) if abs(entry - stop) > 0 else 0
+    # R:R on the option (dollar gain vs dollar loss)
+    rr_option = round(total_profit / position_dollars, 2) if position_dollars > 0 and total_profit > 0 else 0
 
     return {
         "type": "CALL" if is_call else "PUT",
-        "strike": strike, "premium": premium, "breakeven": round(breakeven,2),
+        "strike": strike, "premium": premium, "breakeven": round(breakeven, 2),
         "max_loss": position_dollars, "contracts": contracts,
         "position_dollars": position_dollars, "pct_of_account": pct_of_account,
         "profit_at_target": total_profit,
-        "target": round(target,2), "stop": round(stop,2), "entry": round(entry,2),
-        "rr": rr, "delta": round(abs_delta,2), "delta_ok": 0.35 <= abs_delta <= 0.85,
+        "target": round(stock_target, 2), "stop": round(stop, 2), "entry": round(entry, 2),
+        "rr": rr_stock, "rr_option": rr_option,
+        "delta": round(abs_delta, 2), "delta_ok": 0.35 <= abs_delta <= 0.85,
         "expiration": exp_date.strftime("%b %d, %Y"), "actual_dte": actual_dte,
         "exit_take_half": round(premium * 2.0, 2),
         "exit_stop_stock": round(stop, 2),
+        "move_pct": move_pct,
+        "atr_multiples": atr_multiples,
+        "target_realistic": target_realistic,
     }
 
 def detect_rsi_divergence(df):
@@ -446,67 +481,192 @@ def get_trend(df):
     if bear_score >= bull_score: return "bearish",bear_score,bear,ema20,vwap,rsi
     return "bullish",bull_score,bull,ema20,vwap,rsi
 
-def score_setup(df, setup):
-    close=df["close"]; high=df["high"]; low=df["low"]
-    price=float(close.iloc[-1])
-    is_bull=setup.direction=="bullish"
-    ema20  =float(close.ewm(span=20).mean().iloc[-1])
-    tp     =(high+low+close)/3
-    vwap   =float((tp*df["volume"]).cumsum().iloc[-1]/df["volume"].cumsum().iloc[-1])
-    rsi    =calc_rsi(close)
-    avg_vol=float(df["volume"].iloc[-20:].mean())
-    cur_vol=float(df["volume"].iloc[-1])
-    factors={
-        "pattern":{"pass":True,"label":"Pattern confirmed"},
-        "rsi":    {"pass":35<rsi<65,"label":f"RSI in zone ({rsi:.0f})"},
-        "vwap":   {"pass":(price>vwap if is_bull else price<vwap),"label":f"Price {'above' if is_bull else 'below'} VWAP (${vwap:.2f})"},
-        "volume": {"pass":cur_vol>avg_vol*1.2,"label":f"Volume spike ({cur_vol/1e6:.1f}M vs avg {avg_vol/1e6:.1f}M)"},
-        "ema":    {"pass":(price>ema20 if is_bull else price<ema20),"label":f"Price {'above' if is_bull else 'below'} EMA 20 (${ema20:.2f})"},
-    }
-    score = sum(1 for f in factors.values() if f["pass"])
-    return factors, score, int(score/5*100), rsi, vwap, ema20
+def detect_market_regime(df):
+    """
+    Determines if market is TRENDING or CHOPPY using ATR expansion and directional consistency.
+    Trending = ATR expanding + price making consistent directional moves.
+    Choppy   = ATR contracting or price reversing frequently.
+    Returns: regime ("trending"/"choppy"), strength (0-100)
+    """
+    if len(df) < 30: return "unknown", 50
+    close = df["close"].astype(float)
+    high  = df["high"].astype(float)
+    low   = df["low"].astype(float)
+    # ATR trend: compare recent 7-bar ATR to prior 14-bar ATR
+    tr = pd.concat([high-low,(high-close.shift(1)).abs(),(low-close.shift(1)).abs()],axis=1).max(axis=1)
+    atr_recent = float(tr.iloc[-7:].mean())
+    atr_prior  = float(tr.iloc[-21:-7].mean())
+    atr_expanding = atr_recent > atr_prior * 1.1
+    # Directional consistency: how many of last 10 bars close in same direction
+    last10 = df.tail(10)
+    bull_bars = int((last10["close"] > last10["open"]).sum())
+    bear_bars = 10 - bull_bars
+    directional = max(bull_bars, bear_bars)  # 5=choppy, 10=strong trend
+    consistency_score = int((directional - 5) / 5 * 100)  # 0-100
+    if atr_expanding and directional >= 7:
+        regime = "trending"
+        strength = min(100, int(consistency_score * 1.2))
+    elif not atr_expanding and directional <= 6:
+        regime = "choppy"
+        strength = max(0, 100 - consistency_score)
+    else:
+        regime = "trending" if directional >= 7 else "choppy"
+        strength = consistency_score
+    return regime, strength
 
-def build_candidates(df, ticker, toggles, account, risk_pct, dte):
+@st.cache_data(ttl=300)
+def check_liquidity(ticker):
+    """
+    Checks options liquidity via yfinance.
+    Returns: liquid (bool), avg_volume, avg_oi, message
+    """
+    try:
+        import yfinance as yf
+        tk = yf.Ticker(ticker)
+        exps = tk.options
+        if not exps: return False, 0, 0, "No options data"
+        # Use nearest expiration
+        chain = tk.option_chain(exps[0])
+        calls = chain.calls
+        if calls.empty: return False, 0, 0, "No calls data"
+        avg_vol = float(calls["volume"].fillna(0).mean())
+        avg_oi  = float(calls["openInterest"].fillna(0).mean())
+        liquid  = avg_vol >= 50 and avg_oi >= 100
+        msg = f"Avg vol {avg_vol:.0f} | OI {avg_oi:.0f}"
+        return liquid, avg_vol, avg_oi, msg
+    except:
+        return True, 0, 0, "Liquidity check unavailable"
+
+def score_setup(df, setup):
+    """
+    Weighted confidence scoring.
+    Weights (must sum to 100):
+      RSI divergence  25  - strongest signal, price/momentum divergence
+      Volume          25  - smart money confirmation
+      Pattern confirm 20  - structural setup
+      EMA alignment   15  - trend filter
+      VWAP            15  - intraday anchor
+    """
+    close  = df["close"]; high = df["high"]; low = df["low"]
+    price  = float(close.iloc[-1])
+    is_bull = setup.direction == "bullish"
+    ema20  = float(close.ewm(span=20).mean().iloc[-1])
+    tp     = (high + low + close) / 3
+    vwap   = float((tp * df["volume"]).cumsum().iloc[-1] / df["volume"].cumsum().iloc[-1])
+    rsi    = calc_rsi(close)
+    avg_vol = float(df["volume"].iloc[-20:].mean())
+    cur_vol = float(df["volume"].iloc[-1])
+
+    # RSI divergence check (weighted 25 pts)
+    rsi_div = detect_rsi_divergence(df)
+    rsi_div_match = rsi_div is not None and (
+        (is_bull and rsi_div.get("type") == "bullish") or
+        (not is_bull and rsi_div.get("type") == "bearish")
+    )
+    # RSI in zone (momentum not exhausted)
+    rsi_in_zone = 35 < rsi < 65
+
+    # Volume (weighted 25 pts) - expanding volume on signal bar
+    vol_expanding = cur_vol > avg_vol * 1.3  # 30% above average = strong confirmation
+    vol_present   = cur_vol > avg_vol * 1.1  # 10% above = moderate
+
+    factors = {
+        "Pattern":{"pass":True,       "label":"Pattern confirmed",                                   "weight":20},
+        "RSI Div":{"pass":rsi_div_match,"label":f"RSI divergence {'confirmed' if rsi_div_match else 'not detected'}","weight":25},
+        "Volume": {"pass":vol_expanding,"label":f"Volume {'spike' if vol_expanding else 'expanding' if vol_present else 'weak'} ({cur_vol/1e6:.1f}M vs avg {avg_vol/1e6:.1f}M)","weight":25},
+        "EMA":    {"pass":(price>ema20 if is_bull else price<ema20),"label":f"Price {'above' if is_bull else 'below'} EMA 20 (${ema20:.2f})","weight":15},
+        "VWAP":   {"pass":(price>vwap  if is_bull else price<vwap), "label":f"Price {'above' if is_bull else 'below'} VWAP (${vwap:.2f})",  "weight":15},
+    }
+
+    # Weighted confidence score
+    weighted_score = sum(f["weight"] for f in factors.values() if f["pass"])
+    raw_score      = sum(1 for f in factors.values() if f["pass"])
+
+    return factors, raw_score, weighted_score, rsi, vwap, ema20
+
+def calc_quick_levels(price, direction, atr):
+    """
+    For QUICK trades (weekly/0DTE): tight ATR-based levels.
+    Target = 0.75x ATR, Stop = 0.4x ATR. Realistic intraday moves.
+    """
+    if not atr or atr <= 0: atr = price * 0.01  # fallback 1%
+    is_bull = direction == "bullish"
+    entry  = round(price, 2)
+    target = round(price + atr * 0.75, 2) if is_bull else round(price - atr * 0.75, 2)
+    stop   = round(price - atr * 0.4,  2) if is_bull else round(price + atr * 0.4,  2)
+    return entry, target, stop
+
+def build_candidates(df, ticker, toggles, account, risk_pct, dte, trade_style="swing", atr=None):
     trend_dir,trend_score,trend_factors,t_ema,t_vwap,t_rsi = get_trend(df)
-    price = float(df["close"].iloc[-1])
+    price   = float(df["close"].iloc[-1])
+    regime, regime_strength = detect_market_regime(df)
+    is_quick = trade_style == "quick"
     candidates = []
     raw = []
     if toggles["db"]: raw += [s for s in detect_double_bottom(df,ticker,rr_min=2.0) if s.confirmed]
-    if toggles["dt"]: raw += [s for s in detect_double_top(df,ticker,rr_min=2.0) if s.confirmed]
+    if toggles["dt"]: raw += [s for s in detect_double_top(df,ticker,rr_min=2.0)    if s.confirmed]
     if toggles["br"]: raw += [s for s in detect_break_and_retest(df,ticker,rr_min=2.0) if s.confirmed]
+
     for setup in raw:
         if abs(setup.entry_price - price) / price > 0.05: continue
-        factors,score,confidence,rsi,vwap,ema20 = score_setup(df,setup)
+        factors, raw_score, weighted_conf, rsi, vwap, ema20 = score_setup(df, setup)
         conflict = setup.direction != trend_dir and trend_score >= 3
+
+        # Regime bonus: trending market boosts quick trades, both modes get swing bonus
+        regime_bonus = 5 if regime == "trending" else -5
+        # HTF alignment bonus (already fetched globally but we add 10 if direction matches trend)
+        htf_bonus = 10 if setup.direction == trend_dir else 0
+
+        final_conf = min(100, weighted_conf + htf_bonus + regime_bonus)
+
+        if is_quick:
+            q_entry, q_target, q_stop = calc_quick_levels(price, setup.direction, atr)
+        else:
+            q_entry, q_target, q_stop = setup.entry_price, setup.target, setup.stop_loss
+
         if conflict:
             t_entry  = round(price*(0.998 if trend_dir=="bearish" else 1.002),2)
             t_stop   = round(price*1.02,2) if trend_dir=="bearish" else round(price*0.98,2)
-            t_target = round(price*0.96,2) if trend_dir=="bearish" else round(price*1.04,2)
+            if is_quick:
+                _, t_target, t_stop = calc_quick_levels(price, trend_dir, atr)
+                t_entry = round(price*(0.998 if trend_dir=="bearish" else 1.002),2)
+            else:
+                t_target = round(price*0.96,2) if trend_dir=="bearish" else round(price*1.04,2)
+            conf_val = min(100, int(trend_score/5*100) + regime_bonus)
             candidates.append({"source":"trend_override","direction":trend_dir,
-                "confidence":int(trend_score/5*100),"score":trend_score,"factors":trend_factors,
+                "confidence":conf_val,"score":trend_score,"factors":trend_factors,
                 "conflict":True,"conflict_pattern":setup.pattern,
                 "entry":t_entry,"stop":t_stop,"target":t_target,
-                "pattern_label":"Trend Override","rsi":t_rsi,"vwap":t_vwap,"ema20":t_ema})
+                "pattern_label":"Trend Override","rsi":t_rsi,"vwap":t_vwap,"ema20":t_ema,
+                "regime":regime,"regime_strength":regime_strength,"trade_style":trade_style})
         else:
-            bonus = 10 if setup.direction==trend_dir else 0
             candidates.append({"source":"pattern","direction":setup.direction,
-                "confidence":min(100,confidence+bonus),"score":score,"factors":factors,"conflict":False,
-                "entry":setup.entry_price,"stop":setup.stop_loss,"target":setup.target,
+                "confidence":final_conf,"score":raw_score,"factors":factors,"conflict":False,
+                "entry":q_entry,"stop":q_stop,"target":q_target,
                 "pattern_label":setup.pattern.replace("Double","Double ").replace("BreakRetest","Break & Retest"),
-                "rsi":rsi,"vwap":vwap,"ema20":ema20,"rr":setup.rr_ratio})
+                "rsi":rsi,"vwap":vwap,"ema20":ema20,"rr":setup.rr_ratio,
+                "regime":regime,"regime_strength":regime_strength,"trade_style":trade_style})
+
     if trend_score >= 3:
         t_entry  = round(price*(0.998 if trend_dir=="bearish" else 1.002),2)
-        t_stop   = round(price*1.02,2) if trend_dir=="bearish" else round(price*0.98,2)
-        t_target = round(price*0.96,2) if trend_dir=="bearish" else round(price*1.04,2)
+        if is_quick:
+            _, t_target, t_stop = calc_quick_levels(price, trend_dir, atr)
+            t_entry = round(price*(0.998 if trend_dir=="bearish" else 1.002),2)
+        else:
+            t_stop   = round(price*1.02,2) if trend_dir=="bearish" else round(price*0.98,2)
+            t_target = round(price*0.96,2) if trend_dir=="bearish" else round(price*1.04,2)
+        trend_conf = min(100, int(trend_score/5*100) + regime_bonus)
         candidates.append({"source":"trend","direction":trend_dir,
-            "confidence":int(trend_score/5*100),"score":trend_score,"factors":trend_factors,"conflict":False,
+            "confidence":trend_conf,"score":trend_score,"factors":trend_factors,"conflict":False,
             "entry":t_entry,"stop":t_stop,"target":t_target,
             "pattern_label":f"{'Bearish' if trend_dir=='bearish' else 'Bullish'} Trend",
-            "rsi":t_rsi,"vwap":t_vwap,"ema20":t_ema})
+            "rsi":t_rsi,"vwap":t_vwap,"ema20":t_ema,
+            "regime":regime,"regime_strength":regime_strength,"trade_style":trade_style})
+
     seen = {}
     for c in sorted(candidates, key=lambda x:x["confidence"], reverse=True):
-        key = f"{c['direction']}_{c['pattern_label']}"
-        if key not in seen: seen[key] = c
+        k = f"{c['direction']}_{c['pattern_label']}"
+        if k not in seen: seen[k] = c
     return sorted(seen.values(), key=lambda x:x["confidence"], reverse=True)[:3]
 
 def load_journal():
@@ -670,6 +830,14 @@ with st.sidebar:
     if custom: selected_ticker = custom
     selected_tf = st.selectbox("TIMEFRAME", list(TIMEFRAMES.keys()), index=2)
     st.markdown("---")
+    st.markdown("**TRADE STYLE**")
+    trade_style = st.radio("Mode", ["⚡ Quick (weekly/0DTE)", "📅 Swing (2-4 week)"], index=1, horizontal=True)
+    trade_style = "quick" if "Quick" in trade_style else "swing"
+    if trade_style == "quick":
+        st.caption("Tight ATR targets. 20min-2hr hold. Market hours only.")
+    else:
+        st.caption("Pattern measured move. Multi-day hold.")
+    st.markdown("---")
     st.markdown("**PATTERNS TO SCAN**")
     tog_db    = st.toggle("Double Bottom (calls)", value=True)
     tog_br_up = st.toggle("Break & Retest Up (calls)", value=True)
@@ -680,7 +848,11 @@ with st.sidebar:
     st.markdown("**ACCOUNT SETTINGS**")
     account_size = st.number_input("Account Size ($)", value=10000, step=1000)
     risk_pct     = st.slider("Risk per Trade (%)", 0.5, 5.0, 1.0, 0.5) / 100
-    dte          = st.selectbox("Days to Expiration", [14,21,30,45,60], index=2)
+    if trade_style == "quick":
+        dte = st.selectbox("Days to Expiration", [0,1,2,3,5,7], index=2,
+                           help="0 = 0DTE (today), 1-7 = this week's expiry")
+    else:
+        dte = st.selectbox("Days to Expiration", [14,21,30,45,60], index=2)
     st.markdown("---")
     st.markdown("**AUTO REFRESH**")
     refresh_on       = st.toggle("Live refresh (manual)", value=False)
@@ -709,6 +881,49 @@ prev_close    = float(df["close"].iloc[-2]) if len(df)>1 else current_price
 pct_change    = ((current_price-prev_close)/prev_close)*100
 iv_rank, hv   = fetch_iv_rank(selected_ticker)
 earnings_days = check_earnings(selected_ticker)
+
+# ── ATR calculation (14-period) ───────────────────────────────────────────────
+def calc_atr(df, period=14):
+    if len(df) < period + 1: return None
+    high  = df["high"].astype(float)
+    low   = df["low"].astype(float)
+    close = df["close"].astype(float)
+    tr    = pd.concat([
+        high - low,
+        (high - close.shift(1)).abs(),
+        (low  - close.shift(1)).abs()
+    ], axis=1).max(axis=1)
+    return round(float(tr.rolling(period).mean().iloc[-1]), 2)
+
+atr = calc_atr(df)
+
+# ── Higher timeframe confluence ───────────────────────────────────────────────
+# Pull daily bars to check if the higher timeframe trend agrees with the signal
+@st.cache_data(ttl=300)
+def fetch_htf_trend(ticker):
+    """Fetch daily data and return trend + RSI for confluence check."""
+    try:
+        import yfinance as yf
+        raw = yf.download(ticker, period="60d", interval="1d", progress=False, auto_adjust=True)
+        if raw.empty or len(raw) < 20: return None, None, None
+        raw.columns = [c[0].lower() if isinstance(c, tuple) else c.lower() for c in raw.columns]
+        close = raw["close"].astype(float)
+        ema20 = float(close.ewm(span=20).mean().iloc[-1])
+        price = float(close.iloc[-1])
+        # Daily RSI
+        delta = close.diff()
+        gain  = delta.clip(lower=0).rolling(14).mean()
+        loss  = (-delta.clip(upper=0)).rolling(14).mean()
+        rsi   = float((100 - (100/(1+(gain/loss)))).iloc[-1])
+        trend = "bullish" if price > ema20 else "bearish"
+        return trend, round(rsi, 1), round(ema20, 2)
+    except:
+        return None, None, None
+
+htf_trend, htf_rsi, htf_ema = fetch_htf_trend(selected_ticker)
+
+# Liquidity check (cached, runs silently in background)
+liq_ok, liq_vol, liq_oi, liq_msg = check_liquidity(selected_ticker)
 
 # ── Background watch loop - runs every refresh for ALL watched tickers ────────
 any_new_confirm = run_background_watch_checks(tf_mult, tf_span, tf_days)
@@ -812,7 +1027,7 @@ if div:
 tab1,tab2,tab3,tab4,tab5 = st.tabs(["SIGNALS","CHART","BACKTEST","SCAN","JOURNAL"])
 
 with tab1:
-    candidates = build_candidates(df, selected_ticker, toggles, account_size, risk_pct, dte)
+    candidates = build_candidates(df, selected_ticker, toggles, account_size, risk_pct, dte, trade_style=trade_style, atr=atr)
     if not candidates:
         st.markdown("""<div style='background:#111827;border:2px solid #1e2d40;border-radius:12px;padding:24px;text-align:center;color:#8899aa'>
             <div style='font-size:1rem;font-weight:700;margin:8px 0'>NO SIGNALS FOUND</div>
@@ -836,10 +1051,30 @@ with tab1:
             dir_color = "#00d4aa" if is_bull else "#ff4d6d"
             dir_label = "BUY CALL" if is_bull else "BUY PUT"
 
+            # Trade style badge
+            sig_style = sig.get("trade_style", trade_style)
+            if sig_style == "quick":
+                style_badge = "<span style='background:#1a0a3a;color:#aa88ff;font-family:monospace;font-size:0.68rem;padding:2px 7px;border-radius:10px;margin-left:6px'>⚡ QUICK</span>"
+            else:
+                style_badge = "<span style='background:#0a1a2a;color:#6699cc;font-family:monospace;font-size:0.68rem;padding:2px 7px;border-radius:10px;margin-left:6px'>📅 SWING</span>"
+
+            # Liquidity warning (silent fail - only shows if explicitly illiquid)
+            liq_warn = "" if liq_ok else "<span style='color:#f0c040;font-size:0.75rem;margin-left:8px'>⚠ Low liquidity</span>"
+
+            # Regime indicator (1 line, subtle)
+            sig_regime   = sig.get("regime","unknown")
+            regime_icon  = "📈" if sig_regime=="trending" else "↔️" if sig_regime=="choppy" else ""
+            regime_label = sig_regime.upper() if sig_regime != "unknown" else ""
+
             conflict_html = ""
             if sig.get("conflict"):
                 pname = sig.get("conflict_pattern","pattern")
                 conflict_html = f"<div class='conflict-warn'>Pattern {pname} found but trend overrides - showing {'PUT' if not is_bull else 'CALL'}.</div>"
+
+            # Quick trade warning if market closed
+            quick_warn_html = ""
+            if sig_style == "quick" and mstatus != "open":
+                quick_warn_html = "<div style='background:#1a150a;border:1px solid #f0c040;border-radius:6px;padding:8px 12px;margin-bottom:6px;color:#f0c040;font-size:0.8rem'>⚡ Quick trades require market to be open. Levels shown are based on current price.</div>"
 
             dots_html = ""
             for f in sig["factors"].values():
@@ -848,12 +1083,13 @@ with tab1:
 
             st.markdown(f"""
             {conflict_html}
+            {quick_warn_html}
             <div class='{rc}'>
                 <div style='display:flex;justify-content:space-between;align-items:flex-start'>
                     <div>
-                        <span class='rank-badge {bc}'>{ri} {rl}</span>
-                        <div style='font-size:1.1rem;font-weight:700;color:{dir_color}'>{dir_label} - {selected_ticker}</div>
-                        <div style='color:#8899aa;font-size:0.82rem;margin-top:2px'>{sig['pattern_label']}</div>
+                        <span class='rank-badge {bc}'>{ri} {rl}</span>{style_badge}{liq_warn}
+                        <div style='font-size:1.1rem;font-weight:700;color:{dir_color};margin-top:4px'>{dir_label} - {selected_ticker}</div>
+                        <div style='color:#8899aa;font-size:0.82rem;margin-top:2px'>{sig['pattern_label']} &nbsp;<span style='font-size:0.75rem'>{regime_icon} {regime_label}</span></div>
                     </div>
                     <div class='{cc}'>{sig['confidence']}%</div>
                 </div>
@@ -862,7 +1098,7 @@ with tab1:
             """, unsafe_allow_html=True)
 
             if sig["confidence"] >= 60:
-                opt = calc_trade(sig["entry"],sig["stop"],sig["target"],sig["direction"],dte,account_size,risk_pct,current_price)
+                opt = calc_trade(sig["entry"],sig["stop"],sig["target"],sig["direction"],dte,account_size,risk_pct,current_price,atr=atr)
                 gates, gates_passed, elevate = run_seven_point_gate(df,sig,opt,iv_rank,earnings_days,opt["actual_dte"])
                 est_days, dte_rec = estimate_move_timeframe(sig["pattern_label"])
                 gate_color = "#00d4aa" if gates_passed>=6 else "#f0c040" if gates_passed>=4 else "#ff4d6d"
@@ -890,6 +1126,45 @@ with tab1:
                 )
                 st.markdown(gate_html, unsafe_allow_html=True)
 
+                # ── HTF Confluence ────────────────────────────────────────────
+                if htf_trend is not None:
+                    htf_agrees = htf_trend == sig["direction"]
+                    htf_color  = "#00d4aa" if htf_agrees else "#ff4d6d"
+                    htf_icon   = "✅" if htf_agrees else "⚠️"
+                    htf_label  = ("DAILY TREND CONFIRMS" if htf_agrees else "DAILY TREND CONFLICTS")
+                    htf_detail = "Daily chart agrees — higher timeframe is aligned." if htf_agrees else "Daily chart is moving the other way. Extra caution — counter-trend trade."
+                    htf_html = (
+                        "<div style='background:#0d1219;border:1px solid " + htf_color + "33;border-radius:8px;padding:10px 14px;margin-top:6px'>"
+                        "<div style='display:flex;align-items:center;gap:8px'>"
+                        "<span>" + htf_icon + "</span>"
+                        "<span style='color:" + htf_color + ";font-family:monospace;font-size:0.72rem;font-weight:700'>" + htf_label + "</span>"
+                        "<span style='color:#8899aa;font-size:0.78rem;margin-left:4px'>Daily trend: " + htf_trend.upper() + " | RSI " + str(htf_rsi) + " | EMA20 $" + str(htf_ema) + "</span>"
+                        "</div>"
+                        "<div style='color:#8899aa;font-size:0.78rem;margin-top:4px'>" + htf_detail + "</div>"
+                        "</div>"
+                    )
+                    st.markdown(htf_html, unsafe_allow_html=True)
+
+                # ── Move probability ──────────────────────────────────────────
+                tr_color = "#00d4aa" if opt["target_realistic"]=="Likely" else "#f0c040" if opt["target_realistic"]=="Possible" else "#ff4d6d"
+                atr_txt  = (str(opt["atr_multiples"]) + "x ATR needed") if opt["atr_multiples"] else ""
+                move_html = (
+                    "<div style='background:#0d1219;border:1px solid #1e2d40;border-radius:8px;padding:10px 14px;margin-top:6px'>"
+                    "<div style='display:flex;justify-content:space-between;align-items:center'>"
+                    "<span style='color:#8899aa;font-family:monospace;font-size:0.72rem'>MOVE REQUIRED</span>"
+                    "<span style='color:" + tr_color + ";font-weight:700;font-size:0.85rem'>" + opt["target_realistic"].upper() + "</span>"
+                    "</div>"
+                    "<div style='margin-top:4px;font-size:0.82rem'>"
+                    "Price needs to move <b style='color:#e0e6f0'>" + str(opt["move_pct"]) + "%</b>"
+                    + (" &nbsp;|&nbsp; <span style='color:#8899aa'>" + atr_txt + "</span>" if atr_txt else "") +
+                    "</div>"
+                    "<div style='color:#8899aa;font-size:0.75rem;margin-top:2px'>"
+                    + ("Likely = &le;2x ATR &nbsp; Possible = 2-4x ATR &nbsp; Ambitious = 4x+ ATR" if opt["atr_multiples"] else "") +
+                    "</div>"
+                    "</div>"
+                )
+                st.markdown(move_html, unsafe_allow_html=True)
+
                 if not opt["delta_ok"]:
                     st.markdown(f"<div style='background:#1a150a;border:1px solid #f0c040;border-radius:6px;padding:8px 12px;margin-top:6px;color:#f0c040;font-size:0.8rem'>Delta {opt['delta']:.2f} outside 0.35-0.85 ideal range</div>", unsafe_allow_html=True)
 
@@ -915,12 +1190,19 @@ with tab1:
                 </div>
                 """, unsafe_allow_html=True)
 
+                if sig_style == "quick":
+                    exit_hold = "Close within 20-60 minutes regardless of outcome. Do not hold into close."
+                    exit_take = f"Take 50% off at ${opt['exit_take_half']:.2f}/sh (100% gain on option). Let rest run with tight mental stop."
+                else:
+                    exit_take = f"Take 50% off when option reaches ${opt['exit_take_half']:.2f}/sh (100% gain). Let remaining 50% run with no stop."
+                    exit_hold = "Never hold through earnings. Never add to a losing position. Never let a winner turn into a loser."
+
                 st.markdown(f"""
                 <div class='exit-rules'>
                     <div style='color:#00d4aa;font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:6px'>EXIT RULES - DECIDE BEFORE YOU ENTER</div>
-                    <div style='margin:4px 0'><b>Take 50% off</b> when option reaches <b style='color:#00d4aa'>${opt['exit_take_half']:.2f}/sh</b> (100% gain). Let remaining 50% run with no stop.</div>
+                    <div style='margin:4px 0'><b>Take 50% off:</b> {exit_take}</div>
                     <div style='margin:4px 0'><b>Close 100%</b> if {selected_ticker} closes {'below' if is_bull else 'above'} <b style='color:#ff4d6d'>${opt['exit_stop_stock']:.2f}</b> - pattern failed, no questions asked.</div>
-                    <div style='margin:4px 0;color:#8899aa;font-size:0.8rem'>Never hold through earnings. Never add to a losing position. Never let a winner turn into a loser.</div>
+                    <div style='margin:4px 0;color:#8899aa;font-size:0.8rem'>{exit_hold}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -1097,11 +1379,11 @@ with tab4:
             try:
                 tdf   = fetch_ohlcv(ticker, tf_mult, tf_span, tf_days)
                 price = fetch_current_price(ticker) or float(tdf["close"].iloc[-1])
-                cands = build_candidates(tdf, ticker, toggles, account_size, risk_pct, dte)
+                cands = build_candidates(tdf, ticker, toggles, account_size, risk_pct, dte, trade_style=trade_style, atr=atr)
                 tiv,_ = fetch_iv_rank(ticker)
                 if cands:
                     best = cands[0]
-                    opt  = calc_trade(best["entry"],best["stop"],best["target"],best["direction"],dte,account_size,risk_pct,price)
+                    opt  = calc_trade(best["entry"],best["stop"],best["target"],best["direction"],dte,account_size,risk_pct,price,atr=atr)
                     _,gp,elevate = run_seven_point_gate(tdf,best,opt,tiv,check_earnings(ticker),opt["actual_dte"])
                     results.append({"Ticker":ticker,"Price":f"${price:.2f}",
                         "IV Rank":f"{tiv}%" if tiv else "N/A",
