@@ -873,19 +873,22 @@ with tab1:
                     elif gdata["pass"]:                          dot = "dot-green"
                     else:                                        dot = "dot-yellow"
                     g_color = "#e0e6f0" if gdata["pass"] else "#8899aa"
-                    g_label = str(gdata["label"]).replace("<","&lt;").replace(">","&gt;")
+                    # Sanitize label - remove any characters that could break HTML
+                    g_label = str(gdata["label"]).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;").replace("'","&#39;")
                     gates_dots += "<div class='factor-row'><span class='" + dot + "'></span><span style='color:" + g_color + ";font-size:0.78rem'><b>" + gname + ":</b> " + g_label + "</span></div>"
 
-                st.markdown(f"""
-                <div class='gate-box'>
-                    <div style='display:flex;align-items:center;margin-bottom:8px'>
-                        <span style='color:{gate_color};font-family:monospace;font-size:0.78rem;font-weight:700'>7-POINT GATE: {gates_passed}/7 PASSED</span>
-                        {elev_badge}
-                    </div>
-                    {gates_dots}
-                    <div style='color:#8899aa;font-size:0.75rem;margin-top:6px'>Pattern needs ~{est_days} days to play out | Recommended DTE: {dte_rec}+ days</div>
-                </div>
-                """, unsafe_allow_html=True)
+                # Build as plain string - no f-string so special chars in labels cant break it
+                gate_html = (
+                    "<div class='gate-box'>"
+                    "<div style='display:flex;align-items:center;margin-bottom:8px'>"
+                    "<span style='color:" + gate_color + ";font-family:monospace;font-size:0.78rem;font-weight:700'>7-POINT GATE: " + str(gates_passed) + "/7 PASSED</span>"
+                    + elev_badge +
+                    "</div>"
+                    + gates_dots +
+                    "<div style='color:#8899aa;font-size:0.75rem;margin-top:6px'>Pattern needs ~" + str(est_days) + " days to play out | Recommended DTE: " + str(dte_rec) + "+ days</div>"
+                    "</div>"
+                )
+                st.markdown(gate_html, unsafe_allow_html=True)
 
                 if not opt["delta_ok"]:
                     st.markdown(f"<div style='background:#1a150a;border:1px solid #f0c040;border-radius:6px;padding:8px 12px;margin-top:6px;color:#f0c040;font-size:0.8rem'>Delta {opt['delta']:.2f} outside 0.35-0.85 ideal range</div>", unsafe_allow_html=True)
