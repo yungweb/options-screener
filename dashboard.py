@@ -608,6 +608,8 @@ def build_candidates(df, ticker, toggles, account, risk_pct, dte, trade_style="s
     price   = float(df["close"].iloc[-1])
     regime, regime_strength = detect_market_regime(df)
     is_quick = trade_style == "quick"
+    # Define regime_bonus once here so it's always available even if no patterns found
+    regime_bonus = 5 if regime == "trending" else -5
     candidates = []
     raw = []
     if toggles["db"]: raw += [s for s in detect_double_bottom(df,ticker,rr_min=2.0) if s.confirmed]
@@ -619,9 +621,7 @@ def build_candidates(df, ticker, toggles, account, risk_pct, dte, trade_style="s
         factors, raw_score, weighted_conf, rsi, vwap, ema20 = score_setup(df, setup)
         conflict = setup.direction != trend_dir and trend_score >= 3
 
-        # Regime bonus: trending market boosts quick trades, both modes get swing bonus
-        regime_bonus = 5 if regime == "trending" else -5
-        # HTF alignment bonus (already fetched globally but we add 10 if direction matches trend)
+        # HTF alignment bonus
         htf_bonus = 10 if setup.direction == trend_dir else 0
 
         final_conf = min(100, weighted_conf + htf_bonus + regime_bonus)
@@ -1045,9 +1045,12 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Auto-add 7/7 elevated signals to watch queue
+                # Auto-add to watch queue: 7/7 elevated auto-adds, 5/7+ shows Watch button prominently
                 if elevate and not already_watching and conf_status != "CONFIRMED":
                     add_to_watch_queue(ticker, sig["direction"], sig, opt)
+                elif gates_passed >= 5 and not already_watching and conf_status != "CONFIRMED":
+                    # 5+ gates - don't auto-add but make the Watch button obvious
+                    st.markdown(f"<div style='background:#0d1219;border:1px solid #f0c040;border-radius:6px;padding:6px 12px;margin-top:4px;color:#f0c040;font-size:0.8rem'>⚡ {gates_passed}/7 gates — strong setup. Hit Watch to track entry timing.</div>", unsafe_allow_html=True)
             else:
                 st.markdown("<div style='background:#0d1219;border:1px solid #1e2d40;border-radius:8px;padding:10px 14px;margin-top:8px;color:#8899aa;font-size:0.82rem'>⏸ Entry timing check runs during market hours only (9:30 AM - 4:00 PM ET)</div>", unsafe_allow_html=True)
 
