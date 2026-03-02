@@ -238,9 +238,18 @@ def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, c
     position_dollars = round(max_loss_per * contracts, 2)
     pct_of_account   = round((position_dollars / account) * 100, 1) if account > 0 else 0
 
-    # Option profit at stock target using intrinsic value estimate
-    if is_call: profit_per = max(0, (stock_target - strike - premium) * 100)
-    else:       profit_per = max(0, (strike - stock_target - premium) * 100)
+    # Option profit estimate using delta approximation
+    # This reflects how the option trades mid-contract, not at expiry
+    # Delta * stock move = option price change (first order approximation)
+    # We also add a small gamma component for larger moves
+    stock_move = abs(stock_target - current_price)
+    # Estimate option value gain: delta * move + 0.5 * gamma * move^2
+    # Gamma approximation: ~delta*(1-delta)/stock_price/sqrt(actual_dte/365)
+    gamma_est  = (abs_delta * (1 - abs_delta)) / max(current_price * (actual_dte/365)**0.5, 1)
+    option_gain_per_share = abs_delta * stock_move + 0.5 * gamma_est * (stock_move ** 2)
+    # Cap gain at 10x premium (realistic for options)
+    option_gain_per_share = min(option_gain_per_share, premium * 10)
+    profit_per   = round(option_gain_per_share * 100, 2)
     total_profit = round(profit_per * contracts, 2)
 
     # R:R on the stock move (pattern level)
