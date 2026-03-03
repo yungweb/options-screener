@@ -728,12 +728,14 @@ def build_multi_tf_candidates(ticker, toggles, account, risk_pct,
 
     # Pick primary df for pattern detection
     if trade_style == "quick":
-        primary_df = tfs.get("15min") or tfs.get("5min")
-        confirm_df = tfs.get("5min")
+        _15m = tfs.get("15min"); _5m = tfs.get("5min")
+        primary_df = _15m if _15m is not None else _5m
+        confirm_df = _5m
     else:
-        primary_df = tfs.get("1hr")
-        confirm_df = tfs.get("4hr") or tfs.get("daily")
-        daily_df   = tfs.get("daily")
+        _1h  = tfs.get("1hr"); _4h = tfs.get("4hr"); _1d = tfs.get("daily")
+        primary_df = _1h
+        confirm_df = _4h if _4h is not None else _1d
+        daily_df   = _1d
 
     if primary_df is None:
         return [], tfs   # no data
