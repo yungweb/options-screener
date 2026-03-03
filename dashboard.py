@@ -555,13 +555,8 @@ def check_liquidity(ticker):
 
 def score_setup(df, setup):
     """
-    Weighted confidence scoring.
-    Weights (must sum to 100):
-      RSI divergence  25  - strongest signal, price/momentum divergence
-      Volume          25  - smart money confirmation
-      Pattern confirm 20  - structural setup
-      EMA alignment   15  - trend filter
-      VWAP            15  - intraday anchor
+    Confidence scoring - base layer (50 pts max).
+    Final score = base + TF confluence + extra confluence = 50-100.
     """
     close  = df["close"]; high = df["high"]; low = df["low"]
     price  = float(close.iloc[-1])
@@ -573,32 +568,27 @@ def score_setup(df, setup):
     avg_vol = float(df["volume"].iloc[-20:].mean())
     cur_vol = float(df["volume"].iloc[-1])
 
-    # RSI divergence check (weighted 25 pts)
     rsi_div = detect_rsi_divergence(df)
     rsi_div_match = rsi_div is not None and (
         (is_bull and rsi_div.get("type") == "bullish") or
         (not is_bull and rsi_div.get("type") == "bearish")
     )
-    # RSI in zone (momentum not exhausted)
-    rsi_in_zone = 35 < rsi < 65
-
-    # Volume (weighted 25 pts) - expanding volume on signal bar
-    vol_expanding = cur_vol > avg_vol * 1.3  # 30% above average = strong confirmation
-    vol_present   = cur_vol > avg_vol * 1.1  # 10% above = moderate
+    vol_expanding = cur_vol > avg_vol * 1.3
+    vol_present   = cur_vol > avg_vol * 1.1
 
     factors = {
-        "Pattern":{"pass":True,       "label":"Pattern confirmed",                                   "weight":20},
-        "RSI Div":{"pass":rsi_div_match,"label":f"RSI divergence {'confirmed' if rsi_div_match else 'not detected'}","weight":25},
-        "Volume": {"pass":vol_expanding,"label":f"Volume {'spike' if vol_expanding else 'expanding' if vol_present else 'weak'} ({cur_vol/1e6:.1f}M vs avg {avg_vol/1e6:.1f}M)","weight":25},
-        "EMA":    {"pass":(price>ema20 if is_bull else price<ema20),"label":f"Price {'above' if is_bull else 'below'} EMA 20 (${ema20:.2f})","weight":15},
-        "VWAP":   {"pass":(price>vwap  if is_bull else price<vwap), "label":f"Price {'above' if is_bull else 'below'} VWAP (${vwap:.2f})",  "weight":15},
+        "Pattern":{"pass":True,          "label":"Pattern confirmed"},
+        "RSI Div":{"pass":rsi_div_match, "label":f"RSI divergence {'confirmed' if rsi_div_match else 'not detected'}"},
+        "Volume": {"pass":vol_expanding, "label":f"Volume {'spike' if vol_expanding else 'expanding' if vol_present else 'weak'} ({cur_vol/1e6:.1f}M vs avg {avg_vol/1e6:.1f}M)"},
+        "EMA":    {"pass":(price>ema20 if is_bull else price<ema20),"label":f"Price {'above' if is_bull else 'below'} EMA 20 (${ema20:.2f})"},
+        "VWAP":   {"pass":(price>vwap  if is_bull else price<vwap), "label":f"Price {'above' if is_bull else 'below'} VWAP (${vwap:.2f})"},
     }
 
-    # Weighted confidence score
-    weighted_score = sum(f["weight"] for f in factors.values() if f["pass"])
-    raw_score      = sum(1 for f in factors.values() if f["pass"])
+    # Base score: each factor = 10pts, max 50
+    raw_score  = sum(1 for f in factors.values() if f["pass"])
+    base_score = raw_score * 10  # 0-50
 
-    return factors, raw_score, weighted_score, rsi, vwap, ema20
+    return factors, raw_score, base_score, rsi, vwap, ema20
 
 def calc_quick_levels(price, direction, atr):
     """
@@ -611,6 +601,203 @@ def calc_quick_levels(price, direction, atr):
     target = round(price + atr * 0.75, 2) if is_bull else round(price - atr * 0.75, 2)
     stop   = round(price - atr * 0.4,  2) if is_bull else round(price + atr * 0.4,  2)
     return entry, target, stop
+
+
+def fetch_multi_tf(ticker, trade_style):
+    """
+    Fetches the correct timeframes automatically based on trade style.
+    Quick: 5min (primary) + 15min (confirmation)
+    Swing: 1hr (primary) + 4hr (confirmation) + Daily (trend anchor)
+    Returns dict of {label: df}
+    """
+    import yfinance as yf
+
+    @st.cache_data(ttl=60)
+    def _fetch(ticker, interval, period):
+        try:
+            df = yf.download(ticker, period=period, interval=interval,
+                             progress=False, auto_adjust=True)
+            if df.empty: return None
+            df = df.reset_index()
+            df.columns = [c[0].lower() if isinstance(c,tuple) else c.lower() for c in df.columns]
+            df = df.rename(columns={"datetime":"timestamp","date":"timestamp"})
+            return df[["timestamp","open","high","low","close","volume"]].dropna().reset_index(drop=True)
+        except:
+            return None
+
+    if trade_style == "quick":
+        tf5  = _fetch(ticker, "5m",  "2d")
+        tf15 = _fetch(ticker, "15m", "5d")
+        return {
+            "5min":  tf5  if tf5  is not None and len(tf5)  > 20 else None,
+            "15min": tf15 if tf15 is not None and len(tf15) > 20 else None,
+        }
+    else:
+        tf1h  = _fetch(ticker, "1h",  "14d")
+        tf4h  = _fetch(ticker, "1h",  "30d")   # yfinance max 4h is limited, use 1h proxy
+        tf1d  = _fetch(ticker, "1d",  "90d")
+        return {
+            "1hr":   tf1h if tf1h  is not None and len(tf1h)  > 20 else None,
+            "4hr":   tf4h if tf4h  is not None and len(tf4h)  > 40 else None,
+            "daily": tf1d if tf1d  is not None and len(tf1d)  > 20 else None,
+        }
+
+def check_vwap_confluence(df_5min, direction):
+    """
+    Quick trade extra confluence: VWAP reclaim/rejection on 5min.
+    For calls: price above VWAP AND last candle closed above VWAP (reclaim)
+    For puts:  price below VWAP AND last candle closed below VWAP (rejection)
+    Returns: (passes: bool, label: str)
+    """
+    if df_5min is None or len(df_5min) < 5:
+        return False, "5min data unavailable"
+    close = df_5min["close"].astype(float)
+    high  = df_5min["high"].astype(float)
+    low   = df_5min["low"].astype(float)
+    vol   = df_5min["volume"].astype(float)
+    tp    = (high + low + close) / 3
+    vwap  = float((tp * vol).cumsum().iloc[-1] / vol.cumsum().iloc[-1])
+    price = float(close.iloc[-1])
+    prev  = float(close.iloc[-2])
+    is_bull = direction == "bullish"
+    if is_bull:
+        # Price above VWAP and last candle closed above = reclaim confirmed
+        passes = price > vwap and prev < vwap or price > vwap
+        label  = f"5min VWAP reclaim (${vwap:.2f})" if passes else f"5min price below VWAP (${vwap:.2f})"
+    else:
+        passes = price < vwap
+        label  = f"5min VWAP rejection (${vwap:.2f})" if passes else f"5min price above VWAP (${vwap:.2f})"
+    return passes, label
+
+def check_ema50_slope(df_daily, direction):
+    """
+    Swing trade extra confluence: 50 EMA slope on Daily.
+    Slope = (current EMA50 - EMA50 5 bars ago) / EMA50 5 bars ago
+    Calls need rising slope, Puts need falling slope.
+    Returns: (passes: bool, label: str)
+    """
+    if df_daily is None or len(df_daily) < 55:
+        return False, "Daily data unavailable for EMA50"
+    close  = df_daily["close"].astype(float)
+    ema50  = close.ewm(span=50).mean()
+    current = float(ema50.iloc[-1])
+    prior   = float(ema50.iloc[-6])
+    slope_pct = (current - prior) / prior * 100
+    is_bull = direction == "bullish"
+    if is_bull:
+        passes = slope_pct > 0
+        label  = f"Daily EMA50 rising (+{slope_pct:.2f}%)" if passes else f"Daily EMA50 falling ({slope_pct:.2f}%)"
+    else:
+        passes = slope_pct < 0
+        label  = f"Daily EMA50 falling ({slope_pct:.2f}%)" if passes else f"Daily EMA50 rising (+{slope_pct:.2f}%)"
+    return passes, label
+
+def check_tf_trend_agreement(dfs, direction):
+    """
+    Checks how many timeframes agree with the signal direction.
+    Returns (agreeing_count, total_checked, details_list)
+    """
+    details = []
+    agreeing = 0
+    for label, df in dfs.items():
+        if df is None: continue
+        close = df["close"].astype(float)
+        ema20 = float(close.ewm(span=20).mean().iloc[-1])
+        price = float(close.iloc[-1])
+        trend = "bullish" if price > ema20 else "bearish"
+        agrees = trend == direction
+        if agrees: agreeing += 1
+        details.append({
+            "tf": label,
+            "trend": trend,
+            "agrees": agrees,
+            "ema20": round(ema20, 2),
+            "price": round(price, 2),
+        })
+    return agreeing, len(details), details
+
+def build_multi_tf_candidates(ticker, toggles, account, risk_pct,
+                               dte, trade_style, atr=None):
+    """
+    Automatically fetches the right timeframes and builds candidates
+    with multi-TF confluence baked in.
+    Quick:  15min primary pattern + 5min trend + 5min VWAP
+    Swing:  1hr primary pattern + 4hr trend + Daily EMA50 slope
+    """
+    tfs = fetch_multi_tf(ticker, trade_style)
+
+    # Pick primary df for pattern detection
+    if trade_style == "quick":
+        primary_df = tfs.get("15min") or tfs.get("5min")
+        confirm_df = tfs.get("5min")
+    else:
+        primary_df = tfs.get("1hr")
+        confirm_df = tfs.get("4hr") or tfs.get("daily")
+        daily_df   = tfs.get("daily")
+
+    if primary_df is None:
+        return [], tfs   # no data
+
+    # Build candidates using primary timeframe
+    cands = build_candidates(primary_df, ticker, toggles, account, risk_pct,
+                             dte, trade_style=trade_style, atr=atr)
+
+    # Enhance each candidate with multi-TF confluence
+    for c in cands:
+        direction = c["direction"]
+        tf_agreement, tf_total, tf_details = check_tf_trend_agreement(tfs, direction)
+
+        if trade_style == "quick":
+            # Extra confluence: 5min VWAP
+            extra_pass, extra_label = check_vwap_confluence(confirm_df, direction)
+            extra_name = "5min VWAP"
+        else:
+            # Extra confluence: Daily EMA50 slope
+            extra_pass, extra_label = check_ema50_slope(
+                tfs.get("daily"), direction)
+            extra_name = "Daily EMA50"
+
+        # ── Clean 50-100 final score ─────────────────────────────────────────────
+        # Base (from score_setup): 0-50 pts  (each of 5 factors = 10 pts)
+        # TF confluence:           0-30 pts  (each agreeing TF = 10 pts, max 3 TFs = 30)
+        # Extra confluence:        0-20 pts  (VWAP reclaim or EMA50 slope)
+        # Total max = 100, min shown = 50
+        base = c["confidence"]  # already 50-95 from build_candidates
+
+        # TF layer: up to 30 pts from agreeing timeframes
+        if tf_total > 0:
+            tf_pts = int((tf_agreement / tf_total) * 30)
+        else:
+            tf_pts = 15  # neutral if no TF data
+
+        # Extra confluence layer: 20 pts if passes, 0 if not
+        extra_pts = 20 if extra_pass else 0
+
+        # Combine and clamp to 50-100
+        raw_final = base + tf_pts + extra_pts
+        # Normalize so max possible (50+30+20=100) maps cleanly
+        # But base is already 50-95, so we need to scale down
+        # Simpler: score = 50 + (factors/5)*25 + (tfs/total)*15 + extra*10
+        factor_pts = c.get("score", 0)  # 0-5 raw factors passing
+        score_50_100 = (
+            50
+            + int((factor_pts / 5) * 25)
+            + (int((tf_agreement / tf_total) * 15) if tf_total > 0 else 8)
+            + (10 if extra_pass else 0)
+        )
+        c["confidence"] = min(100, max(50, score_50_100))
+        c["tf_details"]   = tf_details
+        c["tf_agreement"] = tf_agreement
+        c["tf_total"]     = tf_total
+        c["extra_confluence"] = {
+            "name":  extra_name,
+            "pass":  extra_pass,
+            "label": extra_label,
+        }
+        c["primary_tf"] = "15min" if trade_style == "quick" else "1hr"
+        c["confirm_tfs"] = list(tfs.keys())
+
+    return cands, tfs
 
 def build_candidates(df, ticker, toggles, account, risk_pct, dte, trade_style="swing", atr=None):
     trend_dir,trend_score,trend_factors,t_ema,t_vwap,t_rsi = get_trend(df)
@@ -630,10 +817,8 @@ def build_candidates(df, ticker, toggles, account, risk_pct, dte, trade_style="s
         factors, raw_score, weighted_conf, rsi, vwap, ema20 = score_setup(df, setup)
         conflict = setup.direction != trend_dir and trend_score >= 3
 
-        # HTF alignment bonus
-        htf_bonus = 10 if setup.direction == trend_dir else 0
-
-        final_conf = min(100, weighted_conf + htf_bonus + regime_bonus)
+        # TF alignment: handled in build_multi_tf_candidates, use base score here
+        final_conf = max(50, min(95, 50 + weighted_conf))
 
         if is_quick:
             q_entry, q_target, q_stop = calc_quick_levels(price, setup.direction, atr)
@@ -648,7 +833,7 @@ def build_candidates(df, ticker, toggles, account, risk_pct, dte, trade_style="s
                 t_entry = round(price*(0.998 if trend_dir=="bearish" else 1.002),2)
             else:
                 t_target = round(price*0.96,2) if trend_dir=="bearish" else round(price*1.04,2)
-            conf_val = min(100, int(trend_score/5*100) + regime_bonus)
+            conf_val = max(50, min(90, 50 + int(trend_score/5*50)))
             candidates.append({"source":"trend_override","direction":trend_dir,
                 "confidence":conf_val,"score":trend_score,"factors":trend_factors,
                 "conflict":True,"conflict_pattern":setup.pattern,
@@ -671,7 +856,7 @@ def build_candidates(df, ticker, toggles, account, risk_pct, dte, trade_style="s
         else:
             t_stop   = round(price*1.02,2) if trend_dir=="bearish" else round(price*0.98,2)
             t_target = round(price*0.96,2) if trend_dir=="bearish" else round(price*1.04,2)
-        trend_conf = min(100, int(trend_score/5*100) + regime_bonus)
+        trend_conf = max(50, min(90, 50 + int(trend_score/5*50)))
         candidates.append({"source":"trend","direction":trend_dir,
             "confidence":trend_conf,"score":trend_score,"factors":trend_factors,"conflict":False,
             "entry":t_entry,"stop":t_stop,"target":t_target,
@@ -896,6 +1081,23 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
             dot = "dot-green" if f["pass"] else "dot-red"
             dots_html += f"<div class='factor-row'><span class='{dot}'></span><span style='color:{'#e0e6f0' if f['pass'] else '#8899aa'}'>{f['label']}</span></div>"
 
+        # Multi-TF confluence rows
+        tf_details = sig.get("tf_details", [])
+        extra_conf = sig.get("extra_confluence", {})
+        tf_html = ""
+        if tf_details:
+            tf_html += "<div style='margin-top:8px;padding-top:8px;border-top:1px solid #1e2d40'>"
+            tf_html += "<div style='color:#8899aa;font-family:monospace;font-size:0.68rem;letter-spacing:1px;margin-bottom:4px'>TIMEFRAME CONFLUENCE</div>"
+            for td in tf_details:
+                dot = "dot-green" if td["agrees"] else "dot-red"
+                c_color = "#e0e6f0" if td["agrees"] else "#8899aa"
+                tf_html += "<div class='factor-row'><span class='" + dot + "'></span><span style='color:" + c_color + ";font-size:0.78rem'><b>" + td["tf"].upper() + ":</b> " + td["trend"].upper() + " (EMA20 $" + str(td["ema20"]) + ")</span></div>"
+            if extra_conf:
+                dot = "dot-green" if extra_conf.get("pass") else "dot-yellow"
+                c_color = "#e0e6f0" if extra_conf.get("pass") else "#8899aa"
+                tf_html += "<div class='factor-row'><span class='" + dot + "'></span><span style='color:" + c_color + ";font-size:0.78rem'><b>" + str(extra_conf.get("name","")) + ":</b> " + str(extra_conf.get("label","")) + "</span></div>"
+            tf_html += "</div>"
+
         st.markdown(f"""
         {conflict_html}
         {quick_warn_html}
@@ -906,9 +1108,12 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                     <div style='font-size:1.1rem;font-weight:700;color:{dir_color};margin-top:4px'>{dir_label} - {ticker}</div>
                     <div style='color:#8899aa;font-size:0.82rem;margin-top:2px'>{sig['pattern_label']} &nbsp;<span style='font-size:0.75rem'>{regime_icon} {regime_label}</span></div>
                 </div>
-                <div class='{cc}'>{sig['confidence']}%</div>
+                <div style='text-align:right'>
+                    <div class='{cc}'>{sig['confidence']}%</div>
+                    <div style='font-size:0.7rem;font-family:monospace;margin-top:2px;color:#8899aa'>{"GO" if sig['confidence']>=90 else "STRONG" if sig['confidence']>=80 else "WATCH" if sig['confidence']>=70 else "WEAK" if sig['confidence']>=60 else "WAIT"}</div>
+                </div>
             </div>
-            <div style='margin-top:10px'>{dots_html}</div>
+            <div style='margin-top:10px'>{dots_html}{tf_html}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1130,7 +1335,8 @@ with st.sidebar:
     selected_ticker = st.selectbox("TICKER", WATCHLIST)
     custom = st.text_input("Or type any ticker","").upper().strip()
     if custom: selected_ticker = custom
-    selected_tf = st.selectbox("TIMEFRAME", list(TIMEFRAMES.keys()), index=2)
+    selected_tf = st.selectbox("CHART TIMEFRAME", list(TIMEFRAMES.keys()), index=2)
+    st.caption("Signals use automatic timeframes per mode.")
     st.markdown("---")
     st.markdown("**PATTERNS TO SCAN**")
     tog_db    = st.toggle("Double Bottom (calls)", value=True)
@@ -1345,8 +1551,8 @@ if div:
 tab1,tab2,tab3,tab4,tab5 = st.tabs(["SIGNALS","CHART","BACKTEST","SCAN","JOURNAL"])
 
 with tab1:
-    cands_quick = build_candidates(df, selected_ticker, toggles, account_size, risk_pct, dte_quick, trade_style="quick", atr=atr)
-    cands_swing = build_candidates(df, selected_ticker, toggles, account_size, risk_pct, dte_swing, trade_style="swing", atr=atr)
+    cands_quick, tfs_quick = build_multi_tf_candidates(selected_ticker, toggles, account_size, risk_pct, dte_quick, "quick", atr=atr)
+    cands_swing, tfs_swing = build_multi_tf_candidates(selected_ticker, toggles, account_size, risk_pct, dte_swing, "swing", atr=atr)
 
     no_quick = len(cands_quick) == 0
     no_swing = len(cands_swing) == 0
