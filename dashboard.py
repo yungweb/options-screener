@@ -2341,62 +2341,45 @@ with tab4:
             si     = "⚡" if r["style"]=="quick" else "📅"
             border = "#00e5aa44" if bucket=="go_now" else "#f0c04044" if bucket=="watching" else "#1a2535"
 
-            # SVG score ring — works natively in st.markdown on all browsers
-            R=28; circ=round(2*3.14159*R,1); dash=round((r["confidence"]/100)*circ,1)
-            ring = (f"<svg width='68' height='68' style='transform:rotate(-90deg);display:block'>"
-                    f"<circle cx='34' cy='34' r='{R}' fill='none' stroke='#1a2535' stroke-width='5'/>"
-                    f"<circle cx='34' cy='34' r='{R}' fill='none' stroke='{cc}' stroke-width='5' "
-                    f"stroke-dasharray='{dash} {circ}' stroke-linecap='round'/></svg>")
-
-            st.markdown(f"""
-            <div style='background:#0d1421;border:1px solid {border};border-radius:12px;
-                 padding:14px 16px;margin-bottom:8px'>
-              <div style='display:flex;align-items:center;gap:12px'>
-
-                <!-- Score ring -->
-                <div style='position:relative;width:68px;height:68px;flex-shrink:0'>
-                  {ring}
-                  <div style='position:absolute;inset:0;display:flex;flex-direction:column;
-                       align-items:center;justify-content:center;pointer-events:none'>
-                    <div style='font-size:0.95rem;font-weight:700;color:{cc};line-height:1'>{r["confidence"]}</div>
-                    <div style='font-size:0.42rem;color:{cc};letter-spacing:1px;margin-top:1px'>%</div>
-                  </div>
-                </div>
-
-                <!-- Middle info -->
-                <div style='flex:1;min-width:0'>
-                  <div style='display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px'>
-                    <span style='font-size:1.05rem;font-weight:700;color:{dc}'>{r["ticker"]}</span>
-                    <span style='font-size:0.6rem;background:{"#00e5aa22" if is_bull else "#ff4d6d22"};
-                         color:{dc};padding:2px 6px;border-radius:4px;font-weight:700'>
-                      {"CALL" if is_bull else "PUT"}
-                    </span>
-                    <span style='font-size:0.58rem;background:{"#1a0a3a" if r["style"]=="quick" else "#0a1a2a"};
-                         color:{"#aa88ff" if r["style"]=="quick" else "#6699cc"};
-                         padding:2px 6px;border-radius:4px'>{si} {r["style"].upper()}</span>
-                    {"<span style='font-size:0.58rem;color:#f0c040'>⚡ BLOCK</span>" if block else ""}
-                  </div>
-                  <div style='font-size:0.69rem;color:#8899aa'>{r["pattern"]}</div>
-                  <div style='font-size:0.65rem;color:#8899aa;margin-top:2px'>
-                    {rv}x vol &nbsp;·&nbsp; {"✅ confirmed" if exh_ok else "⏳ watching"}
-                  </div>
-                </div>
-
-                <!-- Right: label + key levels -->
-                <div style='text-align:right;flex-shrink:0'>
-                  <div style='font-size:0.56rem;font-weight:700;color:{cc};
-                       background:{cc}22;padding:2px 7px;border-radius:6px;
-                       letter-spacing:1px;margin-bottom:5px;display:inline-block'>{cl}</div>
-                  <div style='font-size:0.65rem;color:#8899aa'>
-                    Gate <span style='color:{gc};font-weight:700'>{r["gates_passed"]}/7</span>
-                  </div>
-                  <div style='font-size:0.65rem;color:#8899aa;margin-top:3px'>
-                    Strike <span style='color:#d0dae8;font-weight:700'>${opt["strike"]:.2f}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            """, unsafe_allow_html=True)
+            # Build card using % string formatting to avoid all quote conflicts
+            R = 28
+            circ = round(2 * 3.14159 * R, 1)
+            dash = round((r["confidence"] / 100) * circ, 1)
+            act_bg  = "#00e5aa22" if is_bull else "#ff4d6d22"
+            sty_bg  = "#1a0a3a"  if r["style"] == "quick" else "#0a1a2a"
+            sty_fg  = "#aa88ff"  if r["style"] == "quick" else "#6699cc"
+            blk_tag = "<span style='font-size:0.58rem;color:#f0c040'>⚡ BLOCK</span>" if block else ""
+            exh_txt = "✅ confirmed" if exh_ok else "⏳ watching"
+            action  = "CALL" if is_bull else "PUT"
+            parts = [
+                "<div style='background:#0d1421;border:1px solid %s;border-radius:12px;padding:14px 16px;margin-bottom:8px'>" % border,
+                "<div style='display:flex;align-items:center;gap:12px'>",
+                "<div style='position:relative;width:68px;height:68px;flex-shrink:0'>",
+                "<svg width='68' height='68' style='transform:rotate(-90deg);display:block'>",
+                "<circle cx='34' cy='34' r='%s' fill='none' stroke='#1a2535' stroke-width='5'/>" % R,
+                "<circle cx='34' cy='34' r='%s' fill='none' stroke='%s' stroke-width='5' stroke-dasharray='%s %s' stroke-linecap='round'/>" % (R, cc, dash, circ),
+                "</svg>",
+                "<div style='position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center'>",
+                "<div style='font-size:0.95rem;font-weight:700;color:%s;line-height:1'>%s</div>" % (cc, r["confidence"]),
+                "<div style='font-size:0.42rem;color:%s;letter-spacing:1px;margin-top:1px'>%%</div>" % cc,
+                "</div></div>",
+                "<div style='flex:1;min-width:0'>",
+                "<div style='display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px'>",
+                "<span style='font-size:1.05rem;font-weight:700;color:%s'>%s</span>" % (dc, r["ticker"]),
+                "<span style='font-size:0.6rem;background:%s;color:%s;padding:2px 6px;border-radius:4px;font-weight:700'>%s</span>" % (act_bg, dc, action),
+                "<span style='font-size:0.58rem;background:%s;color:%s;padding:2px 6px;border-radius:4px'>%s %s</span>" % (sty_bg, sty_fg, si, r["style"].upper()),
+                blk_tag,
+                "</div>",
+                "<div style='font-size:0.69rem;color:#8899aa'>%s</div>" % r["pattern"],
+                "<div style='font-size:0.65rem;color:#8899aa;margin-top:2px'>%sx vol &nbsp;·&nbsp; %s</div>" % (rv, exh_txt),
+                "</div>",
+                "<div style='text-align:right;flex-shrink:0'>",
+                "<div style='font-size:0.56rem;font-weight:700;color:%s;background:%s22;padding:2px 7px;border-radius:6px;letter-spacing:1px;margin-bottom:5px;display:inline-block'>%s</div>" % (cc, cc, cl),
+                "<div style='font-size:0.65rem;color:#8899aa'>Gate <span style='color:%s;font-weight:700'>%s/7</span></div>" % (gc, r["gates_passed"]),
+                "<div style='font-size:0.65rem;color:#8899aa;margin-top:3px'>Strike <span style='color:#d0dae8;font-weight:700'>$%.2f</span></div>" % opt["strike"],
+                "</div></div></div>",
+            ]
+            st.markdown("".join(parts), unsafe_allow_html=True)
 
             with st.expander(f"📊 {r['ticker']} full details"):
                 c1, c2 = st.columns(2)
@@ -2410,16 +2393,25 @@ with tab4:
                            ("EXPIRES", opt["expiration"], "#8899aa")]
                 with c1:
                     for lbl, val, col in items_l:
-                        st.markdown(f"<div style='background:#0d1421;border-radius:8px;padding:10px;margin-bottom:6px'><div style='font-size:0.58rem;color:#8899aa'>{lbl}</div><div style='font-size:0.95rem;font-weight:700;color:{col}'>{val}</div></div>", unsafe_allow_html=True)
+                        st.markdown(
+                            "<div style='background:#0d1421;border-radius:8px;padding:10px;margin-bottom:6px'>"
+                            "<div style='font-size:0.58rem;color:#8899aa'>%s</div>"
+                            "<div style='font-size:0.95rem;font-weight:700;color:%s'>%s</div></div>" % (lbl, col, val),
+                            unsafe_allow_html=True)
                 with c2:
                     for lbl, val, col in items_r:
-                        st.markdown(f"<div style='background:#0d1421;border-radius:8px;padding:10px;margin-bottom:6px'><div style='font-size:0.58rem;color:#8899aa'>{lbl}</div><div style='font-size:0.95rem;font-weight:700;color:{col}'>{val}</div></div>", unsafe_allow_html=True)
+                        st.markdown(
+                            "<div style='background:#0d1421;border-radius:8px;padding:10px;margin-bottom:6px'>"
+                            "<div style='font-size:0.58rem;color:#8899aa'>%s</div>"
+                            "<div style='font-size:0.95rem;font-weight:700;color:%s'>%s</div></div>" % (lbl, col, val),
+                            unsafe_allow_html=True)
 
-                st.markdown(f"""<div style='background:#080c12;border-radius:8px;padding:10px 12px;
-                    font-size:0.72rem;color:#8899aa;margin:2px 0 8px;line-height:1.6'>
-                    <span style='color:#00e5aa;font-weight:700'>Take 50% off</span> at ${opt['exit_take_half']:.2f}/sh &nbsp;·&nbsp;
-                    <span style='color:#ff4d6d;font-weight:700'>Close all</span> if {"below" if is_bull else "above"} ${opt['stop']:.2f}
-                </div>""", unsafe_allow_html=True)
+                side = "below" if is_bull else "above"
+                st.markdown(
+                    "<div style='background:#080c12;border-radius:8px;padding:10px 12px;font-size:0.72rem;color:#8899aa;margin:2px 0 8px;line-height:1.6'>"
+                    "<span style='color:#00e5aa;font-weight:700'>Take 50%% off</span> at $%.2f/sh &nbsp;·&nbsp;"
+                    "<span style='color:#ff4d6d;font-weight:700'>Close all</span> if %s $%.2f</div>" % (opt['exit_take_half'], side, opt['stop']),
+                    unsafe_allow_html=True)
 
                 exh = r.get("exh_reasons", [])
                 if exh:
@@ -2428,7 +2420,11 @@ with tab4:
                         good  = any(x in reason for x in ["confirmed","forming","Higher low","Lower high","Climax","Capitulation","Hammer","doji","star","reclaim","holding","rising","falling"])
                         col   = "#00e5aa" if good else "#ff4d6d"
                         tcol  = "#e0e6f0" if good else "#8899aa"
-                        st.markdown(f"<div style='font-size:0.73rem;color:{tcol};padding:2px 0'><span style='color:{col}'>{'●' if good else '○'}</span> {reason}</div>", unsafe_allow_html=True)
+                        dot   = "●" if good else "○"
+                        st.markdown(
+                            "<div style='font-size:0.73rem;color:%s;padding:2px 0'>"
+                            "<span style='color:%s'>%s</span> %s</div>" % (tcol, col, dot, reason),
+                            unsafe_allow_html=True)
 
                 if st.button(f"Log {r['ticker']} {r['action']}", key=f"log_{bucket}_{idx}", use_container_width=True):
                     log_trade(r["ticker"], r["sig"], r["opt"], r["gates_passed"], 7, r["elevate"])
