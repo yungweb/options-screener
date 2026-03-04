@@ -2341,23 +2341,58 @@ with tab4:
             si     = "⚡" if r["style"]=="quick" else "📅"
             border = "#00e5aa44" if bucket=="go_now" else "#f0c04044" if bucket=="watching" else "#1a2535"
 
+            # SVG score ring — works natively in st.markdown on all browsers
+            R=28; circ=round(2*3.14159*R,1); dash=round((r["confidence"]/100)*circ,1)
+            ring = (f"<svg width='68' height='68' style='transform:rotate(-90deg);display:block'>"
+                    f"<circle cx='34' cy='34' r='{R}' fill='none' stroke='#1a2535' stroke-width='5'/>"
+                    f"<circle cx='34' cy='34' r='{R}' fill='none' stroke='{cc}' stroke-width='5' "
+                    f"stroke-dasharray='{dash} {circ}' stroke-linecap='round'/></svg>")
+
             st.markdown(f"""
-            <div style='background:#0d1421;border:1px solid {border};border-radius:12px;padding:14px;margin-bottom:6px'>
+            <div style='background:#0d1421;border:1px solid {border};border-radius:12px;
+                 padding:14px 16px;margin-bottom:8px'>
               <div style='display:flex;align-items:center;gap:12px'>
-                <div style='text-align:center;flex-shrink:0;min-width:52px'>
-                  <div style='font-size:1.6rem;font-weight:700;color:{cc};line-height:1'>{r["confidence"]}</div>
-                  <div style='font-size:0.48rem;color:{cc};letter-spacing:1px'>%</div>
-                  <div style='font-size:0.52rem;color:{cc};font-weight:700;margin-top:2px'>{cl}</div>
+
+                <!-- Score ring -->
+                <div style='position:relative;width:68px;height:68px;flex-shrink:0'>
+                  {ring}
+                  <div style='position:absolute;inset:0;display:flex;flex-direction:column;
+                       align-items:center;justify-content:center;pointer-events:none'>
+                    <div style='font-size:0.95rem;font-weight:700;color:{cc};line-height:1'>{r["confidence"]}</div>
+                    <div style='font-size:0.42rem;color:{cc};letter-spacing:1px;margin-top:1px'>%</div>
+                  </div>
                 </div>
+
+                <!-- Middle info -->
                 <div style='flex:1;min-width:0'>
-                  <div style='font-size:1rem;font-weight:700;color:{dc}'>{r["ticker"]} {"CALL" if is_bull else "PUT"}</div>
-                  <div style='font-size:0.68rem;color:#8899aa;margin-top:2px'>{r["pattern"]} · {si} {r["style"].upper()}</div>
-                  <div style='font-size:0.64rem;color:#8899aa;margin-top:1px'>{rv}x vol · {"✅ confirmed" if exh_ok else "⏳ watching"}{" · ⚡BLOCK" if block else ""}</div>
+                  <div style='display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px'>
+                    <span style='font-size:1.05rem;font-weight:700;color:{dc}'>{r["ticker"]}</span>
+                    <span style='font-size:0.6rem;background:{"#00e5aa22" if is_bull else "#ff4d6d22"};
+                         color:{dc};padding:2px 6px;border-radius:4px;font-weight:700'>
+                      {"CALL" if is_bull else "PUT"}
+                    </span>
+                    <span style='font-size:0.58rem;background:{"#1a0a3a" if r["style"]=="quick" else "#0a1a2a"};
+                         color:{"#aa88ff" if r["style"]=="quick" else "#6699cc"};
+                         padding:2px 6px;border-radius:4px'>{si} {r["style"].upper()}</span>
+                    {"<span style='font-size:0.58rem;color:#f0c040'>⚡ BLOCK</span>" if block else ""}
+                  </div>
+                  <div style='font-size:0.69rem;color:#8899aa'>{r["pattern"]}</div>
+                  <div style='font-size:0.65rem;color:#8899aa;margin-top:2px'>
+                    {rv}x vol &nbsp;·&nbsp; {"✅ confirmed" if exh_ok else "⏳ watching"}
+                  </div>
                 </div>
+
+                <!-- Right: label + key levels -->
                 <div style='text-align:right;flex-shrink:0'>
-                  <div style='font-size:0.65rem;color:#8899aa'>Gate <span style='color:{gc};font-weight:700'>{r["gates_passed"]}/7</span></div>
-                  <div style='font-size:0.65rem;color:#8899aa;margin-top:3px'>Strike</div>
-                  <div style='font-size:0.9rem;font-weight:700;color:#d0dae8'>${opt["strike"]:.2f}</div>
+                  <div style='font-size:0.56rem;font-weight:700;color:{cc};
+                       background:{cc}22;padding:2px 7px;border-radius:6px;
+                       letter-spacing:1px;margin-bottom:5px;display:inline-block'>{cl}</div>
+                  <div style='font-size:0.65rem;color:#8899aa'>
+                    Gate <span style='color:{gc};font-weight:700'>{r["gates_passed"]}/7</span>
+                  </div>
+                  <div style='font-size:0.65rem;color:#8899aa;margin-top:3px'>
+                    Strike <span style='color:#d0dae8;font-weight:700'>${opt["strike"]:.2f}</span>
+                  </div>
                 </div>
               </div>
             </div>
