@@ -449,6 +449,21 @@ def init_watch_queue():
     if "watch_queue" not in st.session_state:
         st.session_state.watch_queue = {}
 
+def init_auto_scan():
+    if "auto_scan_enabled"  not in st.session_state: st.session_state.auto_scan_enabled  = False
+    if "auto_scan_results"  not in st.session_state: st.session_state.auto_scan_results   = None
+    if "auto_scan_last_run" not in st.session_state: st.session_state.auto_scan_last_run  = None
+    if "auto_scan_go_now"   not in st.session_state: st.session_state.auto_scan_go_now    = []
+    if "auto_scan_prev_go"  not in st.session_state: st.session_state.auto_scan_prev_go   = []
+    if "auto_scan_watching" not in st.session_state: st.session_state.auto_scan_watching  = []
+    if "auto_scan_on_deck"  not in st.session_state: st.session_state.auto_scan_on_deck   = []
+    if "auto_scan_mkt"      not in st.session_state: st.session_state.auto_scan_mkt       = "neutral"
+    if "auto_scan_settings" not in st.session_state: st.session_state.auto_scan_settings  = {
+        "scan_list": "watchlist", "max_premium": 5.0, "style": "both"
+    }
+
+init_auto_scan()
+
 def add_to_watch_queue(ticker, direction, sig, opt):
     init_watch_queue()
     key = f"{ticker}_{direction}"
@@ -2003,6 +2018,96 @@ mstatus, mtext = get_market_status()
 css_class = {"open":"market-open","pre":"market-pre","after":"market-pre","closed":"market-closed"}.get(mstatus,"market-closed")
 st.markdown(f"<div class='{css_class}'>{mtext}</div>", unsafe_allow_html=True)
 
+# ── AUTO-SCAN ENGINE ──────────────────────────────────────────────────────────
+SCAN_INTERVAL = 300  # 5 minutes
+
+def should_run_auto_scan():
+    if mstatus != "open": return False
+    if not st.session_state.auto_scan_enabled: return False
+    last = st.session_state.auto_scan_last_run
+    if last is None: return True
+    return (datetime.now() - last).total_seconds() >= SCAN_INTERVAL
+
+def run_auto_scan_now():
+    cfg = st.session_state.auto_scan_settings
+    sl  = WATCHLIST if cfg["scan_list"]=="watchlist" else SCAN_UNIVERSE
+    go, watching, deck, mkt = full_scan(
+        sl, toggles, account_size, risk_pct,
+        dte_quick, dte_swing, cfg["max_premium"], cfg["style"]
+    )
+    prev_tickers = {(r["ticker"],r["style"]) for r in st.session_state.auto_scan_prev_go}
+    new_go = [r for r in go if (r["ticker"],r["style"]) not in prev_tickers]
+    st.session_state.auto_scan_prev_go  = st.session_state.auto_scan_go_now
+    st.session_state.auto_scan_go_now   = go
+    st.session_state.auto_scan_watching = watching
+    st.session_state.auto_scan_on_deck  = deck
+    st.session_state.auto_scan_mkt      = mkt
+    st.session_state.auto_scan_last_run = datetime.now()
+    return new_go
+
+new_go_now = []
+if should_run_auto_scan():
+    with st.spinner("Auto-scanning market..."):
+        new_go_now = run_auto_scan_now()
+
+# ── LIVE STATUS BAR ───────────────────────────────────────────────────────────
+sb1, sb2, sb3 = st.columns([3,2,2])
+with sb1:
+    enabled = st.session_state.auto_scan_enabled
+    if mstatus == "open":
+        toggle_label = "🟢 AUTO-SCAN ON" if enabled else "⚫ AUTO-SCAN OFF"
+        if st.button(toggle_label, key="auto_scan_toggle"):
+            st.session_state.auto_scan_enabled = not enabled
+            if st.session_state.auto_scan_enabled:
+                st.session_state.auto_scan_last_run = None
+            st.rerun()
+    else:
+        st.markdown("<div style='color:#8899aa;font-size:0.78rem;padding:6px 0'>Auto-scan available during market hours</div>", unsafe_allow_html=True)
+with sb2:
+    last    = st.session_state.auto_scan_last_run
+    enabled = st.session_state.auto_scan_enabled
+    if last and enabled:
+        secs_ago = int((datetime.now()-last).total_seconds())
+        next_in  = max(0, SCAN_INTERVAL-secs_ago)
+        st.markdown(f"<div style='font-size:0.72rem;color:#8899aa;padding:6px 0'>Last: <span style='color:#d0dae8'>{secs_ago//60}m {secs_ago%60}s ago</span><br>Next: <span style='color:#00e5aa'>{next_in//60}m {next_in%60}s</span></div>", unsafe_allow_html=True)
+with sb3:
+    go_c  = len(st.session_state.auto_scan_go_now)
+    wat_c = len(st.session_state.auto_scan_watching)
+    dk_c  = len(st.session_state.auto_scan_on_deck)
+    if go_c + wat_c + dk_c > 0:
+        mkt_b = st.session_state.auto_scan_mkt
+        mc    = "#00e5aa" if mkt_b=="bullish" else "#ff4d6d" if mkt_b=="bearish" else "#f0c040"
+        st.markdown(f"<div style='font-size:0.72rem;padding:6px 0'><span style='color:{mc}'>● {mkt_b.upper()}</span> &nbsp;<span style='color:#00e5aa'>▲{go_c} GO</span> &nbsp;<span style='color:#f0c040'>◉{wat_c} WATCH</span> &nbsp;<span style='color:#6699cc'>◎{dk_c} DECK</span></div>", unsafe_allow_html=True)
+
+# ── GO NOW ALERT BANNER ───────────────────────────────────────────────────────
+for ng in new_go_now:
+    is_bull_ng = ng["direction"] == "bullish"
+    dc_ng = "#00e5aa" if is_bull_ng else "#ff4d6d"
+    st.markdown(f"""
+    <div style='background:#061a10;border:2px solid #00e5aa;border-radius:10px;padding:14px 18px;margin:6px 0'>
+        <div style='font-family:monospace;font-size:0.65rem;letter-spacing:3px;color:#00e5aa;margin-bottom:4px'>🚨 NEW GO NOW SIGNAL</div>
+        <div style='font-size:1.1rem;font-weight:700;color:{dc_ng}'>{"BUY CALL" if is_bull_ng else "BUY PUT"} — {ng["ticker"]}</div>
+        <div style='font-size:0.8rem;color:#8899aa;margin-top:2px'>{ng["pattern"]} · {ng["confidence"]}% · {ng["gates_passed"]}/7 gates · Strike ${ng["opt"]["strike"]:.2f} · Target ${ng["opt"]["target"]:.2f} · Stop ${ng["opt"]["stop"]:.2f}</div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.components.v1.html("""<script>
+    try {
+        var ctx=new(window.AudioContext||window.webkitAudioContext)();
+        [440,554,659].forEach(function(f,i){
+            var o=ctx.createOscillator(),g=ctx.createGain();
+            o.connect(g);g.connect(ctx.destination);
+            o.frequency.value=f;o.type="sine";
+            g.gain.setValueAtTime(0.3,ctx.currentTime+i*0.18);
+            g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+i*0.18+0.4);
+            o.start(ctx.currentTime+i*0.18);o.stop(ctx.currentTime+i*0.18+0.4);
+        });
+    } catch(e){}
+    </script>""", height=0)
+
+# Keep the page live — rerun every second when auto-scan is on
+if st.session_state.auto_scan_enabled and mstatus == "open":
+    import time as _time; _time.sleep(1); st.rerun()
+
 if earnings_days is not None:
     if earnings_days <= 1:   st.error(f"EARNINGS {'TODAY' if earnings_days==0 else 'TOMORROW'} on {selected_ticker} - Avoid new options positions.")
     elif earnings_days <= 7: st.error(f"EARNINGS IN {earnings_days} DAYS on {selected_ticker} - 7-point gate will block.")
@@ -2133,34 +2238,72 @@ with tab3:
 with tab4:
     st.markdown("<div class='section-title'>MARKET SCANNER</div>", unsafe_allow_html=True)
 
+    # Auto-scan settings (stored in session state so auto-scan uses same settings)
     sc1, sc2, sc3 = st.columns(3)
     with sc1:
         scan_style = st.radio("Scan Mode", ["⚡ Quick","📅 Swing","Both"], index=2, horizontal=True)
         scan_style_key = "quick" if "Quick" in scan_style else "swing" if "Swing" in scan_style else "both"
+        st.session_state.auto_scan_settings["style"] = scan_style_key
     with sc2:
         max_premium = st.number_input("Max Premium ($/sh)", value=5.00, step=0.50, min_value=0.50)
+        st.session_state.auto_scan_settings["max_premium"] = max_premium
     with sc3:
         scan_universe_choice = st.radio("Universe", ["My Watchlist","Full Scan (120+)"], index=0, horizontal=True)
         scan_list = WATCHLIST if "Watchlist" in scan_universe_choice else SCAN_UNIVERSE
+        st.session_state.auto_scan_settings["scan_list"] = "watchlist" if "Watchlist" in scan_universe_choice else "full"
 
-    st.caption(f"Scanning {len(scan_list)} tickers · All signals run through full precision stack silently")
+    # Show auto-scan results if available, else prompt manual scan
+    has_auto_results = len(st.session_state.auto_scan_go_now + st.session_state.auto_scan_watching + st.session_state.auto_scan_on_deck) > 0
+    if has_auto_results:
+        last_t = st.session_state.auto_scan_last_run
+        last_str = last_t.strftime("%I:%M:%S %p") if last_t else "unknown"
+        st.caption(f"Showing auto-scan results from {last_str} · {len(scan_list)} tickers scanned")
+        go_now   = st.session_state.auto_scan_go_now
+        watching = st.session_state.auto_scan_watching
+        on_deck  = st.session_state.auto_scan_on_deck
+        mkt_bias = st.session_state.auto_scan_mkt
+        if st.button("🔄 Scan Now", use_container_width=True):
+            with st.spinner("Scanning..."):
+                go_now, watching, on_deck, mkt_bias = full_scan(
+                    scan_list, toggles, account_size, risk_pct,
+                    dte_quick, dte_swing, max_premium, scan_style_key
+                )
+                st.session_state.auto_scan_go_now   = go_now
+                st.session_state.auto_scan_watching = watching
+                st.session_state.auto_scan_on_deck  = on_deck
+                st.session_state.auto_scan_mkt      = mkt_bias
+                st.session_state.auto_scan_last_run = datetime.now()
+                st.rerun()
+    else:
+        st.caption(f"Scanning {len(scan_list)} tickers through full precision stack")
+        if st.button("🔍 RUN SCAN", type="primary", use_container_width=True):
+            prog_bar  = st.progress(0)
+            prog_text = st.empty()
 
-    if st.button("🔍 RUN SCAN", type="primary", use_container_width=True):
-        prog_bar  = st.progress(0)
-        prog_text = st.empty()
+            def update_progress(idx, total, ticker):
+                prog_bar.progress((idx+1)/total)
+                prog_text.text(f"Scanning {ticker}... ({idx+1}/{total})")
 
-        def update_progress(idx, total, ticker):
-            prog_bar.progress((idx+1)/total)
-            prog_text.text(f"Scanning {ticker}... ({idx+1}/{total})")
+            go_now, watching, on_deck, mkt_bias = full_scan(
+                scan_list, toggles, account_size, risk_pct,
+                dte_quick, dte_swing, max_premium, scan_style_key,
+                progress_cb=update_progress
+            )
+            st.session_state.auto_scan_go_now   = go_now
+            st.session_state.auto_scan_watching = watching
+            st.session_state.auto_scan_on_deck  = on_deck
+            st.session_state.auto_scan_mkt      = mkt_bias
+            st.session_state.auto_scan_last_run = datetime.now()
+            prog_bar.empty(); prog_text.empty()
+            st.rerun()
 
-        go_now, watching, on_deck, mkt_bias = full_scan(
-            scan_list, toggles, account_size, risk_pct,
-            dte_quick, dte_swing, max_premium, scan_style_key,
-            progress_cb=update_progress
-        )
-        prog_bar.empty(); prog_text.empty()
+    # Render results from session state after manual scan
+    go_now   = st.session_state.auto_scan_go_now
+    watching = st.session_state.auto_scan_watching
+    on_deck  = st.session_state.auto_scan_on_deck
+    mkt_bias = st.session_state.auto_scan_mkt
 
-        # Market internals bar
+    if go_now or watching or on_deck:
         bias_color = "#00e5aa" if mkt_bias=="bullish" else "#ff4d6d" if mkt_bias=="bearish" else "#f0c040"
         bias_icon  = "📈" if mkt_bias=="bullish" else "📉" if mkt_bias=="bearish" else "↔️"
         total_found = len(go_now)+len(watching)+len(on_deck)
