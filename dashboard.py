@@ -60,6 +60,53 @@ except ImportError:
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 POLYGON_API_KEY   = os.environ.get("POLYGON_API_KEY", "")
 WATCHLIST = ["PLTR","NBIS","VRT","CRDO","GOOGL","AAOI","ASTS","ZETA","SPY","QQQ","NVDA","TSLA","AAPL"]
+
+# Full scan universe - 120 most liquid options tickers across all sectors
+SCAN_UNIVERSE = [
+    # Mega cap / Index
+    "SPY","QQQ","IWM","DIA","AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","BRK-B",
+    # Tech / Semis
+    "AMD","INTC","AVGO","QCOM","MU","AMAT","LRCX","KLAC","MRVL","CRDO","SMCI","ARM","TSM",
+    "PLTR","SNOW","DDOG","NET","CRWD","ZS","PANW","FTNT","OKTA","S","SQ","COIN","HOOD",
+    "NBIS","VRT","AAOI","ASTS","ZETA","RDW","IREN","WDC",
+    # Large cap growth
+    "NFLX","UBER","LYFT","ABNB","SHOP","MELI","SE","GRAB","BABA","JD","PDD",
+    "RBLX","U","TTWO","EA","ATVI",
+    # Financials
+    "JPM","BAC","GS","MS","C","WFC","BLK","V","MA","PYPL","AXP",
+    # Healthcare / Biotech
+    "UNH","JNJ","PFE","MRNA","BNTX","ABBV","LLY","BMY","GILD","REGN","BIIB",
+    # Energy
+    "XOM","CVX","OXY","SLB","HAL","MPC","PSX",
+    # Consumer
+    "AMZN","WMT","TGT","COST","HD","LOW","NKE","LULU","MCD","SBUX","CMG",
+    # Industrial / EV
+    "GE","CAT","DE","BA","LMT","RTX","RIVN","LCID","F","GM",
+    # ETF sectors
+    "XLK","XLF","XLE","XLV","XLY","XLI","GLD","SLV","TLT","HYG",
+]
+SCAN_UNIVERSE = list(dict.fromkeys(SCAN_UNIVERSE))  # deduplicate
+
+# Sector ETF map for sector alignment check
+SECTOR_ETF = {
+    "AAPL":"XLK","MSFT":"XLK","NVDA":"XLK","AMD":"XLK","INTC":"XLK","AVGO":"XLK",
+    "QCOM":"XLK","MU":"XLK","AMAT":"XLK","LRCX":"XLK","KLAC":"XLK","MRVL":"XLK",
+    "CRDO":"XLK","SMCI":"XLK","ARM":"XLK","TSM":"XLK","WDC":"XLK",
+    "PLTR":"XLK","SNOW":"XLK","DDOG":"XLK","NET":"XLK","CRWD":"XLK","ZS":"XLK",
+    "PANW":"XLK","FTNT":"XLK","OKTA":"XLK","S":"XLK","NBIS":"XLK","VRT":"XLK",
+    "AAOI":"XLK","ASTS":"XLK","ZETA":"XLK","IREN":"XLK",
+    "SQ":"XLF","COIN":"XLF","HOOD":"XLF","PYPL":"XLF","V":"XLF","MA":"XLF",
+    "JPM":"XLF","BAC":"XLF","GS":"XLF","MS":"XLF","C":"XLF","WFC":"XLF",
+    "BLK":"XLF","AXP":"XLF",
+    "UNH":"XLV","JNJ":"XLV","PFE":"XLV","MRNA":"XLV","BNTX":"XLV","ABBV":"XLV",
+    "LLY":"XLV","BMY":"XLV","GILD":"XLV","REGN":"XLV","BIIB":"XLV",
+    "XOM":"XLE","CVX":"XLE","OXY":"XLE","SLB":"XLE","HAL":"XLE","MPC":"XLE","PSX":"XLE",
+    "WMT":"XLY","TGT":"XLY","COST":"XLY","HD":"XLY","LOW":"XLY","NKE":"XLY",
+    "LULU":"XLY","MCD":"XLY","SBUX":"XLY","CMG":"XLY","AMZN":"XLY",
+    "NFLX":"XLY","UBER":"XLY","LYFT":"XLY","ABNB":"XLY","RBLX":"XLY",
+    "GE":"XLI","CAT":"XLI","DE":"XLI","BA":"XLI","LMT":"XLI","RTX":"XLI",
+    "RIVN":"XLI","LCID":"XLI","F":"XLI","GM":"XLI",
+}
 TIMEFRAMES = {
     "5 Min":  ("minute", 5,  2),
     "15 Min": ("minute", 15, 5),
@@ -1330,6 +1377,380 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
             st.markdown("<hr style='border-color:#1e2d40;margin:12px 0'>", unsafe_allow_html=True)
 
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PRECISION SCAN ENGINE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@st.cache_data(ttl=300)
+def get_market_internals():
+    """
+    Checks SPY and QQQ trend to determine overall market bias.
+    Returns: bias ("bullish"/"bearish"/"neutral"), strength (0-100)
+    """
+    try:
+        import yfinance as yf
+        results = {}
+        for sym in ["SPY","QQQ"]:
+            df = yf.download(sym, period="5d", interval="15m", progress=False, auto_adjust=True)
+            if df.empty: continue
+            df.columns = [c[0].lower() if isinstance(c,tuple) else c.lower() for c in df.columns]
+            close = df["close"].astype(float)
+            ema20 = float(close.ewm(span=20).mean().iloc[-1])
+            ema50 = float(close.ewm(span=50).mean().iloc[-1])
+            price = float(close.iloc[-1])
+            rsi   = calc_rsi(close)
+            results[sym] = {
+                "above_ema20": price > ema20,
+                "above_ema50": price > ema50,
+                "rsi": rsi,
+                "price": price,
+                "ema20": round(ema20,2),
+            }
+        if not results: return "neutral", 50
+
+        bull_signals = sum([
+            results.get("SPY",{}).get("above_ema20", False),
+            results.get("SPY",{}).get("above_ema50", False),
+            results.get("QQQ",{}).get("above_ema20", False),
+            results.get("QQQ",{}).get("above_ema50", False),
+            results.get("SPY",{}).get("rsi",50) > 50,
+            results.get("QQQ",{}).get("rsi",50) > 50,
+        ])
+        bear_signals = 6 - bull_signals
+
+        if bull_signals >= 5:   return "bullish", int(bull_signals/6*100)
+        elif bear_signals >= 5: return "bearish", int(bear_signals/6*100)
+        else:                   return "neutral",  50
+    except:
+        return "neutral", 50
+
+@st.cache_data(ttl=300)
+def get_sector_bias(sector_etf):
+    """Returns trend direction of a sector ETF."""
+    try:
+        import yfinance as yf
+        df = yf.download(sector_etf, period="5d", interval="1h", progress=False, auto_adjust=True)
+        if df.empty: return "neutral"
+        df.columns = [c[0].lower() if isinstance(c,tuple) else c.lower() for c in df.columns]
+        close = df["close"].astype(float)
+        price = float(close.iloc[-1])
+        ema20 = float(close.ewm(span=20).mean().iloc[-1])
+        return "bullish" if price > ema20 else "bearish"
+    except:
+        return "neutral"
+
+def detect_exhaustion(df, direction):
+    """
+    Precision bottom/top confirmation.
+    For CALLS (bottom hunting):
+      - Capitulation candle: large body down candle with high volume
+      - Followed by hammer or doji (indecision)
+      - RSI divergence: price lower low but RSI higher low
+      - Higher low structure: last low > previous low
+    For PUTS (top hunting):
+      - Climax candle: large body up candle with high volume
+      - Followed by shooting star or doji
+      - RSI divergence: price higher high but RSI lower high
+      - Lower high structure: last high < previous high
+    Returns: (confirmed: bool, score: int 0-4, reasons: list)
+    """
+    if len(df) < 20:
+        return False, 0, ["Insufficient data"]
+
+    close  = df["close"].astype(float)
+    high   = df["high"].astype(float)
+    low    = df["low"].astype(float)
+    open_  = df["open"].astype(float)
+    volume = df["volume"].astype(float)
+    avg_vol = float(volume.iloc[-20:].mean())
+
+    is_bull = direction == "bullish"
+    reasons = []
+    score   = 0
+
+    # ── 1. Exhaustion candle (big move with volume) ──────────────────────────
+    recent = 5
+    if is_bull:
+        # Look for a big down candle with high volume in last 5 bars (capitulation)
+        for j in range(-recent, -1):
+            body   = float(open_.iloc[j]) - float(close.iloc[j])
+            is_big = body > (float(high.iloc[j]) - float(low.iloc[j])) * 0.6
+            is_vol = float(volume.iloc[j]) > avg_vol * 1.5
+            if body > 0 and is_big and is_vol:
+                score += 1
+                reasons.append("Capitulation candle confirmed")
+                break
+        else:
+            reasons.append("No capitulation candle")
+    else:
+        # Look for a big up candle with high volume (climax)
+        for j in range(-recent, -1):
+            body   = float(close.iloc[j]) - float(open_.iloc[j])
+            is_big = body > (float(high.iloc[j]) - float(low.iloc[j])) * 0.6
+            is_vol = float(volume.iloc[j]) > avg_vol * 1.5
+            if body > 0 and is_big and is_vol:
+                score += 1
+                reasons.append("Climax candle confirmed")
+                break
+        else:
+            reasons.append("No climax candle")
+
+    # ── 2. Reversal candle on most recent bars ────────────────────────────────
+    last_body  = abs(float(close.iloc[-1]) - float(open_.iloc[-1]))
+    last_range = float(high.iloc[-1]) - float(low.iloc[-1])
+    is_doji    = last_range > 0 and last_body / last_range < 0.3
+    if is_bull:
+        lower_wick = float(open_.iloc[-1]) - float(low.iloc[-1]) if float(close.iloc[-1]) > float(open_.iloc[-1]) else float(close.iloc[-1]) - float(low.iloc[-1])
+        is_hammer  = last_range > 0 and lower_wick / last_range > 0.5
+        if is_hammer or is_doji:
+            score += 1
+            reasons.append("Hammer/doji reversal candle")
+        else:
+            reasons.append("No reversal candle yet")
+    else:
+        upper_wick = float(high.iloc[-1]) - float(open_.iloc[-1]) if float(close.iloc[-1]) < float(open_.iloc[-1]) else float(high.iloc[-1]) - float(close.iloc[-1])
+        is_star    = last_range > 0 and upper_wick / last_range > 0.5
+        if is_star or is_doji:
+            score += 1
+            reasons.append("Shooting star/doji reversal candle")
+        else:
+            reasons.append("No reversal candle yet")
+
+    # ── 3. RSI divergence ────────────────────────────────────────────────────
+    div = detect_rsi_divergence(df)
+    if div and ((is_bull and div.get("type")=="bullish") or (not is_bull and div.get("type")=="bearish")):
+        score += 1
+        reasons.append("RSI divergence confirmed")
+    else:
+        reasons.append("No RSI divergence")
+
+    # ── 4. Higher low / Lower high structure ─────────────────────────────────
+    if is_bull:
+        # Last 3 lows - most recent must be higher
+        lows = [float(low.iloc[i]) for i in [-10,-5,-1]]
+        if lows[-1] > lows[-2]:
+            score += 1
+            reasons.append("Higher low structure forming")
+        else:
+            reasons.append("Lower low - bottom not confirmed")
+    else:
+        highs = [float(high.iloc[i]) for i in [-10,-5,-1]]
+        if highs[-1] < highs[-2]:
+            score += 1
+            reasons.append("Lower high structure forming")
+        else:
+            reasons.append("Higher high - top not confirmed")
+
+    confirmed = score >= 3  # Need 3 of 4 for confirmation
+    return confirmed, score, reasons
+
+def precision_score(ticker, direction, df_primary, df_confirm,
+                    iv_rank, earnings_days, market_bias,
+                    sector_bias, atr, dte, account_size, risk_pct,
+                    trade_style):
+    """
+    Master scoring function. Returns full assessment or None if fails hard filters.
+
+    Hard filters (fail = skip entirely):
+      - Earnings within 5 days
+      - IV rank > 70 (too expensive)
+      - No options liquidity
+      - Market internals directly opposing
+
+    Soft scoring (50-100 scale):
+      Pattern + indicators  : 25 pts
+      TF alignment          : 20 pts
+      Exhaustion confirmed  : 20 pts
+      Market + sector bias  : 15 pts
+      IV rank quality       : 10 pts
+      Options liquidity     : 10 pts
+    """
+    # ── Hard filters ─────────────────────────────────────────────────────────
+    if earnings_days is not None and earnings_days <= 5:
+        return None, "Earnings within 5 days"
+
+    if iv_rank is not None and iv_rank > 70:
+        return None, f"IV too high ({iv_rank}%)"
+
+    # Market internals - hard block if directly opposing with strong conviction
+    if market_bias == "bullish" and direction == "bearish":
+        return None, "Market strongly bullish - no puts"
+    if market_bias == "bearish" and direction == "bullish":
+        return None, "Market strongly bearish - no calls"
+
+    # ── Soft scoring ─────────────────────────────────────────────────────────
+    score = 50  # base
+
+    # 1. Pattern + indicators (25 pts)
+    trend_dir,trend_score,_,_,_,_ = get_trend(df_primary)
+    if trend_dir == direction:       score += 15
+    if trend_score >= 4:             score += 10
+
+    # 2. TF alignment (20 pts)
+    tf_agree = 0; tf_total = 0
+    for d in [df_primary, df_confirm]:
+        if d is None: continue
+        tf_total += 1
+        c  = d["close"].astype(float)
+        em = float(c.ewm(span=20).mean().iloc[-1])
+        pr = float(c.iloc[-1])
+        if (pr > em and direction=="bullish") or (pr < em and direction=="bearish"):
+            tf_agree += 1
+    if tf_total > 0:
+        score += int((tf_agree/tf_total) * 20)
+
+    # 3. Exhaustion (20 pts)
+    exh_confirmed, exh_score, exh_reasons = detect_exhaustion(df_primary, direction)
+    score += int((exh_score / 4) * 20)
+
+    # 4. Market + sector (15 pts)
+    if market_bias == direction:       score += 8
+    elif market_bias == "neutral":     score += 4
+    if sector_bias  == direction:      score += 7
+    elif sector_bias == "neutral":     score += 3
+
+    # 5. IV rank quality (10 pts) - sweet spot 20-50
+    if iv_rank is not None:
+        if 20 <= iv_rank <= 50:   score += 10
+        elif 15 <= iv_rank <= 60: score += 5
+
+    # 6. Options liquidity (10 pts)
+    liq_ok, liq_vol, liq_oi, _ = check_liquidity(ticker)
+    if liq_ok:
+        if liq_vol >= 500:  score += 10
+        elif liq_vol >= 100: score += 5
+
+    final = min(100, max(50, score))
+
+    return final, {
+        "exhaustion_confirmed": exh_confirmed,
+        "exhaustion_score": exh_score,
+        "exhaustion_reasons": exh_reasons,
+        "tf_agree": tf_agree,
+        "tf_total": tf_total,
+        "market_bias": market_bias,
+        "sector_bias": sector_bias,
+        "liq_ok": liq_ok,
+        "liq_vol": liq_vol,
+    }
+
+def full_scan(scan_list, toggles, account_size, risk_pct,
+              dte_quick, dte_swing, max_premium, trade_style_filter,
+              progress_cb=None):
+    """
+    Scans every ticker in scan_list through the full precision stack.
+    Returns three buckets: go_now, watching, on_deck
+    """
+    market_bias, market_strength = get_market_internals()
+    go_now   = []
+    watching = []
+    on_deck  = []
+
+    for idx, ticker in enumerate(scan_list):
+        if progress_cb: progress_cb(idx, len(scan_list), ticker)
+        try:
+            # Fetch both timeframe sets
+            tfs_q = fetch_multi_tf(ticker, "quick")
+            tfs_s = fetch_multi_tf(ticker, "swing")
+
+            _15m = tfs_q.get("15min"); _5m = tfs_q.get("5min")
+            _1h  = tfs_s.get("1hr");  _4h = tfs_s.get("4hr"); _1d = tfs_s.get("daily")
+
+            primary_q = _15m if _15m is not None else _5m
+            primary_s = _1h
+
+            iv_rank, _ = fetch_iv_rank(ticker)
+            earn_days  = check_earnings(ticker)
+            price      = fetch_current_price(ticker)
+            sector_etf = SECTOR_ETF.get(ticker, "SPY")
+            sec_bias   = get_sector_bias(sector_etf)
+
+            # ATR from daily
+            atr = calc_atr(_1d) if _1d is not None else None
+
+            styles = []
+            if trade_style_filter in ("quick","both"): styles.append(("quick", primary_q, _5m,  dte_quick))
+            if trade_style_filter in ("swing","both"): styles.append(("swing", primary_s, _4h or _1d, dte_swing))
+
+            for style, df_pri, df_con, dte in styles:
+                if df_pri is None or len(df_pri) < 30: continue
+                if price is None: price = float(df_pri["close"].iloc[-1])
+
+                # Pattern detection
+                cands = build_candidates(df_pri, ticker, toggles,
+                                         account_size, risk_pct, dte,
+                                         trade_style=style, atr=atr)
+                if not cands: continue
+
+                best = cands[0]
+                direction = best["direction"]
+
+                # Premium filter
+                opt = calc_trade(best["entry"], best["stop"], best["target"],
+                                  direction, dte, account_size, risk_pct,
+                                  price, atr=atr, trade_style=style)
+                if opt["premium"] > max_premium: continue
+
+                # Precision score
+                conf, detail = precision_score(
+                    ticker, direction, df_pri, df_con,
+                    iv_rank, earn_days, market_bias,
+                    sec_bias, atr, dte, account_size, risk_pct, style
+                )
+                if conf is None: continue  # hard filter hit
+                if conf < 60:   continue   # minimum threshold
+
+                # 7-point gate
+                gates, gates_passed, elevate = run_seven_point_gate(
+                    df_pri, best, opt, iv_rank, earn_days, opt["actual_dte"]
+                )
+
+                # Entry confirmation
+                conf_result = check_entry_confirmation(df_pri, direction)
+                entry_status = conf_result["status"]
+
+                record = {
+                    "ticker":        ticker,
+                    "style":         style,
+                    "direction":     direction,
+                    "action":        "CALL" if direction=="bullish" else "PUT",
+                    "pattern":       best["pattern_label"],
+                    "confidence":    conf,
+                    "gates_passed":  gates_passed,
+                    "elevate":       elevate,
+                    "entry_status":  entry_status,
+                    "opt":           opt,
+                    "sig":           best,
+                    "price":         round(price, 2),
+                    "iv_rank":       iv_rank,
+                    "earn_days":     earn_days,
+                    "detail":        detail,
+                    "market_bias":   market_bias,
+                    "sector_bias":   sec_bias,
+                    "exh_confirmed": detail.get("exhaustion_confirmed", False),
+                    "exh_reasons":   detail.get("exhaustion_reasons", []),
+                }
+
+                # Bucket assignment
+                if conf >= 80 and gates_passed >= 6 and entry_status == "CONFIRMED" and detail.get("exhaustion_confirmed"):
+                    go_now.append(record)
+                elif conf >= 70 and gates_passed >= 5:
+                    watching.append(record)
+                elif conf >= 60:
+                    on_deck.append(record)
+
+        except Exception:
+            continue
+
+    # Sort each bucket by confidence
+    go_now.sort(  key=lambda x: x["confidence"], reverse=True)
+    watching.sort(key=lambda x: x["confidence"], reverse=True)
+    on_deck.sort( key=lambda x: x["confidence"], reverse=True)
+
+    return go_now, watching, on_deck, market_bias
+
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## OPTIONS SCREENER v6")
@@ -1650,35 +2071,145 @@ with tab3:
         st.info("Click Run Backtest to analyze this ticker.")
 
 with tab4:
-    st.markdown("<div class='section-title'>WATCHLIST SCAN</div>", unsafe_allow_html=True)
-    if st.button("SCAN ALL TICKERS", type="primary"):
-        results = []
-        prog = st.progress(0); status = st.empty()
-        for i, ticker in enumerate(WATCHLIST):
-            status.text(f"Scanning {ticker}...")
-            prog.progress((i+1)/len(WATCHLIST))
-            try:
-                tdf   = fetch_ohlcv(ticker, tf_mult, tf_span, tf_days)
-                price = fetch_current_price(ticker) or float(tdf["close"].iloc[-1])
-                cands = build_candidates(tdf, ticker, toggles, account_size, risk_pct, dte, trade_style=trade_style, atr=atr)
-                tiv,_ = fetch_iv_rank(ticker)
-                if cands:
-                    best = cands[0]
-                    opt  = calc_trade(best["entry"],best["stop"],best["target"],best["direction"],dte,account_size,risk_pct,price,atr=atr,trade_style=trade_style)
-                    _,gp,elevate = run_seven_point_gate(tdf,best,opt,tiv,check_earnings(ticker),opt["actual_dte"])
-                    results.append({"Ticker":ticker,"Price":f"${price:.2f}",
-                        "IV Rank":f"{tiv}%" if tiv else "N/A",
-                        "Signal":"CALL" if best["direction"]=="bullish" else "PUT",
-                        "Pattern":best["pattern_label"],"Conf":f"{best['confidence']}%",
-                        "Gate":f"{gp}/7","Status":"PRIME" if elevate else ("WATCH" if best['confidence']>=60 else "WEAK")})
-            except: pass
-        prog.empty(); status.empty()
-        if results:
-            results.sort(key=lambda x:(x["Status"]=="PRIME",int(x["Conf"].replace("%",""))),reverse=True)
-            st.success(f"Found {len(results)} signals")
-            st.dataframe(pd.DataFrame(results), use_container_width=True)
+    st.markdown("<div class='section-title'>MARKET SCANNER</div>", unsafe_allow_html=True)
+
+    # ── Scan controls ─────────────────────────────────────────────────────────
+    sc1, sc2, sc3 = st.columns(3)
+    with sc1:
+        scan_style = st.radio("Scan Mode", ["⚡ Quick","📅 Swing","Both"], index=2, horizontal=True)
+        scan_style_key = "quick" if "Quick" in scan_style else "swing" if "Swing" in scan_style else "both"
+    with sc2:
+        max_premium = st.number_input("Max Option Premium ($)", value=5.00, step=0.50, min_value=0.50,
+                                       help="Hides trades where the option costs more than this per share")
+    with sc3:
+        scan_universe_choice = st.radio("Universe", ["My Watchlist","Full Scan (120+)"], index=0, horizontal=True)
+        scan_list = WATCHLIST if "Watchlist" in scan_universe_choice else SCAN_UNIVERSE
+
+    st.caption(f"Scanning {len(scan_list)} tickers | Min 60% confidence | Exhaustion confirmation required for GO NOW")
+
+    if st.button("🔍 RUN PRECISION SCAN", type="primary", use_container_width=True):
+        prog_bar  = st.progress(0)
+        prog_text = st.empty()
+        def update_progress(idx, total, ticker):
+            prog_bar.progress((idx+1)/total)
+            prog_text.text(f"Scanning {ticker}... ({idx+1}/{total})")
+
+        go_now, watching, on_deck, mkt_bias = full_scan(
+            scan_list, toggles, account_size, risk_pct,
+            dte_quick, dte_swing, max_premium, scan_style_key,
+            progress_cb=update_progress
+        )
+        prog_bar.empty(); prog_text.empty()
+
+        # Market internals banner
+        bias_color = "#00d4aa" if mkt_bias=="bullish" else "#ff4d6d" if mkt_bias=="bearish" else "#f0c040"
+        bias_icon  = "📈" if mkt_bias=="bullish" else "📉" if mkt_bias=="bearish" else "↔️"
+        st.markdown(f"<div style='background:#0d1219;border:1px solid {bias_color}33;border-radius:8px;padding:8px 14px;margin-bottom:12px;color:{bias_color};font-family:monospace;font-size:0.8rem'>{bias_icon} MARKET INTERNALS: {mkt_bias.upper()} &nbsp;|&nbsp; SPY + QQQ trend analysis</div>", unsafe_allow_html=True)
+
+        total_found = len(go_now) + len(watching) + len(on_deck)
+        st.markdown(f"**{total_found} signals found** — {len(go_now)} GO NOW · {len(watching)} WATCHING · {len(on_deck)} ON DECK")
+
+        def render_scan_card(r, bucket):
+            is_bull   = r["direction"] == "bullish"
+            dir_color = "#00d4aa" if is_bull else "#ff4d6d"
+            style_badge = "⚡ QUICK" if r["style"]=="quick" else "📅 SWING"
+            style_color = "#aa88ff" if r["style"]=="quick" else "#6699cc"
+            conf = r["confidence"]
+            conf_label = "GO" if conf>=90 else "STRONG" if conf>=80 else "WATCH" if conf>=70 else "WEAK"
+            conf_color = "#00d4aa" if conf>=85 else "#40c070" if conf>=75 else "#f0c040"
+
+            if bucket == "go_now":
+                border = "#00d4aa"; bg = "#061a10"
+                bucket_badge = "<span style='background:#00d4aa22;color:#00d4aa;font-family:monospace;font-size:0.7rem;padding:2px 8px;border-radius:10px'>✅ GO NOW</span>"
+            elif bucket == "watching":
+                border = "#f0c040"; bg = "#0d1219"
+                bucket_badge = "<span style='background:#f0c04022;color:#f0c040;font-family:monospace;font-size:0.7rem;padding:2px 8px;border-radius:10px'>👁 WATCHING</span>"
+            else:
+                border = "#1e2d40"; bg = "#0d1219"
+                bucket_badge = "<span style='background:#1e2d4044;color:#8899aa;font-family:monospace;font-size:0.7rem;padding:2px 8px;border-radius:10px'>📋 ON DECK</span>"
+
+            exh_reasons = r.get("exh_reasons", [])
+            exh_html = ""
+            for reason in exh_reasons[:3]:
+                is_good = any(x in reason for x in ["confirmed","forming","rising","falling","Higher low","Lower high","Climax","Capitulation","Hammer","doji","star"])
+                dot = "dot-green" if is_good else "dot-red"
+                exh_html += f"<div class='factor-row'><span class='{dot}'></span><span style='color:{'#e0e6f0' if is_good else '#8899aa'};font-size:0.78rem'>{reason}</span></div>"
+
+            sec_color  = "#00d4aa" if r["sector_bias"]==r["direction"] else "#ff4d6d" if r["sector_bias"]!="neutral" else "#8899aa"
+            mkt_color  = "#00d4aa" if r["market_bias"]==r["direction"] else "#f0c040"
+
+            st.markdown(f"""
+            <div style='background:{bg};border:1px solid {border};border-radius:10px;padding:14px;margin:6px 0'>
+                <div style='display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px'>
+                    <div>
+                        {bucket_badge}
+                        <span style='background:#0d1219;color:{style_color};font-size:0.68rem;padding:2px 7px;border-radius:10px;margin-left:4px;font-family:monospace'>{style_badge}</span>
+                        <div style='font-size:1.1rem;font-weight:700;color:{dir_color};margin-top:4px'>{"BUY CALL" if is_bull else "BUY PUT"} — {r["ticker"]}</div>
+                        <div style='color:#8899aa;font-size:0.8rem'>{r["pattern"]} &nbsp;|&nbsp; ${r["price"]:.2f} &nbsp;|&nbsp; IV Rank {r["iv_rank"] if r["iv_rank"] else "N/A"}%</div>
+                    </div>
+                    <div style='text-align:right'>
+                        <div style='font-size:1.8rem;font-weight:700;color:{conf_color}'>{conf}%</div>
+                        <div style='font-family:monospace;font-size:0.7rem;color:{conf_color}'>{conf_label}</div>
+                        <div style='font-size:0.72rem;color:#8899aa'>{r["gates_passed"]}/7 gates</div>
+                    </div>
+                </div>
+                <div style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;font-size:0.82rem;border-top:1px solid #1e2d40;padding-top:8px;margin-top:4px'>
+                    <div><div style='color:#8899aa;font-size:0.7rem'>STRIKE</div><div style='font-weight:700;color:{dir_color}'>${r["opt"]["strike"]:.2f}</div></div>
+                    <div><div style='color:#8899aa;font-size:0.7rem'>PREMIUM</div><div style='font-weight:700'>${r["opt"]["premium"]:.2f}/sh</div></div>
+                    <div><div style='color:#8899aa;font-size:0.7rem'>TARGET</div><div style='font-weight:700;color:#00d4aa'>${r["opt"]["target"]:.2f}</div></div>
+                    <div><div style='color:#8899aa;font-size:0.7rem'>STOP OUT</div><div style='font-weight:700;color:#ff4d6d'>${r["opt"]["stop"]:.2f}</div></div>
+                    <div><div style='color:#8899aa;font-size:0.7rem'>MAX LOSS</div><div style='font-weight:700;color:#ff4d6d'>${r["opt"]["max_loss"]:.0f}</div></div>
+                    <div><div style='color:#8899aa;font-size:0.7rem'>PROFIT EST</div><div style='font-weight:700;color:#00d4aa'>${r["opt"]["profit_at_target"]:,.0f}</div></div>
+                    <div><div style='color:#8899aa;font-size:0.7rem'>MARKET</div><div style='font-weight:700;color:{mkt_color}'>{r["market_bias"].upper()}</div></div>
+                    <div><div style='color:#8899aa;font-size:0.7rem'>SECTOR</div><div style='font-weight:700;color:{sec_color}'>{r["sector_bias"].upper()}</div></div>
+                </div>
+                <div style='margin-top:8px;border-top:1px solid #1e2d4055;padding-top:6px'>
+                    <div style='color:#8899aa;font-family:monospace;font-size:0.68rem;margin-bottom:4px'>EXHAUSTION CHECK</div>
+                    {exh_html}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Action buttons
+            bc1, bc2 = st.columns(2)
+            with bc1:
+                watch_key = f"{r['ticker']}_{r['direction']}_{r['style']}"
+                if watch_key not in st.session_state.get("watch_queue", {}):
+                    if st.button(f"Watch {r['ticker']}", key=f"scan_watch_{r['ticker']}_{r['style']}_{bucket}"):
+                        add_to_watch_queue(r["ticker"], r["direction"], r["sig"], r["opt"])
+                        st.success(f"Added {r['ticker']} to watch queue!")
+                        st.rerun()
+                else:
+                    st.markdown(f"<div style='color:#f0c040;font-size:0.8rem;padding:6px'>👁 Watching {r['ticker']}</div>", unsafe_allow_html=True)
+            with bc2:
+                if st.button(f"Log {r['ticker']}", key=f"scan_log_{r['ticker']}_{r['style']}_{bucket}"):
+                    log_trade(r["ticker"], r["sig"], r["opt"], r["gates_passed"], 7, r["elevate"])
+                    st.success("Logged!")
+
+        # ── GO NOW ────────────────────────────────────────────────────────────
+        st.markdown("<div class='section-title' style='color:#00d4aa;border-color:#00d4aa33'>🟢 GO NOW</div>", unsafe_allow_html=True)
+        if go_now:
+            for r in go_now[:5]:
+                render_scan_card(r, "go_now")
         else:
-            st.info("No signals right now.")
+            st.markdown("<div style='color:#8899aa;font-size:0.85rem;padding:10px'>No GO NOW signals — exhaustion not confirmed on any setup or gates not cleared.</div>", unsafe_allow_html=True)
+
+        # ── WATCHING ──────────────────────────────────────────────────────────
+        st.markdown("<div class='section-title' style='color:#f0c040;border-color:#f0c04033'>🟡 WATCHING — Waiting for entry confirmation</div>", unsafe_allow_html=True)
+        if watching:
+            for r in watching[:8]:
+                render_scan_card(r, "watching")
+        else:
+            st.markdown("<div style='color:#8899aa;font-size:0.85rem;padding:10px'>No setups in confirmation phase right now.</div>", unsafe_allow_html=True)
+
+        # ── ON DECK ───────────────────────────────────────────────────────────
+        st.markdown("<div class='section-title'>📋 ON DECK — Pattern forming, not ready</div>", unsafe_allow_html=True)
+        if on_deck:
+            for r in on_deck[:10]:
+                render_scan_card(r, "on_deck")
+        else:
+            st.markdown("<div style='color:#8899aa;font-size:0.85rem;padding:10px'>No developing setups found.</div>", unsafe_allow_html=True)
+
 
 with tab5:
     st.markdown("<div class='section-title'>TRADE JOURNAL</div>", unsafe_allow_html=True)
