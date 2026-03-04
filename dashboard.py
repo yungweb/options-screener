@@ -2322,249 +2322,112 @@ with tab4:
         </div>
         """, unsafe_allow_html=True)
 
-        # ── Serialize results to JSON for React component ────────────────────
-        import json as _json
+        # ── Mobile-first card renderer ───────────────────────────────────────
+        def conf_color(c):
+            return "#00e5aa" if c>=90 else "#40d080" if c>=80 else "#f0c040" if c>=70 else "#6699aa"
+        def conf_label(c):
+            return "GO ALL IN" if c>=90 else "STRONG" if c>=80 else "WATCH IT" if c>=70 else "WAIT"
 
-        def _serialize_record(r):
-            opt = r.get("opt", {})
-            return {
-                "ticker":      r.get("ticker",""),
-                "action":      "CALL" if r.get("direction")=="bullish" else "PUT",
-                "direction":   r.get("direction","bullish"),
-                "style":       r.get("style","swing"),
-                "pattern":     r.get("pattern",""),
-                "confidence":  r.get("confidence", 50),
-                "gates":       r.get("gates_passed", 0),
-                "rel_vol":     r.get("rel_vol", 1.0),
-                "block":       r.get("block_detected", False),
-                "exh_ok":      r.get("exh_confirmed", False),
-                "exh_reasons": r.get("exh_reasons", []),
-                "price":       r.get("price", 0),
-                "iv_rank":     r.get("iv_rank"),
-                "market_bias": r.get("market_bias","neutral"),
-                "sector_bias": r.get("sector_bias","neutral"),
-                "strike":      opt.get("strike", 0),
-                "target":      opt.get("target", 0),
-                "stop":        opt.get("stop", 0),
-                "premium":     opt.get("premium", 0),
-                "profit":      opt.get("profit_at_target", 0),
-                "max_loss":    opt.get("max_loss", 0),
-                "rr":          opt.get("rr_option", 0),
-                "expiration":  opt.get("expiration",""),
-                "exit_half":   opt.get("exit_take_half", 0),
-                "move_pct":    opt.get("move_pct", 0),
-            }
+        def mobile_card(r, bucket, idx):
+            is_bull = r["direction"] == "bullish"
+            dc  = "#00e5aa" if is_bull else "#ff4d6d"
+            cc  = conf_color(r["confidence"])
+            cl  = conf_label(r["confidence"])
+            opt = r["opt"]
+            gc  = "#00e5aa" if r["gates_passed"]>=6 else "#f0c040" if r["gates_passed"]>=5 else "#ff4d6d"
+            exh_ok = r.get("exh_confirmed", False)
+            rv     = round(r.get("rel_vol", 1.0), 1)
+            block  = r.get("block_detected", False)
+            si     = "⚡" if r["style"]=="quick" else "📅"
+            border = "#00e5aa44" if bucket=="go_now" else "#f0c04044" if bucket=="watching" else "#1a2535"
 
-        scan_json = _json.dumps({
-            "go_now":   [_serialize_record(r) for r in go_now[:5]],
-            "watching": [_serialize_record(r) for r in watching[:8]],
-            "on_deck":  [_serialize_record(r) for r in on_deck[:10]],
-            "market":   mkt_bias.upper(),
-        })
-
-        # ── React component via st.components.v1.html ─────────────────────────
-        react_html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Bebas+Neue&display=swap" rel="stylesheet">
-<style>
-  *{{box-sizing:border-box;margin:0;padding:0}}
-  body{{background:#080c12;color:#d0dae8;font-family:"DM Mono","Courier New",monospace;padding:8px}}
-  ::-webkit-scrollbar{{width:4px}}
-  ::-webkit-scrollbar-track{{background:#080c12}}
-  ::-webkit-scrollbar-thumb{{background:#1a2535;border-radius:2px}}
-  .card{{background:#0d1421;border:1px solid #1a2535;border-radius:12px;padding:16px 18px;margin-bottom:8px;cursor:pointer;transition:border-color 0.2s,box-shadow 0.2s}}
-  .card:hover{{border-color:#2a3a50;box-shadow:0 2px 12px #00000044}}
-  .card.open{{border-color:#2a3a50}}
-  .badge{{display:inline-block;font-size:0.6rem;padding:2px 7px;border-radius:4px;font-weight:700}}
-  .grid4{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}}
-  .grid-item{{background:#080c12;border-radius:8px;padding:10px 12px}}
-  .grid-label{{font-size:0.58rem;color:#8899aa;letter-spacing:1px;margin-bottom:2px}}
-  .grid-value{{font-size:0.9rem;font-weight:700}}
-  .exit-rule{{background:#080c12;border-radius:8px;padding:10px 14px;font-size:0.72rem;color:#8899aa;margin-bottom:10px;line-height:1.5}}
-  .exh-row{{font-size:0.74rem;padding:2px 0;display:flex;align-items:center;gap:6px}}
-  .dot-g{{width:6px;height:6px;border-radius:50%;background:#00e5aa;flex-shrink:0}}
-  .dot-r{{width:6px;height:6px;border-radius:50%;background:#ff4d6d;flex-shrink:0}}
-  .sec-hdr{{display:flex;align-items:center;gap:10px;margin:22px 0 10px}}
-  .sec-line{{flex:1;height:1px;background:#1a2535}}
-  .sec-count{{font-size:0.65rem;color:#8899aa}}
-  .empty-bkt{{padding:16px;color:#8899aa;font-size:0.78rem;background:#0d1421;border-radius:10px;text-align:center}}
-  .action-btn{{flex:1;padding:10px;border-radius:8px;font-size:0.7rem;letter-spacing:1.5px;font-weight:700;cursor:pointer;font-family:inherit;border:none;transition:opacity 0.15s}}
-  .action-btn:hover{{opacity:0.8}}
-  @keyframes fadeIn{{from{{opacity:0;transform:translateY(-4px)}}to{{opacity:1;transform:translateY(0)}}}}
-  .detail-panel{{animation:fadeIn 0.15s ease}}
-</style>
-</head>
-<body>
-<div id="root"></div>
-<script type="text/babel">
-const DATA = {scan_json};
-
-const confLabel = c => c>=90?"GO ALL IN":c>=80?"STRONG":c>=70?"WATCH IT":"WAIT";
-const confColor = c => c>=90?"#00e5aa":c>=80?"#40d080":c>=70?"#f0c040":"#6699aa";
-const confBg    = c => c>=90?"#00e5aa22":c>=80?"#40d08022":c>=70?"#f0c04022":"#6699aa22";
-
-function Ring({{value}}){{
-  const color=confColor(value),R=26,circ=(2*Math.PI*R).toFixed(1),dash=((value/100)*circ).toFixed(1);
-  return(
-    <div style={{{{position:"relative",width:68,height:68,flexShrink:0}}}}>
-      <svg width="68" height="68" style={{{{transform:"rotate(-90deg)"}}}}>
-        <circle cx="34" cy="34" r={{R}} fill="none" stroke="#1a2535" strokeWidth="5"/>
-        <circle cx="34" cy="34" r={{R}} fill="none" stroke={{color}} strokeWidth="5"
-          strokeDasharray={{`${{dash}} ${{circ}}`}} strokeLinecap="round"/>
-      </svg>
-      <div style={{{{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}}}>
-        <div style={{{{fontSize:"0.9rem",fontWeight:700,color,lineHeight:1}}}}>{{"{{value}}"}}</div>
-        <div style={{{{fontSize:"0.45rem",color,letterSpacing:"1px",marginTop:1}}}}>%</div>
-      </div>
-    </div>
-  );
-}}
-
-function Card({{r,bucket}}){{
-  const [open,setOpen]=React.useState(false);
-  const isBull=r.action==="CALL";
-  const dc=isBull?"#00e5aa":"#ff4d6d";
-  const cc=confColor(r.confidence),cbg=confBg(r.confidence),cl=confLabel(r.confidence);
-  const sc=r.style==="quick"?"#aa88ff":"#6699cc";
-  const gc=r.gates>=6?"#00e5aa":r.gates>=5?"#f0c040":"#ff4d6d";
-  const border=open?(bucket==="go_now"?"#00e5aa":bucket==="watching"?"#f0c040":"#2a3a50"):"#1a2535";
-  return(
-    <div className={{`card ${{open?"open":""}}`}} style={{{{borderColor:border}}}} onClick={{()=>setOpen(!open)}}>
-      <div style={{{{display:"flex",alignItems:"center",gap:14}}}}>
-        <Ring value={{r.confidence}}/>
-        <div style={{{{flex:1,minWidth:0}}}}>
-          <div style={{{{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4}}}}>
-            <span style={{{{fontSize:"1.05rem",fontWeight:700,color:dc}}}}>{{"{{r.ticker}}"}}</span>
-            <span className="badge" style={{{{background:isBull?"#00e5aa22":"#ff4d6d22",color:dc}}}}>{{"{{r.action}}"}}</span>
-            <span className="badge" style={{{{background:r.style==="quick"?"#1a0a3a":"#0a1a2a",color:sc}}}}>
-              {{"{{r.style==='quick'?'⚡':'📅'}} {{r.style.toUpperCase()}}"}}
-            </span>
-            {{r.block&&<span style={{{{fontSize:"0.6rem",color:"#f0c040"}}}}>⚡ BLOCK</span>}}
-          </div>
-          <div style={{{{fontSize:"0.7rem",color:"#8899aa"}}}}>
-            {{"{{r.pattern}} · {{r.rel_vol}}x vol · {{r.exh_ok?'✅ exhaustion confirmed':'⏳ watching for entry'}}"}}
-          </div>
-        </div>
-        <div style={{{{textAlign:"right",flexShrink:0}}}}>
-          <div className="badge" style={{{{background:cbg,color:cc,letterSpacing:"1.5px",marginBottom:6,display:"block"}}}}>{{"{{cl}}"}}</div>
-          <div style={{{{fontSize:"0.7rem",color:"#8899aa",marginBottom:2}}}}>Strike <span style={{{{color:"#d0dae8",fontWeight:700}}}}>${{"{{r.strike.toFixed(2)}}"}}</span></div>
-          <div style={{{{fontSize:"0.7rem",color:"#8899aa"}}}}>Gate <span style={{{{color:gc,fontWeight:700}}}}>{{"{{r.gates}}/7"}}</span></div>
-        </div>
-        <div style={{{{color:"#8899aa",fontSize:"0.75rem",marginLeft:4}}}}>{{"{{open?'▲':'▼'}}"}}</div>
-      </div>
-
-      {{open&&(
-        <div className="detail-panel" style={{{{marginTop:16,paddingTop:16,borderTop:"1px solid #1a2535"}}}} onClick={{e=>e.stopPropagation()}}>
-          <div className="grid4">
-            {{[
-              ["TARGET",   `$${{r.target.toFixed(2)}}`,  "#00e5aa"],
-              ["STOP OUT", `$${{r.stop.toFixed(2)}}`,    "#ff4d6d"],
-              ["PREMIUM",  `$${{r.premium.toFixed(2)}}/sh`,"#d0dae8"],
-              ["EST PROFIT",`$${{r.profit.toLocaleString()}}`, "#00e5aa"],
-              ["MAX LOSS",  `$${{r.max_loss.toLocaleString()}}`, "#ff4d6d"],
-              ["R:R",       `${{r.rr.toFixed(1)}}x`,     r.rr>=2?"#00e5aa":"#f0c040"],
-              ["IV RANK",   r.iv_rank!=null?`${{r.iv_rank}}%`:"N/A", "#f0c040"],
-              ["EXPIRES",   r.expiration,                "#8899aa"],
-            ].map(([l,v,c],i)=>(
-              <div key={{i}} className="grid-item">
-                <div className="grid-label">{{"{{l}}"}}</div>
-                <div className="grid-value" style={{{{color:c}}}}>{{"{{v}}"}}</div>
+            st.markdown(f"""
+            <div style='background:#0d1421;border:1px solid {border};border-radius:12px;padding:14px;margin-bottom:6px'>
+              <div style='display:flex;align-items:center;gap:12px'>
+                <div style='text-align:center;flex-shrink:0;min-width:52px'>
+                  <div style='font-size:1.6rem;font-weight:700;color:{cc};line-height:1'>{r["confidence"]}</div>
+                  <div style='font-size:0.48rem;color:{cc};letter-spacing:1px'>%</div>
+                  <div style='font-size:0.52rem;color:{cc};font-weight:700;margin-top:2px'>{cl}</div>
+                </div>
+                <div style='flex:1;min-width:0'>
+                  <div style='font-size:1rem;font-weight:700;color:{dc}'>{r["ticker"]} {"CALL" if is_bull else "PUT"}</div>
+                  <div style='font-size:0.68rem;color:#8899aa;margin-top:2px'>{r["pattern"]} · {si} {r["style"].upper()}</div>
+                  <div style='font-size:0.64rem;color:#8899aa;margin-top:1px'>{rv}x vol · {"✅ confirmed" if exh_ok else "⏳ watching"}{" · ⚡BLOCK" if block else ""}</div>
+                </div>
+                <div style='text-align:right;flex-shrink:0'>
+                  <div style='font-size:0.65rem;color:#8899aa'>Gate <span style='color:{gc};font-weight:700'>{r["gates_passed"]}/7</span></div>
+                  <div style='font-size:0.65rem;color:#8899aa;margin-top:3px'>Strike</div>
+                  <div style='font-size:0.9rem;font-weight:700;color:#d0dae8'>${opt["strike"]:.2f}</div>
+                </div>
               </div>
-            ))}}
-          </div>
-          <div className="exit-rule">
-            <span style={{{{color:"#00e5aa",fontWeight:700}}}}>Take 50% off</span> at ${{"{{r.exit_half.toFixed(2)}}"}} (100% gain)&nbsp;&nbsp;·&nbsp;&nbsp;
-            <span style={{{{color:"#ff4d6d",fontWeight:700}}}}>Close all</span> if closes {{"{{isBull?'below':'above'}}"}} ${{"{{r.stop.toFixed(2)}}"}}
-          </div>
-          {{r.exh_reasons.length>0&&(
-            <div style={{{{marginBottom:10}}}}>
-              <div style={{{{fontSize:"0.58rem",color:"#8899aa",letterSpacing:"2px",marginBottom:6}}}}>EXHAUSTION CHECK</div>
-              {{r.exh_reasons.map((reason,i)=>{{
-                const good=["confirmed","forming","Higher low","Lower high","Climax","Capitulation","Hammer","doji","star","reclaim","holding","rising","falling"].some(x=>reason.includes(x));
-                return<div key={{i}} className="exh-row"><div className={{good?"dot-g":"dot-r"}}/><span style={{{{color:good?"#e0e6f0":"#8899aa"}}}}>{{"{{reason}}"}}</span></div>;
-              }})}}
             </div>
-          )}}
-          <div style={{{{display:"flex",gap:8}}}}>
-            <button className="action-btn" style={{{{background:"#00e5aa22",color:"#00e5aa",border:"1px solid #00e5aa44"}}}}
-              onClick={{()=>window.parent.postMessage({{type:"watch",ticker:r.ticker,direction:r.direction,style:r.style}},"*")}}>
-              + WATCH QUEUE
-            </button>
-            <button className="action-btn" style={{{{background:"#1a2535",color:"#8899aa",border:"1px solid #2a3545"}}}}
-              onClick={{()=>window.parent.postMessage({{type:"log",ticker:r.ticker}},"*")}}>
-              LOG TRADE
-            </button>
-          </div>
-        </div>
-      )}}
-    </div>
-  );
-}}
+            """, unsafe_allow_html=True)
 
-function SectionHdr({{label,color,count}}){{
-  return(
-    <div className="sec-hdr">
-      <div style={{{{width:3,height:18,background:color,borderRadius:2}}}}/>
-      <div style={{{{fontSize:"0.68rem",letterSpacing:"3px",color,fontWeight:700}}}}>{{"{{label}}"}}</div>
-      <div className="sec-line"/>
-      <div className="sec-count">{{"{{count}} signal{{count!==1?'s':''}}"}}</div>
-    </div>
-  );
-}}
+            with st.expander(f"📊 {r['ticker']} full details"):
+                c1, c2 = st.columns(2)
+                items_l = [("TARGET", f"${opt['target']:.2f}", "#00e5aa"),
+                           ("PREMIUM", f"${opt['premium']:.2f}/sh", "#d0dae8"),
+                           ("MAX LOSS", f"${opt['max_loss']:,.0f}", "#ff4d6d"),
+                           ("IV RANK", f"{r['iv_rank']}%" if r["iv_rank"] else "N/A", "#f0c040")]
+                items_r = [("STOP OUT", f"${opt['stop']:.2f}", "#ff4d6d"),
+                           ("EST PROFIT", f"${opt['profit_at_target']:,.0f}", "#00e5aa"),
+                           ("R:R", f"{opt['rr_option']:.1f}x", "#00e5aa" if opt["rr_option"]>=2 else "#f0c040"),
+                           ("EXPIRES", opt["expiration"], "#8899aa")]
+                with c1:
+                    for lbl, val, col in items_l:
+                        st.markdown(f"<div style='background:#0d1421;border-radius:8px;padding:10px;margin-bottom:6px'><div style='font-size:0.58rem;color:#8899aa'>{lbl}</div><div style='font-size:0.95rem;font-weight:700;color:{col}'>{val}</div></div>", unsafe_allow_html=True)
+                with c2:
+                    for lbl, val, col in items_r:
+                        st.markdown(f"<div style='background:#0d1421;border-radius:8px;padding:10px;margin-bottom:6px'><div style='font-size:0.58rem;color:#8899aa'>{lbl}</div><div style='font-size:0.95rem;font-weight:700;color:{col}'>{val}</div></div>", unsafe_allow_html=True)
 
-function App(){{
-  const d=DATA;
-  const mc=d.market==="BULLISH"?"#00e5aa":d.market==="BEARISH"?"#ff4d6d":"#f0c040";
-  const total=d.go_now.length+d.watching.length+d.on_deck.length;
-  return(
-    <div>
-      <div style={{{{display:"flex",justifyContent:"space-between",alignItems:"center",
-           background:"#0d1421",border:"1px solid #1a253533",borderRadius:10,
-           padding:"10px 16px",marginBottom:4,fontSize:"0.72rem"}}}}>
-        <span style={{{{color:mc}}}}>● MARKET: <strong>{{"{{d.market}}"}}</strong></span>
-        <span><span style={{{{color:"#00e5aa"}}}}>▲ {{"{{d.go_now.length}}"}} GO</span>&nbsp;&nbsp;
-              <span style={{{{color:"#f0c040"}}}}>◉ {{"{{d.watching.length}}"}} WATCH</span>&nbsp;&nbsp;
-              <span style={{{{color:"#6699cc"}}}}>◎ {{"{{d.on_deck.length}}"}} DECK</span></span>
-        <span style={{{{color:"#8899aa"}}}}>{{"{{total}}"}} signals</span>
-      </div>
+                st.markdown(f"""<div style='background:#080c12;border-radius:8px;padding:10px 12px;
+                    font-size:0.72rem;color:#8899aa;margin:2px 0 8px;line-height:1.6'>
+                    <span style='color:#00e5aa;font-weight:700'>Take 50% off</span> at ${opt['exit_take_half']:.2f}/sh &nbsp;·&nbsp;
+                    <span style='color:#ff4d6d;font-weight:700'>Close all</span> if {"below" if is_bull else "above"} ${opt['stop']:.2f}
+                </div>""", unsafe_allow_html=True)
 
-      <SectionHdr label="GO NOW" color="#00e5aa" count={{d.go_now.length}}/>
-      {{d.go_now.length===0
-        ?<div className="empty-bkt">No GO NOW signals — exhaustion not confirmed or gates not cleared.</div>
-        :d.go_now.map((r,i)=><Card key={{i}} r={{r}} bucket="go_now"/>)
-      }}
+                exh = r.get("exh_reasons", [])
+                if exh:
+                    st.markdown("<div style='font-size:0.58rem;color:#8899aa;letter-spacing:2px;margin-bottom:4px'>EXHAUSTION CHECK</div>", unsafe_allow_html=True)
+                    for reason in exh:
+                        good  = any(x in reason for x in ["confirmed","forming","Higher low","Lower high","Climax","Capitulation","Hammer","doji","star","reclaim","holding","rising","falling"])
+                        col   = "#00e5aa" if good else "#ff4d6d"
+                        tcol  = "#e0e6f0" if good else "#8899aa"
+                        st.markdown(f"<div style='font-size:0.73rem;color:{tcol};padding:2px 0'><span style='color:{col}'>{'●' if good else '○'}</span> {reason}</div>", unsafe_allow_html=True)
 
-      <SectionHdr label="WATCHING" color="#f0c040" count={{d.watching.length}}/>
-      {{d.watching.length===0
-        ?<div className="empty-bkt">No setups in confirmation phase right now.</div>
-        :d.watching.map((r,i)=><Card key={{i}} r={{r}} bucket="watching"/>)
-      }}
+                if st.button(f"Log {r['ticker']} {r['action']}", key=f"log_{bucket}_{idx}", use_container_width=True):
+                    log_trade(r["ticker"], r["sig"], r["opt"], r["gates_passed"], 7, r["elevate"])
+                    st.success("Logged!")
 
-      <SectionHdr label="ON DECK" color="#6699cc" count={{d.on_deck.length}}/>
-      {{d.on_deck.length===0
-        ?<div className="empty-bkt">No developing setups found.</div>
-        :d.on_deck.map((r,i)=><Card key={{i}} r={{r}} bucket="on_deck"/>)
-      }}
-    </div>
-  );
-}}
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
-</script>
-</body>
-</html>
-"""
-        # Dynamic height based on signal count
-        card_h    = 72  # collapsed card
-        n_cards   = len(go_now[:5]) + len(watching[:8]) + len(on_deck[:10])
-        est_height = max(400, n_cards * card_h + 300)
-        st.components.v1.html(react_html, height=est_height, scrolling=True)
+        def section_hdr(label, color, count):
+            st.markdown(f"""
+            <div style='display:flex;align-items:center;gap:10px;margin:20px 0 8px'>
+                <div style='width:3px;height:16px;background:{color};border-radius:2px;flex-shrink:0'></div>
+                <span style='font-size:0.65rem;letter-spacing:3px;color:{color};font-weight:700'>{label}</span>
+                <div style='flex:1;height:1px;background:#1a2535'></div>
+                <span style='font-size:0.62rem;color:#8899aa'>{count} signal{"s" if count!=1 else ""}</span>
+            </div>""", unsafe_allow_html=True)
 
+        def empty_bkt(msg):
+            st.markdown(f"<div style='padding:14px;color:#8899aa;font-size:0.78rem;background:#0d1421;border-radius:10px;text-align:center'>{msg}</div>", unsafe_allow_html=True)
+
+        section_hdr("GO NOW", "#00e5aa", len(go_now))
+        if go_now:
+            for i, r in enumerate(go_now[:5]):   mobile_card(r, "go_now",   i)
+        else:
+            empty_bkt("No GO NOW signals — exhaustion not confirmed or gates not cleared.")
+
+        section_hdr("WATCHING", "#f0c040", len(watching))
+        if watching:
+            for i, r in enumerate(watching[:8]): mobile_card(r, "watching", i)
+        else:
+            empty_bkt("No setups in confirmation phase right now.")
+
+        section_hdr("ON DECK", "#6699cc", len(on_deck))
+        if on_deck:
+            for i, r in enumerate(on_deck[:10]): mobile_card(r, "on_deck",  i)
+        else:
+            empty_bkt("No developing setups found.")
 
 with tab5:
     st.markdown("<div class='section-title'>TRADE JOURNAL</div>", unsafe_allow_html=True)
@@ -2611,3 +2474,4 @@ with tab5:
             if wins+losses > 0: st.metric("Live Win Rate", f"{int(wins/(wins+losses)*100)}%", f"{wins}W / {losses}L")
 
 st.markdown("<div style='text-align:center;padding:20px;color:#8899aa;font-size:0.75rem;border-top:1px solid #1e2d40;margin-top:20px'>OPTIONS SCREENER v6.0 - NOT FINANCIAL ADVICE</div>", unsafe_allow_html=True)
+
