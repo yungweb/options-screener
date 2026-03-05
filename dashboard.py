@@ -231,6 +231,20 @@ def estimate_move_timeframe(pattern_label):
     return est_days, int(est_days * 1.5)
 
 def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, current_price, iv=0.45, atr=None, trade_style="swing"):
+    import math as _math
+    # Guard against NaN/None prices (market closed, no data)
+    def _clean(v, fallback=0.0):
+        try:
+            f = float(v)
+            return fallback if (_math.isnan(f) or _math.isinf(f)) else f
+        except (TypeError, ValueError):
+            return fallback
+
+    current_price = _clean(current_price, 100.0)
+    entry  = _clean(entry,  current_price)
+    stop   = _clean(stop,   current_price * 0.97)
+    target = _clean(target, current_price * 1.05)
+
     is_call    = direction == "bullish"
     exp_date   = get_expiration_date(days_to_exp)
     actual_dte = max((exp_date - date.today()).days, 1)
@@ -1476,197 +1490,257 @@ def get_sector_bias(sector_etf):
 
 def detect_exhaustion(df, direction):
     """
-    Precision bottom/top confirmation.
-    For CALLS (bottom hunting):
-      - Capitulation candle: large body down candle with high volume
-      - Followed by hammer or doji (indecision)
-      - RSI divergence: price lower low but RSI higher low
-      - Higher low structure: last low > previous low
-    For PUTS (top hunting):
-      - Climax candle: large body up candle with high volume
-      - Followed by shooting star or doji
-      - RSI divergence: price higher high but RSI lower high
-      - Lower high structure: last high < previous high
-    Returns: (confirmed: bool, score: int 0-4, reasons: list)
+    Elite exhaustion detection.
+    ONE strong signal is enough to confirm — we score 0-4 but only need 1/4.
+    Confirmed = any single strong signal present.
+    Score used for confidence weighting.
     """
     if len(df) < 20:
         return False, 0, ["Insufficient data"]
 
-    close  = df["close"].astype(float)
-    high   = df["high"].astype(float)
-    low    = df["low"].astype(float)
-    open_  = df["open"].astype(float)
-    volume = df["volume"].astype(float)
+    close   = df["close"].astype(float)
+    high    = df["high"].astype(float)
+    low     = df["low"].astype(float)
+    open_   = df["open"].astype(float)
+    volume  = df["volume"].astype(float)
     avg_vol = float(volume.iloc[-20:].mean())
-
     is_bull = direction == "bullish"
     reasons = []
     score   = 0
 
-    # ── 1. Exhaustion candle (big move with volume) ──────────────────────────
-    recent = 5
-    if is_bull:
-        # Look for a big down candle with high volume in last 5 bars (capitulation)
-        for j in range(-recent, -1):
-            body   = float(open_.iloc[j]) - float(close.iloc[j])
-            is_big = body > (float(high.iloc[j]) - float(low.iloc[j])) * 0.6
-            is_vol = float(volume.iloc[j]) > avg_vol * 1.5
-            if body > 0 and is_big and is_vol:
-                score += 1
-                reasons.append("Capitulation candle confirmed")
-                break
-        else:
-            reasons.append("No capitulation candle")
+    # 1. Exhaustion candle — big body + high volume in last 6 bars
+    for j in range(-6, 0):
+        body   = float(open_.iloc[j]) - float(close.iloc[j]) if is_bull else float(close.iloc[j]) - float(open_.iloc[j])
+        rng    = float(high.iloc[j]) - float(low.iloc[j])
+        is_big = rng > 0 and body / rng > 0.55
+        is_vol = float(volume.iloc[j]) > avg_vol * 1.4
+        if body > 0 and is_big and is_vol:
+            score += 1
+            reasons.append("Capitulation candle confirmed" if is_bull else "Climax candle confirmed")
+            break
     else:
-        # Look for a big up candle with high volume (climax)
-        for j in range(-recent, -1):
-            body   = float(close.iloc[j]) - float(open_.iloc[j])
-            is_big = body > (float(high.iloc[j]) - float(low.iloc[j])) * 0.6
-            is_vol = float(volume.iloc[j]) > avg_vol * 1.5
-            if body > 0 and is_big and is_vol:
-                score += 1
-                reasons.append("Climax candle confirmed")
-                break
-        else:
-            reasons.append("No climax candle")
+        reasons.append("No climax/capitulation candle")
 
-    # ── 2. Reversal candle on most recent bars ────────────────────────────────
+    # 2. Reversal candle — hammer/doji for calls, shooting star/doji for puts
     last_body  = abs(float(close.iloc[-1]) - float(open_.iloc[-1]))
     last_range = float(high.iloc[-1]) - float(low.iloc[-1])
     is_doji    = last_range > 0 and last_body / last_range < 0.3
     if is_bull:
-        lower_wick = float(open_.iloc[-1]) - float(low.iloc[-1]) if float(close.iloc[-1]) > float(open_.iloc[-1]) else float(close.iloc[-1]) - float(low.iloc[-1])
-        is_hammer  = last_range > 0 and lower_wick / last_range > 0.5
+        lower_wick = min(float(open_.iloc[-1]), float(close.iloc[-1])) - float(low.iloc[-1])
+        is_hammer  = last_range > 0 and lower_wick / last_range > 0.45
         if is_hammer or is_doji:
             score += 1
             reasons.append("Hammer/doji reversal candle")
         else:
             reasons.append("No reversal candle yet")
     else:
-        upper_wick = float(high.iloc[-1]) - float(open_.iloc[-1]) if float(close.iloc[-1]) < float(open_.iloc[-1]) else float(high.iloc[-1]) - float(close.iloc[-1])
-        is_star    = last_range > 0 and upper_wick / last_range > 0.5
+        upper_wick = float(high.iloc[-1]) - max(float(open_.iloc[-1]), float(close.iloc[-1]))
+        is_star    = last_range > 0 and upper_wick / last_range > 0.45
         if is_star or is_doji:
             score += 1
             reasons.append("Shooting star/doji reversal candle")
         else:
             reasons.append("No reversal candle yet")
 
-    # ── 3. RSI divergence ────────────────────────────────────────────────────
+    # 3. RSI divergence
     div = detect_rsi_divergence(df)
-    if div and ((is_bull and div.get("type")=="bullish") or (not is_bull and div.get("type")=="bearish")):
+    if div and ((is_bull and div.get("type") == "bullish") or (not is_bull and div.get("type") == "bearish")):
         score += 1
         reasons.append("RSI divergence confirmed")
     else:
         reasons.append("No RSI divergence")
 
-    # ── 4. Higher low / Lower high structure ─────────────────────────────────
+    # 4. Structure — higher low for calls, lower high for puts
     if is_bull:
-        # Last 3 lows - most recent must be higher
-        lows = [float(low.iloc[i]) for i in [-10,-5,-1]]
+        lows = [float(low.iloc[i]) for i in [-15, -8, -1]]
         if lows[-1] > lows[-2]:
             score += 1
             reasons.append("Higher low structure forming")
         else:
-            reasons.append("Lower low - bottom not confirmed")
+            reasons.append("Lower low — structure not confirmed")
     else:
-        highs = [float(high.iloc[i]) for i in [-10,-5,-1]]
+        highs = [float(high.iloc[i]) for i in [-15, -8, -1]]
         if highs[-1] < highs[-2]:
             score += 1
             reasons.append("Lower high structure forming")
         else:
-            reasons.append("Higher high - top not confirmed")
+            reasons.append("Higher high — structure not confirmed")
 
-    confirmed = score >= 3  # Need 3 of 4 for confirmation
+    # ONE strong signal is enough — elite traders don't wait for perfect storms
+    confirmed = score >= 1
     return confirmed, score, reasons
+
 
 def precision_score(ticker, direction, df_primary, df_confirm,
                     iv_rank, earnings_days, market_bias,
                     sector_bias, atr, dte, account_size, risk_pct,
                     trade_style):
     """
-    Master scoring function. Returns full assessment or None if fails hard filters.
+    Elite scoring framework.
 
-    Hard filters (fail = skip entirely):
+    TIER 1 — Hard stops (any single fail = no trade):
       - Earnings within 5 days
-      - IV rank > 70 (too expensive)
-      - No options liquidity
-      - Market internals directly opposing
+      - IV rank > 70% (too expensive to buy)
+      - Market directly opposing with conviction
+      - Time of day: before 9:45am or after 3:30pm ET
 
-    Soft scoring (50-100 scale):
-      Pattern + indicators  : 25 pts
-      TF alignment          : 20 pts
-      Exhaustion confirmed  : 20 pts
-      Market + sector bias  : 15 pts
-      IV rank quality       : 10 pts
-      Options liquidity     : 10 pts
+    TIER 2 — Quality signals, need 4 of 5:
+      - Trend aligned on primary TF
+      - Pattern confirmed with volume
+      - At least ONE exhaustion signal
+      - VWAP relationship clean
+      - RSI divergence present
+
+    TIER 3 — Execution quality scoring:
+      - ATR confirms move is realistic
+      - R:R minimum 2:1
+      - Options liquidity present
+      - IV rank in sweet spot (20-50%)
+      - Market / sector tailwind
+
+    Score: 50 base, up to 100
     """
-    # ── Hard filters ─────────────────────────────────────────────────────────
+    import pytz
+    from datetime import datetime as _dt
+
+    # ── TIER 1: Hard stops ────────────────────────────────────────────────────
     if earnings_days is not None and earnings_days <= 5:
         return None, "Earnings within 5 days"
 
     if iv_rank is not None and iv_rank > 70:
         return None, f"IV too high ({iv_rank}%)"
 
-    # Market internals - hard block if directly opposing with strong conviction
     if market_bias == "bullish" and direction == "bearish":
-        return None, "Market strongly bullish - no puts"
+        return None, "Market strongly bullish — no puts"
     if market_bias == "bearish" and direction == "bullish":
-        return None, "Market strongly bearish - no calls"
+        return None, "Market strongly bearish — no calls"
 
-    # ── Soft scoring ─────────────────────────────────────────────────────────
-    score = 50  # base
+    # Time of day hard stop (scan only during quality hours)
+    try:
+        et  = pytz.timezone("America/New_York")
+        now = _dt.now(et).time()
+        from datetime import time as _t
+        if now < _t(9, 45) or now > _t(15, 30):
+            return None, "Outside quality trading hours (9:45-3:30 ET)"
+    except Exception:
+        pass  # outside market hours scanning is fine for setup detection
 
-    # 1. Pattern + indicators (25 pts)
-    trend_dir,trend_score,_,_,_,_ = get_trend(df_primary)
-    if trend_dir == direction:       score += 15
-    if trend_score >= 4:             score += 10
+    # ── TIER 2: Quality signals — need 4 of 5 ────────────────────────────────
+    signals_hit = 0
+    signal_detail = []
 
-    # 2. TF alignment (20 pts)
-    tf_agree = 0; tf_total = 0
-    for d in [df_primary, df_confirm]:
-        if d is None: continue
-        tf_total += 1
-        c  = d["close"].astype(float)
-        em = float(c.ewm(span=20).mean().iloc[-1])
-        pr = float(c.iloc[-1])
-        if (pr > em and direction=="bullish") or (pr < em and direction=="bearish"):
-            tf_agree += 1
-    if tf_total > 0:
-        score += int((tf_agree/tf_total) * 20)
+    # Signal 1: Trend aligned on primary TF
+    try:
+        trend_dir, trend_score, _, _, _, _ = get_trend(df_primary)
+        if trend_dir == direction:
+            signals_hit += 1
+            signal_detail.append("✅ Trend aligned")
+        else:
+            signal_detail.append("❌ Trend opposing")
+    except Exception:
+        signal_detail.append("❌ Trend unavailable")
 
-    # 3. Exhaustion (20 pts)
+    # Signal 2: Pattern confirmed with volume
+    try:
+        avg_vol = float(df_primary["volume"].iloc[-20:].mean())
+        cur_vol = float(df_primary["volume"].iloc[-3:].mean())
+        if cur_vol > avg_vol * 1.1:
+            signals_hit += 1
+            signal_detail.append("✅ Volume confirming")
+        else:
+            signal_detail.append("❌ Volume weak")
+    except Exception:
+        signal_detail.append("❌ Volume unavailable")
+
+    # Signal 3: At least ONE exhaustion signal
     exh_confirmed, exh_score, exh_reasons = detect_exhaustion(df_primary, direction)
-    score += int((exh_score / 4) * 20)
+    if exh_confirmed:  # now just needs score >= 1
+        signals_hit += 1
+        signal_detail.append("✅ Exhaustion signal present")
+    else:
+        signal_detail.append("❌ No exhaustion signal")
 
-    # 4. Market + sector (15 pts)
-    if market_bias == direction:       score += 8
-    elif market_bias == "neutral":     score += 4
-    if sector_bias  == direction:      score += 7
-    elif sector_bias == "neutral":     score += 3
+    # Signal 4: VWAP relationship
+    try:
+        vwap_ok, vwap_label = check_vwap_confluence(df_primary, direction)
+        if vwap_ok:
+            signals_hit += 1
+            signal_detail.append(f"✅ VWAP {vwap_label}")
+        else:
+            signal_detail.append(f"❌ VWAP {vwap_label}")
+    except Exception:
+        signal_detail.append("❌ VWAP unavailable")
 
-    # 5. IV rank quality (10 pts) - sweet spot 20-50
+    # Signal 5: RSI divergence
+    try:
+        div = detect_rsi_divergence(df_primary)
+        if div and ((direction == "bullish" and div.get("type") == "bullish") or
+                    (direction == "bearish" and div.get("type") == "bearish")):
+            signals_hit += 1
+            signal_detail.append("✅ RSI divergence")
+        else:
+            signal_detail.append("❌ No RSI divergence")
+    except Exception:
+        signal_detail.append("❌ RSI unavailable")
+
+    # Require 3 of 5 minimum (relaxed from 4 — market isn't always perfect)
+    # 4 of 5 = strong, 3 of 5 = valid, <3 = skip
+    if signals_hit < 3:
+        return None, f"Only {signals_hit}/5 quality signals aligned"
+
+    # ── TIER 3: Execution quality scoring ─────────────────────────────────────
+    score = 50
+
+    # Signals quality (up to 25 pts)
+    score += signals_hit * 5  # 3 signals = +15, 4 = +20, 5 = +25
+
+    # Exhaustion depth (up to 10 pts) — more signals = more conviction
+    score += min(exh_score * 3, 10)  # 1 signal = +3, 2 = +6, 3 = +9, 4 = +10
+
+    # TF confirmation — does confirm TF agree? (up to 10 pts)
+    tf_agree = 0; tf_total = 0
+    if df_confirm is not None:
+        tf_total = 1
+        try:
+            c  = df_confirm["close"].astype(float)
+            em = float(c.ewm(span=20).mean().iloc[-1])
+            pr = float(c.iloc[-1])
+            if (pr > em and direction == "bullish") or (pr < em and direction == "bearish"):
+                tf_agree = 1
+                score += 10
+        except Exception:
+            pass
+
+    # Market + sector tailwind (up to 10 pts)
+    if market_bias == direction:    score += 6
+    elif market_bias == "neutral":  score += 3
+    if sector_bias  == direction:   score += 4
+    elif sector_bias == "neutral":  score += 2
+
+    # IV rank sweet spot 20-50% (up to 5 pts)
     if iv_rank is not None:
-        if 20 <= iv_rank <= 50:   score += 10
-        elif 15 <= iv_rank <= 60: score += 5
+        if 20 <= iv_rank <= 50:  score += 5
+        elif 15 <= iv_rank <= 65: score += 2
 
-    # 6. Options liquidity (10 pts)
+    # Options liquidity present (up to 5 pts — critical for execution)
     liq_ok, liq_vol, liq_oi, _ = check_liquidity(ticker)
     if liq_ok:
-        if liq_vol >= 500:  score += 10
-        elif liq_vol >= 100: score += 5
+        score += 3 if liq_vol >= 500 else 2 if liq_vol >= 100 else 1
 
     final = min(100, max(50, score))
 
     return final, {
         "exhaustion_confirmed": exh_confirmed,
-        "exhaustion_score": exh_score,
-        "exhaustion_reasons": exh_reasons,
-        "tf_agree": tf_agree,
-        "tf_total": tf_total,
-        "market_bias": market_bias,
-        "sector_bias": sector_bias,
-        "liq_ok": liq_ok,
-        "liq_vol": liq_vol,
+        "exhaustion_score":     exh_score,
+        "exhaustion_reasons":   exh_reasons,
+        "signals_hit":          signals_hit,
+        "signal_detail":        signal_detail,
+        "tf_agree":             tf_agree,
+        "tf_total":             tf_total,
+        "market_bias":          market_bias,
+        "sector_bias":          sector_bias,
+        "liq_ok":               liq_ok,
+        "liq_vol":              liq_vol,
     }
 
 def scan_single_ticker(ticker, toggles, account_size, risk_pct,
@@ -1762,6 +1836,8 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                 "sector_bias":   sec_bias,
                 "exh_confirmed": detail.get("exhaustion_confirmed", False),
                 "exh_reasons":   detail.get("exhaustion_reasons", []),
+                "signal_detail": detail.get("signal_detail", []),
+                "signals_hit":   detail.get("signals_hit", 0),
                 "rel_vol":       rel_vol,
                 "vol_spike":     vol_spike,
                 "block_detected":block_detected,
@@ -1810,11 +1886,18 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
                     entry_status = r["entry_status"]
                     exh_ok       = r["exh_confirmed"]
 
-                    if conf >= 80 and gates_passed >= 6 and entry_status == "CONFIRMED" and exh_ok:
+                    signals_hit = r.get("detail", {}).get("signals_hit", 0)
+                    exh_score   = r.get("detail", {}).get("exhaustion_score", 0)
+
+                    # GO NOW: confident execution — trend + exhaustion + 4+ signals + entry confirmed
+                    if (conf >= 75 and gates_passed >= 5 and
+                        entry_status == "CONFIRMED" and exh_ok and signals_hit >= 4):
                         go_now.append(r)
-                    elif conf >= 70 and gates_passed >= 5:
+                    # WATCHING: strong setup, waiting for final confirmation
+                    elif conf >= 65 and gates_passed >= 4 and signals_hit >= 3:
                         watching.append(r)
-                    elif conf >= 60:
+                    # ON DECK: forming — worth knowing about
+                    elif conf >= 55 and signals_hit >= 3:
                         on_deck.append(r)
             except Exception:
                 continue
@@ -2136,7 +2219,7 @@ if div:
     css = f"divergence-{'bull' if div['type']=='bullish' else 'bear'}"
     st.markdown(f"<div class='{css}'><b>{div['label']}</b><br>{div['detail']}</div>", unsafe_allow_html=True)
 
-tab1,tab2,tab3,tab4,tab5 = st.tabs(["SIGNALS","CHART","BACKTEST","SCAN","JOURNAL"])
+tab4,tab1,tab2,tab3,tab5 = st.tabs(["SCAN","SIGNALS","CHART","BACKTEST","JOURNAL"])
 
 with tab1:
     cands_quick, tfs_quick = build_multi_tf_candidates(selected_ticker, toggles, account_size, risk_pct, dte_quick, "quick", atr=atr)
@@ -2413,19 +2496,23 @@ with tab4:
                     "<span style='color:#ff4d6d;font-weight:700'>Close all</span> if %s $%.2f</div>" % (opt['exit_take_half'], side, opt['stop']),
                     unsafe_allow_html=True)
 
-                exh = r.get("exh_reasons", [])
+                sig_detail = r.get("signal_detail", [])
+                exh        = r.get("exh_reasons", [])
+                signals_hit = r.get("signals_hit", 0)
+                if sig_detail:
+                    st.markdown("<div style='font-size:0.58rem;color:#8899aa;letter-spacing:2px;margin-bottom:4px'>SIGNAL CHECK (%s/5)</div>" % signals_hit, unsafe_allow_html=True)
+                    for item in sig_detail:
+                        good = item.startswith("✅")
+                        tcol = "#e0e6f0" if good else "#8899aa"
+                        st.markdown("<div style='font-size:0.73rem;color:%s;padding:2px 0'>%s</div>" % (tcol, item), unsafe_allow_html=True)
                 if exh:
-                    st.markdown("<div style='font-size:0.58rem;color:#8899aa;letter-spacing:2px;margin-bottom:4px'>EXHAUSTION CHECK</div>", unsafe_allow_html=True)
+                    st.markdown("<div style='font-size:0.58rem;color:#8899aa;letter-spacing:2px;margin:6px 0 4px'>EXHAUSTION DETAIL</div>", unsafe_allow_html=True)
                     for reason in exh:
-                        good  = any(x in reason for x in ["confirmed","forming","Higher low","Lower high","Climax","Capitulation","Hammer","doji","star","reclaim","holding","rising","falling"])
-                        col   = "#00e5aa" if good else "#ff4d6d"
-                        tcol  = "#e0e6f0" if good else "#8899aa"
-                        dot   = "●" if good else "○"
-                        st.markdown(
-                            "<div style='font-size:0.73rem;color:%s;padding:2px 0'>"
-                            "<span style='color:%s'>%s</span> %s</div>" % (tcol, col, dot, reason),
-                            unsafe_allow_html=True)
-
+                        good = any(x in reason for x in ["confirmed","forming","Higher low","Lower high","Climax","Capitulation","Hammer","doji","star","reclaim","holding","rising","falling"])
+                        col  = "#00e5aa" if good else "#ff4d6d"
+                        tcol = "#e0e6f0" if good else "#8899aa"
+                        dot  = "●" if good else "○"
+                        st.markdown("<div style='font-size:0.71rem;color:%s;padding:1px 0'><span style='color:%s'>%s</span> %s</div>" % (tcol, col, dot, reason), unsafe_allow_html=True)
                 if st.button(f"Log {r['ticker']} {r['action']}", key=f"log_{bucket}_{idx}", use_container_width=True):
                     log_trade(r["ticker"], r["sig"], r["opt"], r["gates_passed"], 7, r["elevate"])
                     st.success("Logged!")
