@@ -719,6 +719,75 @@ def fetch_multi_tf(ticker, trade_style):
             "daily": tf1d if tf1d  is not None and len(tf1d)  > 20 else None,
         }
 
+def detect_squeeze(df, direction):
+    """
+    Bollinger Band / Keltner Channel squeeze detector.
+    Three states:
+      "firing"  — was in squeeze, just broke out in signal direction (BEST — enter now)
+      "squeeze" — compression active, building energy, watching for break
+      "none"    — normal volatility, no edge from squeeze
+
+    A firing squeeze is one of the strongest options entry signals because:
+      - IV is low during compression = cheap premium
+      - Volatility expansion after break inflates option value fast
+    """
+    if df is None or len(df) < 25:
+        return "none", 0
+
+    close  = df["close"].astype(float)
+    high   = df["high"].astype(float)
+    low    = df["low"].astype(float)
+    is_bull = direction == "bullish"
+
+    # Bollinger Bands (20, 2)
+    sma    = close.rolling(20).mean()
+    std    = close.rolling(20).std()
+    upper_bb = sma + std * 2
+    lower_bb = sma - std * 2
+
+    # True Range + ATR (20)
+    import pandas as pd
+    tr = pd.concat([
+        high - low,
+        (high - close.shift()).abs(),
+        (low  - close.shift()).abs()
+    ], axis=1).max(axis=1)
+    atr = tr.rolling(20).mean()
+
+    # Keltner Channels (20 SMA ± 1.5 ATR)
+    upper_kc = sma + atr * 1.5
+    lower_kc = sma - atr * 1.5
+
+    # Squeeze = BB inside KC
+    in_squeeze = (lower_bb > lower_kc) & (upper_bb < upper_kc)
+
+    # Compression ratio — how tight is the squeeze? (0-100, higher = tighter)
+    bb_width  = float((upper_bb - lower_bb).iloc[-1])
+    kc_width  = float((upper_kc - lower_kc).iloc[-1])
+    compression = round(max(0, min(100, (1 - bb_width / kc_width) * 100)), 1) if kc_width > 0 else 0
+
+    curr_squeeze = bool(in_squeeze.iloc[-1])
+    prev_squeeze = bool(in_squeeze.iloc[-2]) if len(in_squeeze) >= 2 else False
+
+    # Firing = was in squeeze last bar, now broke out in signal direction
+    curr_close = float(close.iloc[-1])
+    prev_close = float(close.iloc[-2])
+    broke_up   = curr_close > prev_close and curr_close > float(sma.iloc[-1])
+    broke_down = curr_close < prev_close and curr_close < float(sma.iloc[-1])
+
+    if prev_squeeze and not curr_squeeze:
+        # Just exited squeeze — check direction
+        if (is_bull and broke_up) or (not is_bull and broke_down):
+            return "firing", compression
+        else:
+            return "none", compression  # broke wrong direction, skip
+
+    if curr_squeeze:
+        return "squeeze", compression
+
+    return "none", compression
+
+
 def check_vwap_confluence(df_5min, direction):
     """
     Quick trade extra confluence: VWAP reclaim/rejection on 5min.
@@ -1660,16 +1729,19 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     else:
         signal_detail.append("❌ No exhaustion signal")
 
-    # Signal 4: VWAP relationship
+    # Signal 4: Volatility squeeze (BB inside KC)
     try:
-        vwap_ok, vwap_label = check_vwap_confluence(df_primary, direction)
-        if vwap_ok:
+        sq_state, sq_compression = detect_squeeze(df_primary, direction)
+        if sq_state == "firing":
             signals_hit += 1
-            signal_detail.append(f"✅ VWAP {vwap_label}")
+            signal_detail.append("✅ Squeeze FIRING — volatility expanding now (%s%% compressed)" % sq_compression)
+        elif sq_state == "squeeze":
+            signals_hit += 1
+            signal_detail.append("✅ Squeeze ACTIVE — building energy (%s%% compressed)" % sq_compression)
         else:
-            signal_detail.append(f"❌ VWAP {vwap_label}")
+            signal_detail.append("❌ No squeeze — normal volatility")
     except Exception:
-        signal_detail.append("❌ VWAP unavailable")
+        signal_detail.append("❌ Squeeze unavailable")
 
     # Signal 5: RSI divergence
     try:
@@ -1816,6 +1888,12 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                 float(df_pri["close"].iloc[-1]) - float(df_pri["open"].iloc[-1])
             ) > float(df_pri["close"].iloc[-1]) * 0.003
 
+            # Squeeze state
+            try:
+                sq_state, sq_compression = detect_squeeze(df_pri, direction)
+            except Exception:
+                sq_state, sq_compression = "none", 0
+
             results.append({
                 "ticker":        ticker,
                 "style":         style,
@@ -1838,9 +1916,11 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                 "exh_reasons":   detail.get("exhaustion_reasons", []),
                 "signal_detail": detail.get("signal_detail", []),
                 "signals_hit":   detail.get("signals_hit", 0),
-                "rel_vol":       rel_vol,
-                "vol_spike":     vol_spike,
-                "block_detected":block_detected,
+                "rel_vol":        rel_vol,
+                "vol_spike":      vol_spike,
+                "block_detected": block_detected,
+                "sq_state":       sq_state,
+                "sq_compression": sq_compression,
             })
     except Exception:
         pass
@@ -2433,6 +2513,13 @@ with tab4:
             sty_fg  = "#aa88ff"  if r["style"] == "quick" else "#6699cc"
             blk_tag = "<span style='font-size:0.58rem;color:#f0c040'>⚡ BLOCK</span>" if block else ""
             exh_txt = "✅ confirmed" if exh_ok else "⏳ watching"
+            sq_state = r.get("sq_state", "none")
+            sq_pct   = r.get("sq_compression", 0)
+            sq_tag   = (
+                " &nbsp;·&nbsp; <span style='color:#aa88ff'>⚡ SQUEEZE FIRING</span>" if sq_state == "firing"
+                else " &nbsp;·&nbsp; <span style='color:#6699cc'>◈ squeeze</span>" if sq_state == "squeeze"
+                else ""
+            )
             action  = "CALL" if is_bull else "PUT"
             parts = [
                 "<div style='background:#0d1421;border:1px solid %s;border-radius:12px;padding:14px 16px;margin-bottom:8px'>" % border,
@@ -2454,7 +2541,7 @@ with tab4:
                 blk_tag,
                 "</div>",
                 "<div style='font-size:0.69rem;color:#8899aa'>%s</div>" % r["pattern"],
-                "<div style='font-size:0.65rem;color:#8899aa;margin-top:2px'>%sx vol &nbsp;·&nbsp; %s</div>" % (rv, exh_txt),
+                "<div style='font-size:0.65rem;color:#8899aa;margin-top:2px'>%sx vol &nbsp;·&nbsp; %s%s</div>" % (rv, exh_txt, sq_tag),
                 "</div>",
                 "<div style='text-align:right;flex-shrink:0'>",
                 "<div style='font-size:0.56rem;font-weight:700;color:%s;background:%s22;padding:2px 7px;border-radius:6px;letter-spacing:1px;margin-bottom:5px;display:inline-block'>%s</div>" % (cc, cc, cl),
