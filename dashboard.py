@@ -274,11 +274,17 @@ def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, c
         max_move_pct = max(max_move_pct, min(atr_cap_pct, 0.35))
 
     if is_call:
-        max_target = round(current_price * (1 + max_move_pct), 2)
+        max_target   = round(current_price * (1 + max_move_pct), 2)
         stock_target = min(target, max_target)
+        # CALL target must always be ABOVE current price
+        if stock_target <= current_price:
+            stock_target = round(current_price * 1.05, 2)
     else:
-        min_target = round(current_price * (1 - max_move_pct), 2)
+        min_target   = round(current_price * (1 - max_move_pct), 2)
         stock_target = max(target, min_target)
+        # PUT target must always be BELOW current price
+        if stock_target >= current_price:
+            stock_target = round(current_price * 0.95, 2)
 
     # ATR-based move probability
     move_needed = abs(stock_target - current_price)
@@ -1643,7 +1649,7 @@ def detect_exhaustion(df, direction):
 def precision_score(ticker, direction, df_primary, df_confirm,
                     iv_rank, earnings_days, market_bias,
                     sector_bias, atr, dte, account_size, risk_pct,
-                    trade_style):
+                    trade_style, current_price=None):
     """
     Elite scoring framework.
 
@@ -1683,6 +1689,15 @@ def precision_score(ticker, direction, df_primary, df_confirm,
         return None, "Market strongly bullish — no puts"
     if market_bias == "bearish" and direction == "bullish":
         return None, "Market strongly bearish — no calls"
+
+    # Minimum stock price — under $15 means garbage options liquidity
+    try:
+        import math as _m
+        _cp = float(current_price) if current_price is not None else 999
+        if not _m.isnan(_cp) and _cp < 15:
+            return None, "Stock under $15 — options liquidity too thin (%.2f)" % _cp
+    except Exception:
+        pass
 
     # Time of day hard stop (scan only during quality hours)
     try:
@@ -1730,14 +1745,17 @@ def precision_score(ticker, direction, df_primary, df_confirm,
         signal_detail.append("❌ No exhaustion signal")
 
     # Signal 4: Volatility squeeze (BB inside KC)
+    # Minimum 40% compression required — anything below is noise not a real squeeze
     try:
         sq_state, sq_compression = detect_squeeze(df_primary, direction)
-        if sq_state == "firing":
+        if sq_state == "firing" and sq_compression >= 40:
             signals_hit += 1
-            signal_detail.append("✅ Squeeze FIRING — volatility expanding now (%s%% compressed)" % sq_compression)
-        elif sq_state == "squeeze":
+            signal_detail.append("✅ Squeeze FIRING — %s%% compressed before breakout" % sq_compression)
+        elif sq_state == "squeeze" and sq_compression >= 40:
             signals_hit += 1
-            signal_detail.append("✅ Squeeze ACTIVE — building energy (%s%% compressed)" % sq_compression)
+            signal_detail.append("✅ Squeeze ACTIVE — %s%% compressed, watch for break" % sq_compression)
+        elif sq_state == "firing" and sq_compression < 40:
+            signal_detail.append("❌ Weak squeeze exit (%s%% — not meaningful)" % sq_compression)
         else:
             signal_detail.append("❌ No squeeze — normal volatility")
     except Exception:
@@ -1864,10 +1882,14 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                               cur_price, atr=atr, trade_style=style)
             if opt["premium"] > max_premium: continue
 
+            # Hard block: R:R must be at least 2:1 before running full score
+            if opt.get("rr_option", 0) < 2.0: continue
+
             conf, detail = precision_score(
                 ticker, direction, df_pri, df_con,
                 iv_rank, earn_days, market_bias,
-                sec_bias, atr, dte, account_size, risk_pct, style
+                sec_bias, atr, dte, account_size, risk_pct, style,
+                current_price=cur_price
             )
             if conf is None or conf < 60: continue
 
@@ -2516,8 +2538,8 @@ with tab4:
             sq_state = r.get("sq_state", "none")
             sq_pct   = r.get("sq_compression", 0)
             sq_tag   = (
-                " &nbsp;·&nbsp; <span style='color:#aa88ff'>⚡ SQUEEZE FIRING</span>" if sq_state == "firing"
-                else " &nbsp;·&nbsp; <span style='color:#6699cc'>◈ squeeze</span>" if sq_state == "squeeze"
+                " &nbsp;·&nbsp; <span style='color:#aa88ff'>⚡ SQUEEZE FIRING</span>" if sq_state == "firing" and sq_pct >= 40
+                else " &nbsp;·&nbsp; <span style='color:#6699cc'>◈ squeeze</span>" if sq_state == "squeeze" and sq_pct >= 40
                 else ""
             )
             action  = "CALL" if is_bull else "PUT"
