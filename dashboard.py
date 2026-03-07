@@ -130,18 +130,21 @@ def get_market_status():
     else:                  return "closed", "Market Closed - Pre-market opens 4:00 AM ET"
 
 @st.cache_data(ttl=60)
+@st.cache_data(ttl=60)
 def fetch_ohlcv(ticker, multiplier, timespan, days_back):
     try:
         import yfinance as yf
-        intervals = {"minute":"5m","hour":"1h","day":"1d"}
-        interval  = intervals.get(timespan,"1h")
-        period    = f"{min(days_back,59)}d" if timespan=="minute" else f"{days_back}d"
-        df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True)
-        if df.empty: return _demo_data(ticker)
+        intervals = {"minute": "5m", "hour": "1h", "day": "1d"}
+        interval  = intervals.get(timespan, "1h")
+        period    = f"{min(days_back, 59)}d" if timespan == "minute" else f"{days_back}d"
+        df = yf.download(ticker, period=period, interval=interval,
+                         progress=False, auto_adjust=True, prepost=True)
+        if df.empty:
+            return _demo_data(ticker)
         df = df.reset_index()
-        df.columns = [c[0].lower() if isinstance(c,tuple) else c.lower() for c in df.columns]
-        df = df.rename(columns={"datetime":"timestamp","date":"timestamp"})
-        return df[["timestamp","open","high","low","close","volume"]].dropna().reset_index(drop=True)
+        df.columns = [c[0].lower() if isinstance(c, tuple) else c.lower() for c in df.columns]
+        df = df.rename(columns={"datetime": "timestamp", "date": "timestamp"})
+        return df[["timestamp", "open", "high", "low", "close", "volume"]].dropna().reset_index(drop=True)
     except:
         return _demo_data(ticker)
 
@@ -675,14 +678,21 @@ def score_setup(df, setup):
 
 def calc_quick_levels(price, direction, atr):
     """
-    For QUICK trades (weekly/0DTE): tight ATR-based levels.
-    Target = 0.75x ATR, Stop = 0.4x ATR. Realistic intraday moves.
+    For QUICK trades: ATR-based levels with proper fallback.
+    Target = 1.0x ATR, Stop = 0.5x ATR.
+    Fallback: uses 1.5% of price if ATR is None/zero/unreasonably small.
     """
-    if not atr or atr <= 0: atr = price * 0.01  # fallback 1%
+    min_atr = price * 0.005
+    if not atr or atr <= 0 or atr < min_atr:
+        atr = max(price * 0.015, min_atr)
     is_bull = direction == "bullish"
-    entry  = round(price, 2)
-    target = round(price + atr * 0.75, 2) if is_bull else round(price - atr * 0.75, 2)
-    stop   = round(price - atr * 0.4,  2) if is_bull else round(price + atr * 0.4,  2)
+    entry   = round(price, 2)
+    target  = round(price + atr * 1.0, 2) if is_bull else round(price - atr * 1.0, 2)
+    stop    = round(price - atr * 0.5, 2) if is_bull else round(price + atr * 0.5, 2)
+    if is_bull and stop >= price:
+        stop = round(price * 0.97, 2)
+    if not is_bull and stop <= price:
+        stop = round(price * 1.03, 2)
     return entry, target, stop
 
 
@@ -699,12 +709,13 @@ def fetch_multi_tf(ticker, trade_style):
     def _fetch(ticker, interval, period):
         try:
             df = yf.download(ticker, period=period, interval=interval,
-                             progress=False, auto_adjust=True)
-            if df.empty: return None
+                             progress=False, auto_adjust=True, prepost=True)
+            if df.empty:
+                return None
             df = df.reset_index()
-            df.columns = [c[0].lower() if isinstance(c,tuple) else c.lower() for c in df.columns]
-            df = df.rename(columns={"datetime":"timestamp","date":"timestamp"})
-            return df[["timestamp","open","high","low","close","volume"]].dropna().reset_index(drop=True)
+            df.columns = [c[0].lower() if isinstance(c, tuple) else c.lower() for c in df.columns]
+            df = df.rename(columns={"datetime": "timestamp", "date": "timestamp"})
+            return df[["timestamp", "open", "high", "low", "close", "volume"]].dropna().reset_index(drop=True)
         except:
             return None
 
@@ -865,25 +876,37 @@ def check_ema50_slope(df_daily, direction):
 def check_tf_trend_agreement(dfs, direction):
     """
     Checks how many timeframes agree with the signal direction.
+    Fixed: properly extracts scalar float from potentially multi-column DataFrame.
     Returns (agreeing_count, total_checked, details_list)
     """
-    details = []
+    details  = []
     agreeing = 0
     for label, df in dfs.items():
-        if df is None: continue
-        close = df["close"].astype(float)
-        ema20 = float(close.ewm(span=20).mean().iloc[-1])
-        price = float(close.iloc[-1])
-        trend = "bullish" if price > ema20 else "bearish"
-        agrees = trend == direction
-        if agrees: agreeing += 1
-        details.append({
-            "tf": label,
-            "trend": trend,
-            "agrees": agrees,
-            "ema20": round(ema20, 2),
-            "price": round(price, 2),
-        })
+        if df is None:
+            continue
+        try:
+            if isinstance(df.columns, pd.MultiIndex):
+                close = df["close"].iloc[:, 0].astype(float)
+            else:
+                close = df["close"].astype(float)
+            if len(close) < 21:
+                continue
+            ema20     = close.ewm(span=20).mean()
+            ema20_val = float(ema20.iloc[-1].item() if hasattr(ema20.iloc[-1], 'item') else ema20.iloc[-1])
+            price_val = float(close.iloc[-1].item() if hasattr(close.iloc[-1], 'item') else close.iloc[-1])
+            trend  = "bullish" if price_val > ema20_val else "bearish"
+            agrees = trend == direction
+            if agrees:
+                agreeing += 1
+            details.append({
+                "tf":     label,
+                "trend":  trend,
+                "agrees": agrees,
+                "ema20":  round(ema20_val, 2),
+                "price":  round(price_val, 2),
+            })
+        except Exception:
+            continue
     return agreeing, len(details), details
 
 def build_multi_tf_candidates(ticker, toggles, account, risk_pct,
@@ -1565,10 +1588,9 @@ def get_sector_bias(sector_etf):
 
 def detect_exhaustion(df, direction):
     """
-    Elite exhaustion detection.
-    ONE strong signal is enough to confirm — we score 0-4 but only need 1/4.
-    Confirmed = any single strong signal present.
-    Score used for confidence weighting.
+    Elite exhaustion detection — requires 2 of 4 signals minimum.
+    Volume MUST be expanding (>1.2x avg) to count as exhaustion candle.
+    Confirmed = 2+ signals present (raised from 1).
     """
     if len(df) < 20:
         return False, 0, ["Insufficient data"]
@@ -1583,20 +1605,23 @@ def detect_exhaustion(df, direction):
     reasons = []
     score   = 0
 
-    # 1. Exhaustion candle — big body + high volume in last 6 bars
+    # 1. Exhaustion candle — big body + MUST have above-average volume
+    exh_found = False
     for j in range(-6, 0):
-        body   = float(open_.iloc[j]) - float(close.iloc[j]) if is_bull else float(close.iloc[j]) - float(open_.iloc[j])
-        rng    = float(high.iloc[j]) - float(low.iloc[j])
-        is_big = rng > 0 and body / rng > 0.55
-        is_vol = float(volume.iloc[j]) > avg_vol * 1.4
+        body      = float(open_.iloc[j]) - float(close.iloc[j]) if is_bull else float(close.iloc[j]) - float(open_.iloc[j])
+        rng       = float(high.iloc[j]) - float(low.iloc[j])
+        is_big    = rng > 0 and body / rng > 0.55
+        vol_ratio = float(volume.iloc[j]) / avg_vol if avg_vol > 0 else 0
+        is_vol    = vol_ratio >= 1.2
         if body > 0 and is_big and is_vol:
             score += 1
-            reasons.append("Capitulation candle confirmed" if is_bull else "Climax candle confirmed")
+            reasons.append("%s candle confirmed (%.1fx vol)" % ("Capitulation" if is_bull else "Climax", vol_ratio))
+            exh_found = True
             break
-    else:
-        reasons.append("No climax/capitulation candle")
+    if not exh_found:
+        reasons.append("No exhaustion candle with volume confirmation")
 
-    # 2. Reversal candle — hammer/doji for calls, shooting star/doji for puts
+    # 2. Reversal candle
     last_body  = abs(float(close.iloc[-1]) - float(open_.iloc[-1]))
     last_range = float(high.iloc[-1]) - float(low.iloc[-1])
     is_doji    = last_range > 0 and last_body / last_range < 0.3
@@ -1619,13 +1644,14 @@ def detect_exhaustion(df, direction):
 
     # 3. RSI divergence
     div = detect_rsi_divergence(df)
-    if div and ((is_bull and div.get("type") == "bullish") or (not is_bull and div.get("type") == "bearish")):
+    if div and ((is_bull and div.get("type") == "bullish") or
+                (not is_bull and div.get("type") == "bearish")):
         score += 1
         reasons.append("RSI divergence confirmed")
     else:
         reasons.append("No RSI divergence")
 
-    # 4. Structure — higher low for calls, lower high for puts
+    # 4. Structure
     if is_bull:
         lows = [float(low.iloc[i]) for i in [-15, -8, -1]]
         if lows[-1] > lows[-2]:
@@ -1641,8 +1667,7 @@ def detect_exhaustion(df, direction):
         else:
             reasons.append("Higher high — structure not confirmed")
 
-    # ONE strong signal is enough — elite traders don't wait for perfect storms
-    confirmed = score >= 1
+    confirmed = score >= 2
     return confirmed, score, reasons
 
 
@@ -1651,29 +1676,8 @@ def precision_score(ticker, direction, df_primary, df_confirm,
                     sector_bias, atr, dte, account_size, risk_pct,
                     trade_style, current_price=None):
     """
-    Elite scoring framework.
-
-    TIER 1 — Hard stops (any single fail = no trade):
-      - Earnings within 5 days
-      - IV rank > 70% (too expensive to buy)
-      - Market directly opposing with conviction
-      - Time of day: before 9:45am or after 3:30pm ET
-
-    TIER 2 — Quality signals, need 4 of 5:
-      - Trend aligned on primary TF
-      - Pattern confirmed with volume
-      - At least ONE exhaustion signal
-      - VWAP relationship clean
-      - RSI divergence present
-
-    TIER 3 — Execution quality scoring:
-      - ATR confirms move is realistic
-      - R:R minimum 2:1
-      - Options liquidity present
-      - IV rank in sweet spot (20-50%)
-      - Market / sector tailwind
-
-    Score: 50 base, up to 100
+    Elite scoring framework v6.1
+    TIER 1: Hard stops. TIER 2: 4/5 quality signals. TIER 3: scoring.
     """
     import pytz
     from datetime import datetime as _dt
@@ -1683,14 +1687,13 @@ def precision_score(ticker, direction, df_primary, df_confirm,
         return None, "Earnings within 5 days"
 
     if iv_rank is not None and iv_rank > 70:
-        return None, f"IV too high ({iv_rank}%)"
+        return None, "IV too high (%s%%)" % iv_rank
 
     if market_bias == "bullish" and direction == "bearish":
         return None, "Market strongly bullish — no puts"
     if market_bias == "bearish" and direction == "bullish":
         return None, "Market strongly bearish — no calls"
 
-    # Minimum stock price — under $15 means garbage options liquidity
     try:
         import math as _m
         _cp = float(current_price) if current_price is not None else 999
@@ -1699,21 +1702,60 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     except Exception:
         pass
 
-    # Time of day hard stop (scan only during quality hours)
+    # Gap check — stock already moved hard against signal
     try:
-        et  = pytz.timezone("America/New_York")
-        now = _dt.now(et).time()
-        from datetime import time as _t
-        if now < _t(9, 45) or now > _t(15, 30):
-            return None, "Outside quality trading hours (9:45-3:30 ET)"
+        import yfinance as yf
+        fast       = yf.Ticker(ticker).fast_info
+        prev_close = float(fast.get("previousClose", 0) or 0)
+        curr_price = float(current_price) if current_price else 0
+        if prev_close > 0 and curr_price > 0:
+            gap_pct = (curr_price - prev_close) / prev_close * 100
+            if direction == "bearish" and gap_pct > 3.0:
+                return None, "Gapped up %.1f%% against PUT signal — invalidated" % gap_pct
+            if direction == "bullish" and gap_pct < -3.0:
+                return None, "Gapped down %.1f%% against CALL signal — invalidated" % gap_pct
     except Exception:
-        pass  # outside market hours scanning is fine for setup detection
+        pass
+
+    # Sector momentum hard stop
+    try:
+        import yfinance as yf
+        sector_etf = SECTOR_ETF.get(ticker, "SPY")
+        if sector_etf and sector_etf != ticker:
+            sec_fast = yf.Ticker(sector_etf).fast_info
+            sec_prev = float(sec_fast.get("previousClose", 0) or 0)
+            sec_curr = float(sec_fast.get("lastPrice", 0) or sec_fast.get("last_price", 0) or 0)
+            if sec_prev > 0 and sec_curr > 0:
+                sec_move = (sec_curr - sec_prev) / sec_prev * 100
+                if direction == "bearish" and sec_move > 2.0:
+                    return None, "Sector %s up %.1f%% — fighting PUT signal" % (sector_etf, sec_move)
+                if direction == "bullish" and sec_move < -2.0:
+                    return None, "Sector %s down %.1f%% — fighting CALL signal" % (sector_etf, sec_move)
+    except Exception:
+        pass
+
+    # Signal invalidation — price already moved 1.5x ATR against signal
+    try:
+        if atr and atr > 0 and current_price and df_primary is not None and len(df_primary) >= 10:
+            entry_price = float(df_primary["close"].iloc[-1])
+            if direction == "bullish":
+                recent_high = float(df_primary["high"].iloc[-10:].max())
+                drop = recent_high - entry_price
+                if drop > atr * 1.5:
+                    return None, "Price dropped %.2f (%.1fx ATR) from recent high — CALL invalidated" % (drop, drop/atr)
+            else:
+                recent_low = float(df_primary["low"].iloc[-10:].min())
+                rip = entry_price - recent_low
+                if rip > atr * 1.5:
+                    return None, "Price ripped %.2f (%.1fx ATR) from recent low — PUT invalidated" % (rip, rip/atr)
+    except Exception:
+        pass
 
     # ── TIER 2: Quality signals — need 4 of 5 ────────────────────────────────
-    signals_hit = 0
+    signals_hit   = 0
     signal_detail = []
 
-    # Signal 1: Trend aligned on primary TF
+    # Signal 1: Trend aligned
     try:
         trend_dir, trend_score, _, _, _, _ = get_trend(df_primary)
         if trend_dir == direction:
@@ -1724,36 +1766,36 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     except Exception:
         signal_detail.append("❌ Trend unavailable")
 
-    # Signal 2: Pattern confirmed with volume
+    # Signal 2: Volume confirming — 1.2x minimum
     try:
-        avg_vol = float(df_primary["volume"].iloc[-20:].mean())
-        cur_vol = float(df_primary["volume"].iloc[-3:].mean())
-        if cur_vol > avg_vol * 1.1:
+        avg_vol   = float(df_primary["volume"].iloc[-20:].mean())
+        cur_vol   = float(df_primary["volume"].iloc[-3:].mean())
+        vol_ratio = cur_vol / avg_vol if avg_vol > 0 else 0
+        if vol_ratio >= 1.2:
             signals_hit += 1
-            signal_detail.append("✅ Volume confirming")
+            signal_detail.append("✅ Volume confirming (%.1fx avg)" % vol_ratio)
         else:
-            signal_detail.append("❌ Volume weak")
+            signal_detail.append("❌ Volume weak (%.1fx avg — need 1.2x+)" % vol_ratio)
     except Exception:
         signal_detail.append("❌ Volume unavailable")
 
-    # Signal 3: At least ONE exhaustion signal
+    # Signal 3: Exhaustion — 2/4 minimum
     exh_confirmed, exh_score, exh_reasons = detect_exhaustion(df_primary, direction)
-    if exh_confirmed:  # now just needs score >= 1
+    if exh_confirmed:
         signals_hit += 1
-        signal_detail.append("✅ Exhaustion signal present")
+        signal_detail.append("✅ Exhaustion confirmed (%s/4 signals)" % exh_score)
     else:
-        signal_detail.append("❌ No exhaustion signal")
+        signal_detail.append("❌ Exhaustion weak (%s/4 — need 2+)" % exh_score)
 
-    # Signal 4: Volatility squeeze (BB inside KC)
-    # Minimum 40% compression required — anything below is noise not a real squeeze
+    # Signal 4: Squeeze
     try:
         sq_state, sq_compression = detect_squeeze(df_primary, direction)
         if sq_state == "firing" and sq_compression >= 40:
             signals_hit += 1
-            signal_detail.append("✅ Squeeze FIRING — %s%% compressed before breakout" % sq_compression)
+            signal_detail.append("✅ Squeeze FIRING — %s%% compressed" % sq_compression)
         elif sq_state == "squeeze" and sq_compression >= 40:
             signals_hit += 1
-            signal_detail.append("✅ Squeeze ACTIVE — %s%% compressed, watch for break" % sq_compression)
+            signal_detail.append("✅ Squeeze ACTIVE — %s%% compressed" % sq_compression)
         elif sq_state == "firing" and sq_compression < 40:
             signal_detail.append("❌ Weak squeeze exit (%s%% — not meaningful)" % sq_compression)
         else:
@@ -1773,46 +1815,41 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     except Exception:
         signal_detail.append("❌ RSI unavailable")
 
-    # Require 3 of 5 minimum (relaxed from 4 — market isn't always perfect)
-    # 4 of 5 = strong, 3 of 5 = valid, <3 = skip
-    if signals_hit < 3:
-        return None, f"Only {signals_hit}/5 quality signals aligned"
+    if signals_hit < 4:
+        return None, "Only %s/5 quality signals aligned (need 4+)" % signals_hit
 
-    # ── TIER 3: Execution quality scoring ─────────────────────────────────────
+    # ── TIER 3: Execution quality scoring ────────────────────────────────────
     score = 50
+    score += signals_hit * 5
+    score += min(exh_score * 3, 10)
 
-    # Signals quality (up to 25 pts)
-    score += signals_hit * 5  # 3 signals = +15, 4 = +20, 5 = +25
-
-    # Exhaustion depth (up to 10 pts) — more signals = more conviction
-    score += min(exh_score * 3, 10)  # 1 signal = +3, 2 = +6, 3 = +9, 4 = +10
-
-    # TF confirmation — does confirm TF agree? (up to 10 pts)
-    tf_agree = 0; tf_total = 0
+    tf_agree = 0
+    tf_total = 0
     if df_confirm is not None:
         tf_total = 1
         try:
-            c  = df_confirm["close"].astype(float)
-            em = float(c.ewm(span=20).mean().iloc[-1])
-            pr = float(c.iloc[-1])
-            if (pr > em and direction == "bullish") or (pr < em and direction == "bearish"):
+            if isinstance(df_confirm.columns, pd.MultiIndex):
+                c = df_confirm["close"].iloc[:, 0].astype(float)
+            else:
+                c = df_confirm["close"].astype(float)
+            em     = c.ewm(span=20).mean()
+            em_val = float(em.iloc[-1].item() if hasattr(em.iloc[-1], 'item') else em.iloc[-1])
+            pr_val = float(c.iloc[-1].item()  if hasattr(c.iloc[-1],  'item') else c.iloc[-1])
+            if (pr_val > em_val and direction == "bullish") or                (pr_val < em_val and direction == "bearish"):
                 tf_agree = 1
-                score += 10
+                score   += 10
         except Exception:
             pass
 
-    # Market + sector tailwind (up to 10 pts)
     if market_bias == direction:    score += 6
     elif market_bias == "neutral":  score += 3
     if sector_bias  == direction:   score += 4
     elif sector_bias == "neutral":  score += 2
 
-    # IV rank sweet spot 20-50% (up to 5 pts)
     if iv_rank is not None:
-        if 20 <= iv_rank <= 50:  score += 5
+        if 20 <= iv_rank <= 50:   score += 5
         elif 15 <= iv_rank <= 65: score += 2
 
-    # Options liquidity present (up to 5 pts — critical for execution)
     liq_ok, liq_vol, liq_oi, _ = check_liquidity(ticker)
     if liq_ok:
         score += 3 if liq_vol >= 500 else 2 if liq_vol >= 100 else 1
@@ -1832,6 +1869,7 @@ def precision_score(ticker, direction, df_primary, df_confirm,
         "liq_ok":               liq_ok,
         "liq_vol":              liq_vol,
     }
+
 
 def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                         dte_quick, dte_swing, max_premium,
