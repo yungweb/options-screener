@@ -1277,7 +1277,8 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
         # Quick trade warning if market closed
         quick_warn_html = ""
         if sig_style == "quick" and mstatus != "open":
-            quick_warn_html = "<div style='background:#1a150a;border:1px solid #f0c040;border-radius:6px;padding:8px 12px;margin-bottom:6px;color:#f0c040;font-size:0.8rem'>⚡ Quick trades require market to be open. Levels shown are based on current price.</div>"
+            session_name = {"pre": "Pre-Market", "after": "After-Hours", "closed": "Market Closed"}.get(mstatus, "Extended Hours")
+            quick_warn_html = "<div style='background:#1a150a;border:1px solid #f0c040;border-radius:6px;padding:8px 12px;margin-bottom:6px;color:#f0c040;font-size:0.8rem'>⚡ %s — Quick trade levels based on latest price. Use for planning only.</div>" % session_name
 
         dots_html = ""
         for f in sig["factors"].values():
@@ -1434,12 +1435,14 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
             already_watching = watch_key in st.session_state.get("watch_queue", {})
             conf_status = "N/A"
 
-            if mstatus == "open":
+            if True:  # entry check runs in all sessions
                 conf_result = check_entry_confirmation(df, sig["direction"])
                 conf_status = conf_result["status"]
-                if conf_status == "CONFIRMED":
+                if mstatus != "open":
+                    conf_status = conf_status + " (extended hrs)"
+                if "CONFIRMED" in conf_status:
                     conf_bg = "#061a10"; conf_border = "#00d4aa"; conf_color = "#00d4aa"; conf_icon = "✅"
-                elif conf_status == "WAITING":
+                elif "WAITING" in conf_status:
                     conf_bg = "#0d1219"; conf_border = "#f0c040"; conf_color = "#f0c040"; conf_icon = "👁"
                 else:
                     conf_bg = "#1a0a0a"; conf_border = "#ff4d6d"; conf_color = "#ff4d6d"; conf_icon = "⏳"
@@ -1468,10 +1471,9 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                 elif gates_passed >= 5 and not already_watching and conf_status != "CONFIRMED":
                     # 5+ gates - don't auto-add but make the Watch button obvious
                     st.markdown(f"<div style='background:#0d1219;border:1px solid #f0c040;border-radius:6px;padding:6px 12px;margin-top:4px;color:#f0c040;font-size:0.8rem'>⚡ {gates_passed}/7 gates — strong setup. Hit Watch to track entry timing.</div>", unsafe_allow_html=True)
-            else:
-                st.markdown("<div style='background:#0d1219;border:1px solid #1e2d40;border-radius:8px;padding:10px 14px;margin-top:8px;color:#8899aa;font-size:0.82rem'>⏸ Entry timing check runs during market hours only (9:30 AM - 4:00 PM ET)</div>", unsafe_allow_html=True)
 
-            if mstatus == "open":
+
+            if True:  # AI brief available in all sessions
                 if ANTHROPIC_API_KEY:
                     ai_key = f"ai_result_{ticker}_{i}"
                     if st.button(f"🤖 Get AI Brief #{i+1}", key=f"{key_prefix}_ai_{i}"):
@@ -1503,8 +1505,6 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                             """, unsafe_allow_html=True)
                 else:
                     st.markdown("<div class='ai-placeholder'>🤖 AI Trade Brief - Add ANTHROPIC_API_KEY in Railway to enable</div>", unsafe_allow_html=True)
-            else:
-                st.markdown("<div style='background:#0d1219;border:1px solid #1e2d40;border-radius:8px;padding:10px 14px;margin-top:8px;color:#8899aa;font-size:0.82rem'>🤖 AI Trade Brief runs during market hours only (9:30 AM - 4:00 PM ET)</div>", unsafe_allow_html=True)
 
             bcol1, bcol2, bcol3 = st.columns(3)
             with bcol1:
@@ -2255,7 +2255,6 @@ st.markdown(f"<div class='{css_class}'>{mtext}</div>", unsafe_allow_html=True)
 SCAN_INTERVAL = 300  # 5 minutes
 
 def should_run_auto_scan():
-    if mstatus != "open": return False
     if not st.session_state.auto_scan_enabled: return False
     last = st.session_state.auto_scan_last_run
     if last is None: return True
@@ -2287,15 +2286,13 @@ if should_run_auto_scan():
 sb1, sb2, sb3 = st.columns([3,2,2])
 with sb1:
     enabled = st.session_state.auto_scan_enabled
-    if mstatus == "open":
-        toggle_label = "🟢 AUTO-SCAN ON" if enabled else "⚫ AUTO-SCAN OFF"
-        if st.button(toggle_label, key="auto_scan_toggle"):
-            st.session_state.auto_scan_enabled = not enabled
-            if st.session_state.auto_scan_enabled:
-                st.session_state.auto_scan_last_run = None
-            st.rerun()
-    else:
-        st.markdown("<div style='color:#8899aa;font-size:0.78rem;padding:6px 0'>Auto-scan available during market hours</div>", unsafe_allow_html=True)
+    session_label = {"open": "", "pre": " (PRE)", "after": " (AH)", "closed": " (CLOSED)"}.get(mstatus, "")
+    toggle_label = ("🟢 AUTO-SCAN ON" if enabled else "⚫ AUTO-SCAN OFF") + session_label
+    if st.button(toggle_label, key="auto_scan_toggle"):
+        st.session_state.auto_scan_enabled = not enabled
+        if st.session_state.auto_scan_enabled:
+            st.session_state.auto_scan_last_run = None
+        st.rerun()
 with sb2:
     last    = st.session_state.auto_scan_last_run
     enabled = st.session_state.auto_scan_enabled
@@ -2338,7 +2335,7 @@ for ng in new_go_now:
     </script>""", height=0)
 
 # Keep the page live — rerun every second when auto-scan is on
-if st.session_state.auto_scan_enabled and mstatus == "open":
+if st.session_state.auto_scan_enabled:
     import time as _time; _time.sleep(1); st.rerun()
 
 if earnings_days is not None:
