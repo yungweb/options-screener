@@ -1184,7 +1184,7 @@ KEY RISK: [1 sentence on the single biggest risk to this trade]
 EDGE: [1 sentence on what gives this trade its edge if taken]"""
 
     payload = json.dumps({
-        "model": "claude-sonnet-4-20250514",
+        "model": "claude-sonnet-4-6",
         "max_tokens": 300,
         "messages": [{"role": "user", "content": prompt}]
     }).encode("utf-8")
@@ -1199,9 +1199,17 @@ EDGE: [1 sentence on what gives this trade its edge if taken]"""
         },
         method="POST"
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        data = json.loads(resp.read())
-    return data["content"][0]["text"].strip()
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+        return data["content"][0]["text"].strip()
+    except urllib.error.HTTPError as e:
+        err = e.read().decode("utf-8", errors="ignore")
+        if "invalid x-api-key" in err.lower() or "authentication" in err.lower():
+            return "RATING: Unavailable\nREASONING: API key not set or invalid. Add ANTHROPIC_API_KEY to Railway environment variables.\nKEY RISK: N/A\nEDGE: N/A"
+        return "RATING: Unavailable\nREASONING: API error %s — %s\nKEY RISK: N/A\nEDGE: N/A" % (e.code, err[:100])
+    except Exception as e:
+        return "RATING: Unavailable\nREASONING: Connection error — %s\nKEY RISK: N/A\nEDGE: N/A" % str(e)[:80]
 
 def detect_rsi_divergence_text(sig):
     return sig.get("rsi_div", "not checked")
@@ -1815,8 +1823,10 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     except Exception:
         signal_detail.append("❌ RSI unavailable")
 
-    if signals_hit < 4:
-        return None, "Only %s/5 quality signals aligned (need 4+)" % signals_hit
+    # 4/5 required for GO NOW — but still score 3/5 for WATCHING/ON DECK
+    # Bucket assignment in full_scan uses signals_hit to separate tiers
+    if signals_hit < 3:
+        return None, "Only %s/5 quality signals aligned (need 3+ minimum)" % signals_hit
 
     # ── TIER 3: Execution quality scoring ────────────────────────────────────
     score = 50
@@ -2026,17 +2036,17 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
                     entry_status = r["entry_status"]
                     exh_ok       = r["exh_confirmed"]
 
-                    signals_hit = r.get("detail", {}).get("signals_hit", 0)
+                    signals_hit = r.get("signals_hit", r.get("detail", {}).get("signals_hit", 0))
                     exh_score   = r.get("detail", {}).get("exhaustion_score", 0)
 
-                    # GO NOW: confident execution — trend + exhaustion + 4+ signals + entry confirmed
+                    # GO NOW: 4/5 signals + confirmed entry + strong gates
                     if (conf >= 75 and gates_passed >= 5 and
                         entry_status == "CONFIRMED" and exh_ok and signals_hit >= 4):
                         go_now.append(r)
-                    # WATCHING: strong setup, waiting for final confirmation
+                    # WATCHING: 3/5+ signals, strong setup forming
                     elif conf >= 65 and gates_passed >= 4 and signals_hit >= 3:
                         watching.append(r)
-                    # ON DECK: forming — worth knowing about
+                    # ON DECK: 3/5 signals, worth tracking
                     elif conf >= 55 and signals_hit >= 3:
                         on_deck.append(r)
             except Exception:
