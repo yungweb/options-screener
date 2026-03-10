@@ -1590,7 +1590,6 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                               direction, dte, account_size, risk_pct,
                               cur_price, atr=atr, trade_style=style)
             if opt["premium"] > max_premium: continue
-            if opt.get("rr_option", 0) < 2.0: continue
 
             conf, detail = precision_score(
                 ticker, direction, df_pri, df_con,
