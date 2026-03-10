@@ -432,7 +432,7 @@ def init_auto_scan():
     if "auto_scan_on_deck"  not in st.session_state: st.session_state.auto_scan_on_deck   = []
     if "auto_scan_mkt"      not in st.session_state: st.session_state.auto_scan_mkt       = "neutral"
     if "auto_scan_settings" not in st.session_state: st.session_state.auto_scan_settings  = {
-        "scan_list": "watchlist", "max_premium": 5.0, "style": "both"
+        "scan_list": "watchlist", "max_premium": 15.0, "style": "both"
     }
 
 init_auto_scan()
@@ -1513,8 +1513,8 @@ def precision_score(ticker, direction, df_primary, df_confirm,
         signal_detail.append("❌ RSI unavailable")
 
     # 3/5 minimum — 4/5 = strong, 3/5 = valid, <3 = skip
-    if signals_hit < 3:
-        return None, f"Only {signals_hit}/5 quality signals (need 3+)"
+    if signals_hit < 2:
+        return None, f"Only {signals_hit}/5 quality signals (need 2+)"
 
     # ── TIER 3: Execution scoring ─────────────────────────────────────────────
     score = 50
@@ -2089,7 +2089,7 @@ with tab4:
         scan_style_key = "quick" if "Quick" in scan_style else "swing" if "Swing" in scan_style else "both"
         st.session_state.auto_scan_settings["style"] = scan_style_key
     with sc2:
-        max_premium = st.number_input("Max Premium ($/sh)", value=5.00, step=0.50, min_value=0.50)
+        max_premium = st.number_input("Max Premium ($/sh)", value=15.00, step=0.50, min_value=0.50)
         st.session_state.auto_scan_settings["max_premium"] = max_premium
     with sc3:
         scan_universe_choice = st.radio("Universe", ["My Watchlist", "Full Scan (120+)"], index=1, horizontal=True)
