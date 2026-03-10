@@ -1585,6 +1585,7 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
             styles.append(("swing", primary_s, _4h if _4h is not None else _1d, dte_swing))
 
         for style, df_pri, df_con, dte in styles:
+          try:
             if df_pri is None or len(df_pri) < 30: continue
             cur_price = price if price is not None else float(df_pri["close"].iloc[-1])
             cands = build_candidates(df_pri, ticker, toggles, account_size, risk_pct, dte,
@@ -1592,7 +1593,11 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
             if not cands: continue
             best      = cands[0]
             direction = best["direction"]
-            opt = calc_trade(best["entry"], best["stop"], best["target"],
+            # Always use current price as entry — never stale pattern neckline
+            safe_entry  = round(cur_price, 2)
+            safe_stop   = best["stop"]   if best.get("stop")   and 0 < abs(best["stop"]   - cur_price) / cur_price < 0.20 else round(cur_price * (0.97 if direction == "bullish" else 1.03), 2)
+            safe_target = best["target"] if best.get("target") and 0 < abs(best["target"] - cur_price) / cur_price < 0.30 else round(cur_price * (1.05 if direction == "bullish" else 0.95), 2)
+            opt = calc_trade(safe_entry, safe_stop, safe_target,
                               direction, dte, account_size, risk_pct,
                               cur_price, atr=atr, trade_style=style)
             if opt["premium"] > max_premium: continue
@@ -1641,6 +1646,8 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                 "block_detected": block_detected,
                 "sq_state": sq_state, "sq_compression": sq_compression,
             })
+          except Exception:
+              continue  # skip this style, don't kill whole ticker
     except Exception:
         pass
     return results
