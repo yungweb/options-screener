@@ -797,7 +797,13 @@ def build_candidates(df, ticker, toggles, account, risk_pct, dte, trade_style="s
         if is_quick:
             q_entry, q_target, q_stop = calc_quick_levels(price, setup.direction, atr)
         else:
-            q_entry, q_target, q_stop = setup.entry_price, setup.target, setup.stop_loss
+            # Clamp entry to current price if pattern neckline is stale/far away
+            if abs(setup.entry_price - price) / price > 0.03:
+                q_entry = round(price, 2)
+            else:
+                q_entry = setup.entry_price
+            q_target = setup.target
+            q_stop   = setup.stop_loss
 
         if conflict:
             if is_quick:
