@@ -1890,6 +1890,7 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
     Returns list of result records (may be empty).
     """
     results = []
+    _reject_reason = "unknown"
     try:
         tfs_q = fetch_multi_tf(ticker, "quick")
         tfs_s = fetch_multi_tf(ticker, "swing")
@@ -1939,7 +1940,12 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                 sec_bias, atr, dte, account_size, risk_pct, style,
                 current_price=cur_price
             )
-            if conf is None or conf < 60: continue
+            if conf is None:
+                results.append({"ticker": ticker, "_rejected": True, "_reason": "[%s %s] precision_score: %s" % (style.upper(), "CALL" if direction=="bullish" else "PUT", str(detail)[:80])})
+                continue
+            if conf < 55:
+                results.append({"ticker": ticker, "_rejected": True, "_reason": "[%s %s] conf too low: %s" % (style.upper(), "CALL" if direction=="bullish" else "PUT", conf)})
+                continue
 
             gates, gates_passed, elevate = run_seven_point_gate(
                 df_pri, best, opt, iv_rank, earn_days, opt["actual_dte"]
@@ -1992,8 +1998,8 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                 "sq_state":       sq_state,
                 "sq_compression": sq_compression,
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        results.append({"ticker": ticker, "_rejected": True, "_reason": "Exception: " + str(_e)[:80]})
     return results
 
 def full_scan(scan_list, toggles, account_size, risk_pct,
@@ -2031,6 +2037,9 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
             try:
                 records = future.result()
                 for r in records:
+                    if r.get("_rejected"):
+                        on_deck.append(r)  # surface debug rejections
+                        continue
                     conf         = r["confidence"]
                     gates_passed = r["gates_passed"]
                     entry_status = r["entry_status"]
@@ -2049,7 +2058,8 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
                     # ON DECK: 3/5 signals, worth tracking
                     elif conf >= 55 and signals_hit >= 3:
                         on_deck.append(r)
-            except Exception:
+            except Exception as _fe:
+                on_deck.append({"ticker": futures[future], "_rejected": True, "_reason": "Future error: " + str(_fe)[:60]})
                 continue
 
     go_now.sort(  key=lambda x: (x["vol_spike"], x["confidence"]), reverse=True)
@@ -2533,7 +2543,17 @@ with tab4:
     on_deck  = st.session_state.auto_scan_on_deck
     mkt_bias = st.session_state.auto_scan_mkt
 
-    if go_now or watching or on_deck:
+    # ── Debug: show why tickers were rejected ──────────────────────────────────
+    rejected = [r for r in on_deck if r.get("_rejected")]
+    real_on_deck = [r for r in on_deck if not r.get("_rejected")]
+    on_deck = real_on_deck
+
+    if rejected:
+        with st.expander("🔍 DEBUG — Why tickers were filtered (%s rejected)" % len(rejected), expanded=True):
+            for r in rejected[:20]:
+                st.markdown("**%s** — `%s`" % (r.get("ticker","?"), r.get("_reason","unknown")))
+
+    if go_now or watching or on_deck or rejected:
         bias_color = "#00e5aa" if mkt_bias=="bullish" else "#ff4d6d" if mkt_bias=="bearish" else "#f0c040"
         bias_icon  = "📈" if mkt_bias=="bullish" else "📉" if mkt_bias=="bearish" else "↔️"
         total_found = len(go_now)+len(watching)+len(on_deck)
