@@ -1372,7 +1372,8 @@ def detect_exhaustion(df, direction):
         else:
             reasons.append("Higher high — structure not confirmed")
 
-    # FIXED: require 2/4 minimum
+    # 2/4 = fully confirmed (GO NOW eligible)
+    # 1/4 = partial (WATCHING / ON DECK eligible, not GO NOW)
     confirmed = score >= 2
     return confirmed, score, reasons
 
@@ -1505,9 +1506,9 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     except Exception:
         signal_detail.append("❌ RSI unavailable")
 
-    # FIXED: 4/5 minimum
-    if signals_hit < 4:
-        return None, f"Only {signals_hit}/5 quality signals (need 4+)"
+    # 3/5 minimum — 4/5 = strong, 3/5 = valid, <3 = skip
+    if signals_hit < 3:
+        return None, f"Only {signals_hit}/5 quality signals (need 3+)"
 
     # ── TIER 3: Execution scoring ─────────────────────────────────────────────
     score = 50
@@ -1670,15 +1671,19 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
                     conf         = r.get("confidence", 0)
                     gates_passed = r.get("gates_passed", 0)
                     entry_status = r.get("entry_status", "WAITING")
-                    exh_ok       = r.get("exh_confirmed", False)
+                    exh_ok       = r.get("exh_confirmed", False)  # 2/4 required
+                    exh_score    = r.get("detail", {}).get("exhaustion_score", 0)  # 1/4 ok for watching
                     signals_hit  = r.get("detail", {}).get("signals_hit", 0)
 
+                    # GO NOW: needs full exhaustion confirmation (2/4) + all other criteria
                     if (conf >= 75 and gates_passed >= 5 and
                             entry_status == "CONFIRMED" and exh_ok and signals_hit >= 4):
                         go_now.append(r)
-                    elif conf >= 65 and gates_passed >= 4 and signals_hit >= 3:
+                    # WATCHING: strong setup, partial exhaustion ok (1/4+)
+                    elif conf >= 65 and gates_passed >= 4 and signals_hit >= 3 and exh_score >= 1:
                         watching.append(r)
-                    elif conf >= 55 and signals_hit >= 3:
+                    # ON DECK: forming, partial exhaustion ok (1/4+)
+                    elif conf >= 55 and signals_hit >= 3 and exh_score >= 1:
                         on_deck.append(r)
             except Exception:
                 continue
