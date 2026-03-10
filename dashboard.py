@@ -1600,7 +1600,9 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
             opt = calc_trade(safe_entry, safe_stop, safe_target,
                               direction, dte, account_size, risk_pct,
                               cur_price, atr=atr, trade_style=style)
-            if opt["premium"] > max_premium: continue
+            if opt["premium"] > max_premium:
+                print(f"SCAN {ticker} {style}: DROPPED premium ${opt['premium']:.2f} > max ${max_premium}")
+                continue
 
             conf, detail = precision_score(
                 ticker, direction, df_pri, df_con,
@@ -1608,7 +1610,10 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                 atr, dte, account_size, risk_pct, style,
                 current_price=cur_price
             )
-            if conf is None or conf < 60: continue
+            reason = detail if isinstance(detail, str) else "ok"
+            print(f"SCAN {ticker} {style} {direction}: conf={conf} reason={reason}")
+            if conf is None or conf < 60:
+                continue
 
             gates, gates_passed, elevate = run_seven_point_gate(
                 df_pri, best, opt, iv_rank, earn_days, opt["actual_dte"]
