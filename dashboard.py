@@ -2065,14 +2065,24 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
         if trade_style_filter in ("swing","both") and primary_s is not None:
             styles.append(("swing", primary_s, _4h if _4h is not None else _1d, dte_swing))
 
+        if not styles:
+            results.append({"ticker": ticker, "_rejected": True,
+                "_reason": "no styles available (primary_q=%s primary_s=%s)" % (primary_q is not None, primary_s is not None)})
+
         for style, df_pri, df_con, dte in styles:
-            if df_pri is None or len(df_pri) < 30: continue
+            if df_pri is None or len(df_pri) < 30:
+                results.append({"ticker": ticker, "_rejected": True,
+                    "_reason": "[%s] df_pri too short or None (len=%s)" % (style, len(df_pri) if df_pri is not None else 0)})
+                continue
             cur_price = price if price is not None else float(df_pri["close"].iloc[-1])
 
             cands = build_candidates(df_pri, ticker, toggles,
                                      account_size, risk_pct, dte,
                                      trade_style=style, atr=atr)
-            if not cands: continue
+            if not cands:
+                results.append({"ticker": ticker, "_rejected": True,
+                    "_reason": "[%s] no pattern candidates found" % style})
+                continue
 
             best      = cands[0]
             direction = best["direction"]
@@ -2080,10 +2090,20 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
             opt = calc_trade(best["entry"], best["stop"], best["target"],
                               direction, dte, account_size, risk_pct,
                               cur_price, atr=atr, trade_style=style)
-            if opt["premium"] > max_premium: continue
+            if opt["premium"] > max_premium:
+                results.append({"ticker": ticker, "_rejected": True,
+                    "_reason": "[%s %s] premium $%.2f > max $%.2f" % (
+                        style, "CALL" if direction=="bullish" else "PUT",
+                        opt["premium"], max_premium)})
+                continue
 
             # Hard block: R:R must be at least 2:1 before running full score
-            if opt.get("rr_option", 0) < 2.0: continue
+            if opt.get("rr_option", 0) < 2.0:
+                results.append({"ticker": ticker, "_rejected": True,
+                    "_reason": "[%s %s] RR %.1f < 2.0 required" % (
+                        style, "CALL" if direction=="bullish" else "PUT",
+                        opt.get("rr_option", 0))})
+                continue
 
             conf, detail = precision_score(
                 ticker, direction, df_pri, df_con,
