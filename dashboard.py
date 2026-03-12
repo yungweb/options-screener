@@ -624,7 +624,7 @@ def init_auto_scan():
     if "tos_agreed"          not in st.session_state: st.session_state.tos_agreed           = False
 
 init_auto_scan()
-init_user_watchlist()
+# init_user_watchlist() called later after function is defined
 
 def add_to_watch_queue(ticker, direction, sig, opt):
     init_watch_queue()
@@ -2507,6 +2507,8 @@ def init_user_watchlist():
         st.session_state.user_watchlist = saved
     st.session_state.watchlist_loaded = True
     st.session_state.user_id = user_id
+
+init_user_watchlist()  # call immediately after definition
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
