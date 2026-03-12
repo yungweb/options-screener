@@ -3128,7 +3128,10 @@ with tab4:
             st.session_state.auto_scan_last_run = datetime.now()
             paper_check_exits()
             prog_bar.empty(); prog_text.empty()
-            st.rerun()
+            total_found = len(go_now) + len(watching) + len(on_deck)
+            if total_found == 0:
+                st.warning("Scan complete — 0 signals passed filters. See debug below.")
+            # Don't rerun — render results inline immediately
 
     # Render results from session state after manual scan
     go_now   = st.session_state.auto_scan_go_now
@@ -3141,10 +3144,16 @@ with tab4:
     real_on_deck = [r for r in on_deck if not r.get("_rejected")]
     on_deck = real_on_deck
 
-    if rejected:
-        with st.expander("🔍 DEBUG — Why tickers were filtered (%s rejected)" % len(rejected), expanded=True):
-            for r in rejected[:20]:
-                st.markdown("**%s** — `%s`" % (r.get("ticker","?"), r.get("_reason","unknown")))
+    last_run = st.session_state.auto_scan_last_run
+    if last_run:
+        with st.expander("🔍 DEBUG — Scan results (%s rejected, %s passed)" % (
+            len(rejected), len(go_now)+len(watching)+len(real_on_deck)), expanded=True):
+            if rejected:
+                for r in rejected[:30]:
+                    st.markdown("**%s** — `%s`" % (r.get("ticker","?"), r.get("_reason","unknown")))
+            else:
+                st.markdown("No rejection data captured — exception likely happening before scan_single_ticker runs.")
+                st.markdown("Check Railway logs for Python errors.")
 
     if go_now or watching or on_deck or rejected:
         bias_color = "#00e5aa" if mkt_bias=="bullish" else "#ff4d6d" if mkt_bias=="bearish" else "#f0c040"
