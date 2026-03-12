@@ -2233,9 +2233,9 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
                 on_deck.append({"ticker": futures[future], "_rejected": True, "_reason": "Future error: " + str(_fe)[:60]})
                 continue
 
-    go_now.sort(  key=lambda x: (x["vol_spike"], x["confidence"]), reverse=True)
-    watching.sort(key=lambda x: (x["vol_spike"], x["confidence"]), reverse=True)
-    on_deck.sort( key=lambda x: x["confidence"], reverse=True)
+    go_now.sort(  key=lambda x: (x.get("vol_spike", False), x.get("confidence", 0)), reverse=True)
+    watching.sort(key=lambda x: (x.get("vol_spike", False), x.get("confidence", 0)), reverse=True)
+    on_deck.sort( key=lambda x: x.get("confidence", 0), reverse=True)
 
     return go_now, watching, on_deck, market_bias
 
