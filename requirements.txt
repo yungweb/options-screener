@@ -7,3 +7,4 @@ requests
 yfinance
 streamlit-autorefresh
 pytz
+supabase
