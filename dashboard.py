@@ -2279,17 +2279,17 @@ with st.sidebar:
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         st.success("📲 TELEGRAM CONNECTED")
         if st.button("Send Test Alert", key="tg_test"):
-            send_telegram_alert({
-                "ticker": "TEST", "direction": "bullish", "action": "CALL",
-                "pattern": "System Test", "price": 100.00, "confidence": 99,
-                "gates_passed": 7, "signals_hit": 5, "signal_detail": [
-                    "✅ Trend aligned", "✅ Volume confirming (2.1x avg)",
-                    "✅ Exhaustion confirmed (3/4)", "✅ Squeeze FIRING — 68% compressed",
-                    "✅ RSI divergence"
-                ],
-                "opt": {"target": 105.00, "stop": 97.00, "strike": 100.00,
-                        "expiration": "test", "premium": 1.50, "rr_option": 3.3}
-            }, alert_type="GO NOW")
+            import requests as _req
+            _msg = (
+                "📡 *PaidButPressured Test Alert*\n"
+                "✅ Telegram is connected and working!\n"
+                "GO NOW signals will fire here automatically."
+            )
+            _req.post(
+                "https://api.telegram.org/bot%s/sendMessage" % TELEGRAM_BOT_TOKEN,
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": _msg, "parse_mode": "Markdown"},
+                timeout=5
+            )
             st.success("Test sent! Check Telegram.")
     else:
         st.info("📲 Add TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in Railway to enable alerts")
