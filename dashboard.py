@@ -2978,7 +2978,7 @@ if div:
     css = f"divergence-{'bull' if div['type']=='bullish' else 'bear'}"
     st.markdown(f"<div class='{css}'><b>{div['label']}</b><br>{div['detail']}</div>", unsafe_allow_html=True)
 
-tab4,tab1,tab2,tab3,tab6,tab5 = st.tabs(["SCAN","SIGNALS","CHART","BACKTEST","PAPER","JOURNAL"])
+tab4,tab1,tab2,tab3,tab6,tab5,tab7 = st.tabs(["SCAN","SIGNALS","CHART","BACKTEST","PAPER","JOURNAL","HOW IT WORKS"])
 
 with tab1:
     cands_quick, tfs_quick = build_multi_tf_candidates(selected_ticker, toggles, account_size, risk_pct, dte_quick, "quick", atr=atr)
@@ -3608,6 +3608,155 @@ with tab5:
             wins   = sum(1 for t in journal if "Win" in t.get("Result",""))
             losses = sum(1 for t in journal if "Loss" in t.get("Result",""))
             if wins+losses > 0: st.metric("Live Win Rate", f"{int(wins/(wins+losses)*100)}%", f"{wins}W / {losses}L")
+
+with tab7:
+    st.markdown("""
+<style>
+.hiw-section { background:#080c12; border-radius:12px; padding:20px 24px;
+               margin-bottom:16px; border-left:3px solid #1e3a5f; }
+.hiw-title   { font-size:1.1rem; font-weight:700; color:#d0dae8;
+               margin-bottom:8px; letter-spacing:0.5px; }
+.hiw-body    { font-size:0.8rem; color:#8899aa; line-height:1.8; }
+.hiw-badge   { display:inline-block; padding:2px 10px; border-radius:20px;
+               font-size:0.7rem; font-weight:700; margin:2px; }
+</style>
+""", unsafe_allow_html=True)
+
+    st.markdown("""
+<div style='text-align:center;padding:16px 0 24px'>
+  <div style='font-size:1.5rem;font-weight:700;color:#d0dae8;letter-spacing:2px'>
+    📡 HOW IT WORKS
+  </div>
+  <div style='font-size:0.78rem;color:#8899aa;margin-top:6px'>
+    Everything you need to know about the PaidButPressured Options Screener
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+    # ── What is this ──────────────────────────────────────────────────────────
+    st.markdown("""
+<div class='hiw-section'>
+  <div class='hiw-title'>🎯 What Is This?</div>
+  <div class='hiw-body'>
+    The PaidButPressured Options Screener automatically scans stocks for
+    high-probability options setups using a multi-layer precision scoring system.
+    It detects technical patterns, confirms with multiple signals, filters out
+    low-quality setups, and alerts you in real time when something is worth acting on.<br><br>
+    Think of it as a second set of eyes running 24/7 — so you never miss a setup again.
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+    # ── Signal tiers ──────────────────────────────────────────────────────────
+    st.markdown("""
+<div class='hiw-section' style='border-left-color:#00e5aa'>
+  <div class='hiw-title'>🚦 Signal Tiers</div>
+  <div class='hiw-body'>
+    <b style='color:#00e5aa'>🔴 GO NOW</b> — Highest conviction. 4 or 5 out of 5 quality signals aligned,
+    entry confirmed, strong gate score. This is the alert that fires to Telegram.
+    Act on these.<br><br>
+    <b style='color:#f0c040'>👀 WATCHING</b> — Strong setup forming but not fully confirmed yet.
+    Monitor these — they often become GO NOW within 1-2 candles.<br><br>
+    <b style='color:#8899aa'>📋 ON DECK</b> — Early stage setup. Worth knowing about but
+    not actionable yet. Check the chart yourself before considering a trade.
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+    # ── The 5 signals ─────────────────────────────────────────────────────────
+    st.markdown("""
+<div class='hiw-section' style='border-left-color:#9966ff'>
+  <div class='hiw-title'>⚡ The 5 Quality Signals</div>
+  <div class='hiw-body'>
+    Every setup is scored against 5 quality signals. GO NOW requires 4 or 5.<br><br>
+    <b style='color:#d0dae8'>1. Trend Alignment</b> — Price is moving in the direction of the trade
+    across multiple timeframes. No trading against the trend.<br><br>
+    <b style='color:#d0dae8'>2. Volume Confirmation</b> — Above average volume supporting the move.
+    Institutional activity leaves footprints.<br><br>
+    <b style='color:#d0dae8'>3. Exhaustion Confirmed</b> — The opposing move is running out of steam.
+    Momentum is shifting in your favor.<br><br>
+    <b style='color:#d0dae8'>4. Squeeze Firing</b> — Bollinger Bands inside Keltner Channels.
+    Compressed volatility about to expand — like a coiled spring.<br><br>
+    <b style='color:#d0dae8'>5. RSI Divergence</b> — Price making new extremes but RSI is not.
+    Classic early reversal signal.
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+    # ── Patterns ──────────────────────────────────────────────────────────────
+    st.markdown("""
+<div class='hiw-section' style='border-left-color:#f0c040'>
+  <div class='hiw-title'>📐 Patterns We Detect</div>
+  <div class='hiw-body'>
+    <b style='color:#00e5aa'>Double Bottom (CALL)</b> — Two lows at roughly the same price level
+    with a neckline break above. Classic bullish reversal. System waits for confirmation
+    before signaling.<br><br>
+    <b style='color:#ff4d6d'>Double Top (PUT)</b> — Two highs at roughly the same price level
+    with a breakdown below the neckline. Classic bearish reversal.<br><br>
+    <b style='color:#00e5aa'>Break & Retest Up (CALL)</b> — Price breaks above resistance,
+    pulls back to test it as support, then continues higher. High probability continuation.<br><br>
+    <b style='color:#ff4d6d'>Break & Retest Down (PUT)</b> — Price breaks below support,
+    retests it as resistance, then continues lower.
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+    # ── Trade styles ──────────────────────────────────────────────────────────
+    st.markdown("""
+<div class='hiw-section' style='border-left-color:#00bfff'>
+  <div class='hiw-title'>⚡📅 Trade Styles</div>
+  <div class='hiw-body'>
+    <b style='color:#d0dae8'>Quick (0-7 DTE)</b> — Short dated options, weekly or 0DTE.
+    Fast moving, higher risk, smaller premium. Profit target: +30% premium gain.
+    Best for experienced traders who can monitor positions.<br><br>
+    <b style='color:#d0dae8'>Swing (14-60 DTE)</b> — Multi-week options with more time value.
+    Lower risk of theta decay, more room to breathe. Profit target: +50% premium gain.
+    Best for traders who can't watch the screen all day.
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+    # ── Paper trading ─────────────────────────────────────────────────────────
+    st.markdown("""
+<div class='hiw-section' style='border-left-color:#00e5aa'>
+  <div class='hiw-title'>📄 Paper Trading</div>
+  <div class='hiw-body'>
+    Paper trading lets you track signals without risking real money.
+    When auto-enter is on, every GO NOW signal is automatically entered as a paper trade.<br><br>
+    <b style='color:#d0dae8'>Auto-exits happen when:</b><br>
+    ✅ Stock hits the price target → WIN<br>
+    ✅ Premium gains +30% (quick) or +50% (swing) → WIN<br>
+    ❌ Stock hits the stop price → LOSS<br>
+    ❌ Premium drops -20% → LOSS<br>
+    ❌ Option expires → outcome based on P&L at expiry<br><br>
+    All trades log to the Journal automatically with full P&L breakdown.
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+    # ── GO NOW checklist ──────────────────────────────────────────────────────
+    st.markdown("""
+<div class='hiw-section' style='border-left-color:#ff4d6d'>
+  <div class='hiw-title'>✅ Before You Trade a GO NOW Signal</div>
+  <div class='hiw-body'>
+    The screener does the heavy lifting but always check these before entering:<br><br>
+    ☑️ <b>R:R is 2:1 or better</b> — Never risk $1 to make $1<br>
+    ☑️ <b>Signal Check is 4 or 5 out of 5</b> — More signals = higher conviction<br>
+    ☑️ <b>Open Interest at strike is 500+</b> — You need liquidity to get out<br>
+    ☑️ <b>Premium is affordable</b> — Never risk more than 1-2% of your account<br>
+    ☑️ <b>No earnings within 7 days</b> — Earnings = unpredictable volatility<br>
+    ☑️ <b>Check the actual chart</b> — The screener confirms patterns, your eyes confirm the trade
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+    st.markdown("""
+<div style='text-align:center;padding:16px;font-size:0.72rem;color:#556677'>
+  ⚠️ This tool is for educational purposes only. Not financial advice.<br>
+  Options trading involves substantial risk. Trade responsibly.
+</div>
+""", unsafe_allow_html=True)
+
 
 st.markdown("""
 <div style='text-align:center;padding:20px;color:#8899aa;font-size:0.72rem;
