@@ -2226,8 +2226,32 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
     completed = 0
     total     = len(scan_list)
 
-    # 10 workers — fast enough without hammering yfinance rate limits
-    with ThreadPoolExecutor(max_workers=5) as executor:  # 5 workers to avoid yfinance rate limits
+    def _process_records(records, ticker):
+        for r in records:
+            if r.get("_rejected"):
+                on_deck.append(r)
+                continue
+            conf         = r.get("confidence", 0)
+            gates_passed = r.get("gates_passed", 0)
+            entry_status = r.get("entry_status", "")
+            exh_ok       = r.get("exh_confirmed", False)
+            signals_hit  = r.get("signals_hit", r.get("detail", {}).get("signals_hit", 0))
+
+            if (conf >= 75 and gates_passed >= 5 and
+                entry_status == "CONFIRMED" and exh_ok and signals_hit >= 4):
+                go_now.append(r)
+            elif conf >= 65 and gates_passed >= 4 and signals_hit >= 3:
+                watching.append(r)
+            elif conf >= 55 and signals_hit >= 3:
+                on_deck.append(r)
+            else:
+                on_deck.append({"ticker": ticker, "_rejected": True,
+                    "_reason": "[%s %s] conf=%s gates=%s signals=%s entry=%s" % (
+                        r.get("style","?"), r.get("action","?"),
+                        conf, gates_passed, signals_hit, entry_status)})
+
+    # Submit all futures first
+    with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {
             executor.submit(
                 scan_single_ticker,
@@ -2238,41 +2262,27 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
             for ticker in scan_list
         }
 
-        for future in as_completed(futures, timeout=180):  # 3 min total max
-            completed += 1
+        # Collect results one by one with per-future timeout
+        # Wrap as_completed in try/except so one bad ticker never kills the whole scan
+        done_tickers = set()
+        for future in as_completed(futures):
             ticker = futures[future]
+            completed += 1
+            done_tickers.add(ticker)
             if progress_cb:
                 progress_cb(completed - 1, total, ticker)
             try:
-                records = future.result(timeout=20)  # 20s max per ticker
-                for r in records:
-                    if r.get("_rejected"):
-                        on_deck.append(r)  # surface debug rejections
-                        continue
-                    conf         = r["confidence"]
-                    gates_passed = r["gates_passed"]
-                    entry_status = r["entry_status"]
-                    exh_ok       = r["exh_confirmed"]
-
-                    signals_hit = r.get("signals_hit", r.get("detail", {}).get("signals_hit", 0))
-                    exh_score   = r.get("detail", {}).get("exhaustion_score", 0)
-
-                    # GO NOW: 4/5 signals + confirmed entry + strong gates
-                    if (conf >= 75 and gates_passed >= 5 and
-                        entry_status == "CONFIRMED" and exh_ok and signals_hit >= 4):
-                        go_now.append(r)
-                    # WATCHING: 3/5+ signals, strong setup forming
-                    elif conf >= 65 and gates_passed >= 4 and signals_hit >= 3:
-                        watching.append(r)
-                    # ON DECK: 3/5 signals, worth tracking
-                    elif conf >= 55 and signals_hit >= 3:
-                        on_deck.append(r)
-            except TimeoutError:
-                on_deck.append({"ticker": ticker, "_rejected": True, "_reason": "Timeout — yfinance took >20s, skipped"})
-                continue
+                records = future.result(timeout=15)
+                _process_records(records, ticker)
             except Exception as _fe:
-                on_deck.append({"ticker": ticker, "_rejected": True, "_reason": "Future error: " + str(_fe)[:60]})
-                continue
+                on_deck.append({"ticker": ticker, "_rejected": True,
+                    "_reason": "Error: " + str(_fe)[:80]})
+
+        # Log any that never completed
+        for ticker in scan_list:
+            if ticker not in done_tickers:
+                on_deck.append({"ticker": ticker, "_rejected": True,
+                    "_reason": "Never completed — likely hung on yfinance"})
 
     go_now.sort(  key=lambda x: (x.get("vol_spike", False), x.get("confidence", 0)), reverse=True)
     watching.sort(key=lambda x: (x.get("vol_spike", False), x.get("confidence", 0)), reverse=True)
