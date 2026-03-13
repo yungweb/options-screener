@@ -1135,7 +1135,8 @@ def build_multi_tf_candidates(ticker, toggles, account, risk_pct,
 
 def build_candidates(df, ticker, toggles, account, risk_pct, dte, trade_style="swing", atr=None):
     trend_dir,trend_score,trend_factors,t_ema,t_vwap,t_rsi = get_trend(df)
-    price   = float(df["close"].iloc[-1])
+    _raw_price = df["close"].iloc[-1]
+    price = float(_raw_price.iloc[0] if hasattr(_raw_price, "iloc") else _raw_price)
     regime, regime_strength = detect_market_regime(df)
     is_quick = trade_style == "quick"
     # Define regime_bonus once here so it's always available even if no patterns found
@@ -2110,7 +2111,8 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                 results.append({"ticker": ticker, "_rejected": True,
                     "_reason": "[%s] df_pri too short or None (len=%s)" % (style, len(df_pri) if df_pri is not None else 0)})
                 continue
-            cur_price = price if price is not None else float(df_pri["close"].iloc[-1])
+            _rp = df_pri["close"].iloc[-1]
+            cur_price = price if price is not None else float(_rp.iloc[0] if hasattr(_rp,"iloc") else _rp)
 
             cands = build_candidates(df_pri, ticker, toggles,
                                      account_size, risk_pct, dte,
