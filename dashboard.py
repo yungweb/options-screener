@@ -3014,50 +3014,277 @@ with tab1:
                                 htf_trend, htf_rsi, htf_ema, liq_ok)
 
 with tab2:
-    chart_db = [s for s in detect_double_bottom(df,selected_ticker,rr_min=2.0) if s.confirmed]
-    chart_dt = [s for s in detect_double_top(df,selected_ticker,rr_min=2.0) if s.confirmed]
-    chart_br = [s for s in detect_break_and_retest(df,selected_ticker,rr_min=2.0) if s.confirmed]
+    # ── Detect patterns for annotation ────────────────────────────────────────
+    chart_db    = [s for s in detect_double_bottom(df, selected_ticker, rr_min=2.0) if s.confirmed]
+    chart_dt    = [s for s in detect_double_top(df, selected_ticker, rr_min=2.0)    if s.confirmed]
+    chart_br    = [s for s in detect_break_and_retest(df, selected_ticker, rr_min=2.0) if s.confirmed]
     chart_setups = chart_db + chart_dt + chart_br
-    tf_formats = {"5 Min":"%H:%M","15 Min":"%H:%M","1 Hour":"%b %d %H:%M","4 Hour":"%b %d","Daily":"%b %d '%y"}
-    tick_format = tf_formats.get(selected_tf,"%b %d")
-    price_min   = float(df["low"].min())*0.995
-    price_max   = float(df["high"].max())*1.005
-    price_range = price_max - price_min
-    raw_tick    = price_range/8
-    magnitude   = 10**(len(str(int(max(raw_tick,1))))-1)
-    tick_interval = max(round(raw_tick/magnitude)*magnitude, 0.01)
-    fig = make_subplots(rows=2,cols=1,shared_xaxes=True,row_heights=[0.78,0.22],vertical_spacing=0.02)
-    fig.add_trace(go.Candlestick(x=df["timestamp"],open=df["open"],high=df["high"],low=df["low"],close=df["close"],
-        name=selected_ticker,increasing_line_color="#00d4aa",decreasing_line_color="#ff4d6d",
-        increasing_fillcolor="#00d4aa",decreasing_fillcolor="#ff4d6d",line_width=1),row=1,col=1)
-    ema_line  = df["close"].ewm(span=20).mean()
-    fig.add_trace(go.Scatter(x=df["timestamp"],y=ema_line,name="EMA 20",
-        line=dict(color="#f0c040",width=1.5,dash="dot"),hovertemplate="EMA 20: $%{y:.2f}<extra></extra>"),row=1,col=1)
-    tp        = (df["high"]+df["low"]+df["close"])/3
-    vwap_line = (tp*df["volume"]).cumsum()/df["volume"].cumsum()
-    fig.add_trace(go.Scatter(x=df["timestamp"],y=vwap_line,name="VWAP",
-        line=dict(color="#9966ff",width=1.5,dash="dash"),hovertemplate="VWAP: $%{y:.2f}<extra></extra>"),row=1,col=1)
-    for s in chart_setups[:3]:
-        lc = "#00d4aa" if s.direction=="bullish" else "#ff4d6d"
-        fig.add_hline(y=s.entry_price,line_dash="solid",line_color=lc,line_width=1.5,opacity=0.8,
-            annotation_text=f"  Entry ${s.entry_price:.2f}",annotation_font_color=lc,annotation_font_size=11,row=1,col=1)
-        fig.add_hline(y=s.target,line_dash="dash",line_color="#00d4aa",line_width=1,opacity=0.6,
-            annotation_text=f"  Target ${s.target:.2f}",annotation_font_color="#00d4aa",annotation_font_size=11,row=1,col=1)
-        fig.add_hline(y=s.stop_loss,line_dash="dot",line_color="#ff4d6d",line_width=1,opacity=0.6,
-            annotation_text=f"  Stop ${s.stop_loss:.2f}",annotation_font_color="#ff4d6d",annotation_font_size=11,row=1,col=1)
-        fig.add_hrect(y0=min(s.entry_price,s.target),y1=max(s.entry_price,s.target),fillcolor="rgba(0,212,170,0.05)",line_width=0,row=1,col=1)
-    vol_colors = ["#00d4aa" if c>=o else "#ff4d6d" for c,o in zip(df["close"],df["open"])]
-    fig.add_trace(go.Bar(x=df["timestamp"],y=df["volume"],marker_color=vol_colors,opacity=0.5,name="Volume",
-        hovertemplate="%{x}<br>Vol: %{y:,.0f}<extra></extra>"),row=2,col=1)
-    fig.update_layout(paper_bgcolor="#0a0e17",plot_bgcolor="#0d1219",font=dict(color="#e0e6f0",size=12),
-        height=520,xaxis_rangeslider_visible=False,margin=dict(l=10,r=80,t=10,b=10),
-        legend=dict(bgcolor="rgba(13,18,25,0.8)",bordercolor="#1e2d40",borderwidth=1,x=0.01,y=0.99),
-        hovermode="x unified",
-        modebar_remove=["pan","lasso2d","select2d","autoScale2d","hoverCompareCartesian","hoverClosestCartesian","toggleSpikelines","zoomIn2d","zoomOut2d"])
-    fig.update_xaxes(gridcolor="#1e2d40",tickformat=tick_format,nticks=8,showspikes=True,spikecolor="#1e2d40",spikedash="solid",spikethickness=1)
-    fig.update_yaxes(gridcolor="#1e2d40",tickformat="$.2f",dtick=tick_interval,range=[price_min,price_max],showspikes=True,spikecolor="#1e2d40",row=1,col=1)
-    fig.update_yaxes(gridcolor="#1e2d40",tickformat=".2s",row=2,col=1)
-    st.plotly_chart(fig, use_container_width=True)
+
+    # ── Build candle + volume data for Lightweight Charts ────────────────────
+    try:
+        import json as _json
+        _df = df.copy()
+        _df["timestamp"] = pd.to_datetime(_df["timestamp"])
+        _df = _df.sort_values("timestamp").tail(120)  # last 120 candles
+
+        def _ts(t):
+            """Convert to unix timestamp (int) for lightweight-charts"""
+            return int(pd.Timestamp(t).timestamp())
+
+        candle_data = [
+            {"time": _ts(row.timestamp),
+             "open":  round(float(row.open),  4),
+             "high":  round(float(row.high),  4),
+             "low":   round(float(row.low),   4),
+             "close": round(float(row.close), 4)}
+            for _, row in _df.iterrows()
+        ]
+
+        vol_data = [
+            {"time":  _ts(row.timestamp),
+             "value": float(row.volume),
+             "color": "#00e5aa44" if float(row.close) >= float(row.open) else "#ff4d6d44"}
+            for _, row in _df.iterrows()
+        ]
+
+        # EMA 20
+        ema_vals = _df["close"].ewm(span=20).mean()
+        ema_data = [
+            {"time": _ts(row.timestamp), "value": round(float(ema_vals.iloc[i]), 4)}
+            for i, (_, row) in enumerate(_df.iterrows())
+        ]
+
+        # VWAP
+        _tp   = (_df["high"] + _df["low"] + _df["close"]) / 3
+        _vwap = (_tp * _df["volume"]).cumsum() / _df["volume"].cumsum()
+        vwap_data = [
+            {"time": _ts(row.timestamp), "value": round(float(_vwap.iloc[i]), 4)}
+            for i, (_, row) in enumerate(_df.iterrows())
+        ]
+
+        # ── Pattern markers (circles on key candles) ─────────────────────────
+        markers = []
+        for s in chart_setups[:3]:
+            is_bull  = s.direction == "bullish"
+            pat_name = s.pattern.replace("Double", "Double ").replace("BreakRetest", "Break & Retest")
+
+            # Find the candle closest to entry price to mark pattern confirmed
+            closest_idx = (_df["close"] - s.entry_price).abs().idxmin()
+            closest_row = _df.loc[closest_idx]
+            marker_time = _ts(closest_row["timestamp"])
+
+            # For double bottom: find the two lowest candles near stop level
+            if "Bottom" in pat_name:
+                lows_near_stop = _df[(_df["low"] - s.stop_loss).abs() < s.stop_loss * 0.015]
+                for i, (idx, row) in enumerate(lows_near_stop.tail(2).iterrows()):
+                    markers.append({
+                        "time":     _ts(row["timestamp"]),
+                        "position": "belowBar",
+                        "color":    "#00e5aa",
+                        "shape":    "circle",
+                        "text":     "B%s" % (i+1)
+                    })
+                markers.append({
+                    "time":     marker_time,
+                    "position": "aboveBar",
+                    "color":    "#00e5aa",
+                    "shape":    "arrowUp",
+                    "text":     "ENTRY ▲ %s" % pat_name
+                })
+
+            # For double top: find the two highest candles near stop level
+            elif "Top" in pat_name:
+                highs_near_stop = _df[(_df["high"] - s.stop_loss).abs() < s.stop_loss * 0.015]
+                for i, (idx, row) in enumerate(highs_near_stop.tail(2).iterrows()):
+                    markers.append({
+                        "time":     _ts(row["timestamp"]),
+                        "position": "aboveBar",
+                        "color":    "#ff4d6d",
+                        "shape":    "circle",
+                        "text":     "T%s" % (i+1)
+                    })
+                markers.append({
+                    "time":     marker_time,
+                    "position": "belowBar",
+                    "color":    "#ff4d6d",
+                    "shape":    "arrowDown",
+                    "text":     "ENTRY ▼ %s" % pat_name
+                })
+
+            # For break & retest
+            else:
+                arrow = "arrowUp" if is_bull else "arrowDown"
+                pos   = "aboveBar" if not is_bull else "belowBar"
+                markers.append({
+                    "time":     marker_time,
+                    "position": pos,
+                    "color":    "#00e5aa" if is_bull else "#ff4d6d",
+                    "shape":    arrow,
+                    "text":     "ENTRY %s" % pat_name
+                })
+
+        # ── Price lines for entry / target / stop ─────────────────────────────
+        price_lines = []
+        for s in chart_setups[:1]:  # show lines for best setup only
+            is_bull = s.direction == "bullish"
+            price_lines += [
+                {"price": round(s.entry_price, 4), "color": "#00e5aa" if is_bull else "#ff4d6d",
+                 "lineWidth": 2, "lineStyle": 0, "axisLabelVisible": True,
+                 "title": "Entry $%.2f" % s.entry_price},
+                {"price": round(s.target, 4), "color": "#00e5aa",
+                 "lineWidth": 1, "lineStyle": 1, "axisLabelVisible": True,
+                 "title": "Target $%.2f" % s.target},
+                {"price": round(s.stop_loss, 4), "color": "#ff4d6d",
+                 "lineWidth": 1, "lineStyle": 2, "axisLabelVisible": True,
+                 "title": "Stop $%.2f" % s.stop_loss},
+            ]
+
+        # ── Render via inline HTML (TradingView Lightweight Charts CDN) ───────
+        chart_html = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  body {{ margin:0; background:#0a0e17; }}
+  #chart {{ width:100%; height:480px; }}
+  #legend {{ position:absolute; top:8px; left:12px; z-index:10;
+            font-family:monospace; font-size:11px; color:#8899aa;
+            background:rgba(10,14,23,0.85); padding:6px 10px;
+            border-radius:6px; border:1px solid #1e2d40; pointer-events:none; }}
+</style>
+</head>
+<body>
+<div id="legend">Loading...</div>
+<div id="chart"></div>
+<script>
+const chartEl = document.getElementById('chart');
+const chart = LightweightCharts.createChart(chartEl, {{
+  width:  chartEl.offsetWidth || 800,
+  height: 480,
+  layout: {{ background: {{ color: '#0a0e17' }}, textColor: '#8899aa' }},
+  grid:   {{ vertLines: {{ color: '#111827' }}, horzLines: {{ color: '#111827' }} }},
+  crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }},
+  rightPriceScale: {{ borderColor: '#1e2d40' }},
+  timeScale: {{ borderColor: '#1e2d40', timeVisible: true, secondsVisible: false }},
+}});
+
+// Candlestick series
+const candles = chart.addCandlestickSeries({{
+  upColor: '#00e5aa', downColor: '#ff4d6d',
+  borderUpColor: '#00e5aa', borderDownColor: '#ff4d6d',
+  wickUpColor: '#00e5aa', wickDownColor: '#ff4d6d',
+}});
+candles.setData({candles});
+candles.setMarkers({markers});
+
+// Price lines
+{pricelines}
+
+// EMA 20
+const ema = chart.addLineSeries({{ color: '#f0c040', lineWidth: 1,
+  lineStyle: LightweightCharts.LineStyle.Dashed, priceLineVisible: false,
+  lastValueVisible: false, title: 'EMA20' }});
+ema.setData({ema});
+
+// VWAP
+const vwap = chart.addLineSeries({{ color: '#9966ff', lineWidth: 1,
+  lineStyle: LightweightCharts.LineStyle.LargeDashed, priceLineVisible: false,
+  lastValueVisible: false, title: 'VWAP' }});
+vwap.setData({vwap});
+
+// Volume (separate pane)
+const volSeries = chart.addHistogramSeries({{
+  priceFormat: {{ type: 'volume' }},
+  priceScaleId: 'vol',
+  scaleMargins: {{ top: 0.8, bottom: 0 }},
+}});
+volSeries.setData({vol});
+
+chart.timeScale().fitContent();
+
+// Crosshair legend
+const legend = document.getElementById('legend');
+chart.subscribeCrosshairMove(param => {
+  if (!param.time) { legend.textContent = ''; return; }
+  const c = param.seriesData.get(candles);
+  if (c) {
+    const chg = ((c.close - c.open) / c.open * 100).toFixed(2);
+    const clr = c.close >= c.open ? '#00e5aa' : '#ff4d6d';
+    legend.innerHTML =
+      '<span style="color:#d0dae8;font-weight:700">{ticker}</span>  ' +
+      'O:<span style="color:' + clr + '">' + c.open.toFixed(2) + '</span>  ' +
+      'H:<span style="color:' + clr + '">' + c.high.toFixed(2) + '</span>  ' +
+      'L:<span style="color:' + clr + '">' + c.low.toFixed(2)  + '</span>  ' +
+      'C:<span style="color:' + clr + '">' + c.close.toFixed(2) + '</span>  ' +
+      '<span style="color:' + clr + '">' + (chg > 0 ? '+' : '') + chg + '%</span>';
+  }
+});
+
+// Responsive resize
+window.addEventListener('resize', () => chart.resize(chartEl.offsetWidth, 480));
+</script>
+</body>
+</html>
+""".format(
+    candles   = _json.dumps(candle_data),
+    markers   = _json.dumps(sorted(markers, key=lambda x: x["time"])),
+    pricelines= "\n".join([
+        "candles.createPriceLine({{price:{p},color:'{c}',lineWidth:{w},lineStyle:{s},axisLabelVisible:true,title:'{t}'}});".format(
+            p=pl["price"], c=pl["color"], w=pl["lineWidth"],
+            s=pl["lineStyle"], t=pl["title"]
+        ) for pl in price_lines
+    ]),
+    ema       = _json.dumps(ema_data),
+    vwap      = _json.dumps(vwap_data),
+    vol       = _json.dumps(vol_data),
+    ticker    = selected_ticker,
+)
+
+        # ── Pattern signal cards ───────────────────────────────────────────────
+        if chart_setups:
+            st.markdown(
+                "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px'>",
+                unsafe_allow_html=True
+            )
+            for s in chart_setups[:3]:
+                is_bull  = s.direction == "bullish"
+                pat_name = s.pattern.replace("Double","Double ").replace("BreakRetest","Break & Retest")
+                border   = "#00e5aa" if is_bull else "#ff4d6d"
+                action   = "CALL ▲" if is_bull else "PUT ▼"
+                st.markdown(
+                    "<div style='background:#080c12;border:1px solid %s;border-radius:8px;"
+                    "padding:8px 14px;font-size:0.75rem;min-width:180px'>"
+                    "<span style='color:%s;font-weight:700'>%s %s</span><br>"
+                    "<span style='color:#8899aa'>%s</span><br>"
+                    "<span style='color:#d0dae8'>Entry $%.2f · Target $%.2f · Stop $%.2f</span>"
+                    "</div>" % (
+                        border, border, action, selected_ticker,
+                        pat_name,
+                        s.entry_price, s.target, s.stop_loss
+                    ),
+                    unsafe_allow_html=True
+                )
+            st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.caption("No confirmed patterns detected on current timeframe.")
+
+        st.components.v1.html(chart_html, height=490, scrolling=False)
+
+        # Legend
+        st.markdown(
+            "<div style='font-size:0.68rem;color:#556677;margin-top:4px'>"
+            "<span style='color:#f0c040'>— EMA 20</span> &nbsp;"
+            "<span style='color:#9966ff'>-- VWAP</span> &nbsp;"
+            "<span style='color:#00e5aa'>● Pattern markers on chart</span>"
+            "</div>",
+            unsafe_allow_html=True
+        )
+
+    except Exception as _chart_err:
+        st.error("Chart error: %s" % str(_chart_err))
+        st.caption("Falling back — check Railway logs for details.")
 
 with tab3:
     st.markdown("<div class='section-title'>BACKTEST</div>", unsafe_allow_html=True)
