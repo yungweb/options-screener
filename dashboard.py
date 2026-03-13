@@ -2514,6 +2514,47 @@ def save_watchlist_db(user_id, tickers):
     except Exception:
         pass  # never crash the app over a db write
 
+def save_signal_history(r):
+    """Save a fired signal to Supabase signal_history table."""
+    sb = get_supabase()
+    if not sb:
+        return
+    try:
+        opt = r.get("opt", {})
+        sb.table("signal_history").insert({
+            "ticker":      r.get("ticker"),
+            "action":      r.get("action"),
+            "pattern":     r.get("pattern"),
+            "style":       r.get("style"),
+            "confidence":  r.get("confidence"),
+            "entry":       opt.get("entry"),
+            "target":      opt.get("target"),
+            "stop":        opt.get("stop"),
+            "strike":      opt.get("strike"),
+            "premium":     opt.get("premium"),
+            "rr":          opt.get("rr_option"),
+            "signals_hit": r.get("signals_hit", 0),
+            "gates":       r.get("gates_passed", 0),
+            "fired_at":    datetime.utcnow().isoformat(),
+        }).execute()
+    except Exception:
+        pass  # never crash the app over a db write
+
+def load_signal_history(limit=50):
+    """Load recent signal history from Supabase."""
+    sb = get_supabase()
+    if not sb:
+        return []
+    try:
+        res = sb.table("signal_history") \
+                .select("*") \
+                .order("fired_at", desc=True) \
+                .limit(limit) \
+                .execute()
+        return res.data if res.data else []
+    except Exception:
+        return []
+
 def init_user_watchlist():
     """
     Called once on load. Pulls the user's saved watchlist from Supabase
@@ -2841,6 +2882,7 @@ def run_auto_scan_now():
     # Fire Telegram alert + auto-enter paper trade for each new GO NOW
     for r in new_go:
         send_telegram_alert(r, alert_type="GO NOW")
+        save_signal_history(r)
         if st.session_state.get("paper_auto_enabled", True):
             paper_enter_trade(r)
     # Check exits on all open paper trades
@@ -3167,13 +3209,49 @@ with tab4:
     last_run = st.session_state.auto_scan_last_run
     if last_run:
         with st.expander("🔍 DEBUG — Scan results (%s rejected, %s passed)" % (
-            len(rejected), len(go_now)+len(watching)+len(real_on_deck)), expanded=True):
+            len(rejected), len(go_now)+len(watching)+len(real_on_deck)), expanded=False):
             if rejected:
                 for r in rejected[:30]:
                     st.markdown("**%s** — `%s`" % (r.get("ticker","?"), r.get("_reason","unknown")))
             else:
                 st.markdown("No rejection data captured — exception likely happening before scan_single_ticker runs.")
                 st.markdown("Check Railway logs for Python errors.")
+
+    # ── Signal History ─────────────────────────────────────────────────────────
+    st.markdown("---")
+    with st.expander("📜 Signal History — Last 50 GO NOW Signals", expanded=False):
+        history = load_signal_history(50)
+        if not history:
+            if SUPABASE_URL and SUPABASE_KEY:
+                st.caption("No signals fired yet. Run a scan during market hours to start building history.")
+            else:
+                st.caption("⚠️ Add SUPABASE_URL + SUPABASE_KEY to Railway to enable signal history.")
+        else:
+            for h in history:
+                fired = h.get("fired_at","")[:16].replace("T"," ")
+                action_color = "#00e5aa" if h.get("action") == "CALL" else "#ff4d6d"
+                st.markdown(
+                    "<div style='background:#080c12;border-radius:8px;padding:10px 14px;"
+                    "margin-bottom:6px;border-left:3px solid %s'>"
+                    "<span style='color:%s;font-weight:700;font-size:0.85rem'>%s %s</span>"
+                    "<span style='color:#8899aa;font-size:0.75rem;margin-left:10px'>%s · %s</span>"
+                    "<br><span style='color:#d0dae8;font-size:0.75rem'>"
+                    "Conf: %s%% · Gates: %s · Signals: %s/5 · "
+                    "Entry $%s · Target $%s · Premium $%s · R:R %sx"
+                    "</span></div>" % (
+                        action_color, action_color,
+                        h.get("ticker","?"), h.get("action","?"),
+                        h.get("style","?").upper(), fired,
+                        h.get("confidence","?"),
+                        h.get("gates","?"),
+                        h.get("signals_hit","?"),
+                        h.get("entry","?"),
+                        h.get("target","?"),
+                        h.get("premium","?"),
+                        h.get("rr","?"),
+                    ),
+                    unsafe_allow_html=True
+                )
 
     if go_now or watching or on_deck or rejected:
         bias_color = "#00e5aa" if mkt_bias=="bullish" else "#ff4d6d" if mkt_bias=="bearish" else "#f0c040"
