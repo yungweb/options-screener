@@ -1599,24 +1599,25 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                     _sig_key = "signals_fired_%s_%s_%s" % (ticker, sig.get("direction",""), i)
                     if not st.session_state.get(_sig_key):
                         st.session_state[_sig_key] = True
+                        _detail = sig.get("detail", {})
                         _signal_r = {
                             "ticker":       ticker,
                             "direction":    sig.get("direction","bullish"),
                             "action":       "CALL" if sig.get("direction")=="bullish" else "PUT",
                             "pattern":      sig.get("pattern_label", sig.get("pattern","Signal")),
-                            "style":        "swing",
-                            "confidence":   conf,
+                            "style":        sig.get("trade_style", trade_style),
+                            "confidence":   sig.get("confidence", 60),
                             "gates_passed": gates_passed,
-                            "signals_hit":  detail.get("signals_hit", 0),
-                            "signal_detail":detail.get("signal_detail",[]),
+                            "signals_hit":  _detail.get("signals_hit", 0),
+                            "signal_detail":_detail.get("signal_detail",[]),
                             "price":        round(float(df["close"].iloc[-1]), 2),
                             "iv_rank":      iv_rank,
                             "earn_days":    earnings_days,
-                            "detail":       detail,
+                            "detail":       _detail,
                             "opt":          opt,
                             "sig":          sig,
-                            "exh_confirmed":detail.get("exhaustion_confirmed", False),
-                            "exh_reasons":  detail.get("exhaustion_reasons", []),
+                            "exh_confirmed":_detail.get("exhaustion_confirmed", False),
+                            "exh_reasons":  _detail.get("exhaustion_reasons", []),
                             "rel_vol":      1.0,
                             "vol_spike":    False,
                             "block_detected": False,
@@ -3410,10 +3411,10 @@ chart.timeScale().fitContent();
 
 // Crosshair legend
 const legend = document.getElementById('legend');
-chart.subscribeCrosshairMove(param => {
-  if (!param.time) { legend.textContent = ''; return; }
+chart.subscribeCrosshairMove(param => {{
+  if (!param.time) {{ legend.textContent = ''; return; }}
   const c = param.seriesData.get(candles);
-  if (c) {
+  if (c) {{
     const chg = ((c.close - c.open) / c.open * 100).toFixed(2);
     const clr = c.close >= c.open ? '#00e5aa' : '#ff4d6d';
     legend.innerHTML =
@@ -3423,8 +3424,8 @@ chart.subscribeCrosshairMove(param => {
       'L:<span style="color:' + clr + '">' + c.low.toFixed(2)  + '</span>  ' +
       'C:<span style="color:' + clr + '">' + c.close.toFixed(2) + '</span>  ' +
       '<span style="color:' + clr + '">' + (chg > 0 ? '+' : '') + chg + '%%</span>';
-  }
-});
+  }}
+}});
 
 // Responsive resize
 window.addEventListener('resize', () => chart.resize(chartEl.offsetWidth, 480));
