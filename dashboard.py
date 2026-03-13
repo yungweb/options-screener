@@ -9,6 +9,7 @@ import os
 import pytz
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading as _threading
 
 from pattern_detection import detect_double_bottom, detect_double_top, detect_break_and_retest
 from backtester import run_backtest
@@ -1885,10 +1886,13 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     if iv_rank is not None and iv_rank > 70:
         return None, "IV too high (%s%%)" % iv_rank
 
-    if market_bias == "bullish" and direction == "bearish":
-        return None, "Market strongly bullish — no puts"
-    if market_bias == "bearish" and direction == "bullish":
-        return None, "Market strongly bearish — no calls"
+    # Market bias penalty — don't hard block, just reduce confidence score later
+    # Signals going against market bias get flagged on the card instead
+    _against_bias = (
+        (market_bias == "bullish" and direction == "bearish") or
+        (market_bias == "bearish" and direction == "bullish")
+    )
+    # _against_bias is used below to apply confidence penalty instead of hard block
 
     try:
         import math as _m
@@ -2013,8 +2017,9 @@ def precision_score(ticker, direction, df_primary, df_confirm,
 
     # 4/5 required for GO NOW — but still score 3/5 for WATCHING/ON DECK
     # Bucket assignment in full_scan uses signals_hit to separate tiers
-    if signals_hit < 3:
-        return None, "Only %s/5 quality signals aligned (need 3+ minimum)" % signals_hit
+    if signals_hit < 2:
+        return None, "Only %s/5 quality signals aligned (need 2+ minimum)" % signals_hit
+    # 2/5 signals: low confidence, will land in ON DECK only
 
     # ── TIER 3: Execution quality scoring ────────────────────────────────────
     score = 50
@@ -2041,6 +2046,7 @@ def precision_score(ticker, direction, df_primary, df_confirm,
 
     if market_bias == direction:    score += 6
     elif market_bias == "neutral":  score += 3
+    elif _against_bias:             score -= 8   # penalty not block — still tradeable
     if sector_bias  == direction:   score += 4
     elif sector_bias == "neutral":  score += 2
 
@@ -2064,6 +2070,7 @@ def precision_score(ticker, direction, df_primary, df_confirm,
         "tf_total":             tf_total,
         "market_bias":          market_bias,
         "sector_bias":          sector_bias,
+        "against_market_bias":  _against_bias,
         "liq_ok":               liq_ok,
         "liq_vol":              liq_vol,
     }
@@ -2135,13 +2142,8 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                         opt["premium"], max_premium)})
                 continue
 
-            # Hard block: R:R must be at least 2:1 before running full score
-            if opt.get("rr_option", 0) < 2.0:
-                results.append({"ticker": ticker, "_rejected": True,
-                    "_reason": "[%s %s] RR %.1f < 2.0 required" % (
-                        style, "CALL" if direction=="bullish" else "PUT",
-                        opt.get("rr_option", 0))})
-                continue
+            # Low R:R — tag it but don't hard reject, let it fall to ON DECK
+            _low_rr = opt.get("rr_option", 0) < 2.0
 
             conf, detail = precision_score(
                 ticker, direction, df_pri, df_con,
@@ -2152,7 +2154,7 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
             if conf is None:
                 results.append({"ticker": ticker, "_rejected": True, "_reason": "[%s %s] precision_score: %s" % (style.upper(), "CALL" if direction=="bullish" else "PUT", str(detail)[:80])})
                 continue
-            if conf < 55:
+            if conf < 45:
                 results.append({"ticker": ticker, "_rejected": True, "_reason": "[%s %s] conf too low: %s" % (style.upper(), "CALL" if direction=="bullish" else "PUT", conf)})
                 continue
 
@@ -2187,6 +2189,7 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                 "pattern":       best["pattern_label"],
                 "confidence":    conf,
                 "gates_passed":  gates_passed,
+                "low_rr":        _low_rr,
                 "elevate":       elevate,
                 "entry_status":  entry_status,
                 "opt":           opt,
@@ -2237,13 +2240,26 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
             exh_ok       = r.get("exh_confirmed", False)
             signals_hit  = r.get("signals_hit", r.get("detail", {}).get("signals_hit", 0))
 
-            if (conf >= 75 and gates_passed >= 5 and
-                entry_status == "CONFIRMED" and exh_ok and signals_hit >= 4):
+            low_rr = r.get("low_rr", False)
+
+            # GO NOW — loosened: confirmed + 3/5 signals + gates 4+ + decent confidence
+            if (conf >= 70 and gates_passed >= 4 and
+                entry_status == "CONFIRMED" and signals_hit >= 3 and not low_rr):
                 go_now.append(r)
-            elif conf >= 65 and gates_passed >= 4 and signals_hit >= 3:
+
+            # WATCHING — setup forming, RR ok, needs confirmation
+            elif conf >= 60 and gates_passed >= 3 and signals_hit >= 2 and not low_rr:
                 watching.append(r)
-            elif conf >= 55 and signals_hit >= 3:
+
+            # ON DECK — weak signals, low RR, or early setup — track it
+            elif conf >= 45 or signals_hit >= 2 or low_rr:
+                r["_on_deck_reason"] = (
+                    "Low RR (%.1f:1)" % r.get("opt", {}).get("rr_option", 0) if low_rr
+                    else "%s/5 signals" % signals_hit if signals_hit < 3
+                    else "Building confidence (%s%%)" % conf
+                )
                 on_deck.append(r)
+
             else:
                 on_deck.append({"ticker": ticker, "_rejected": True,
                     "_reason": "[%s %s] conf=%s gates=%s signals=%s entry=%s" % (
@@ -2407,94 +2423,18 @@ htf_trend, htf_rsi, htf_ema = fetch_htf_trend(selected_ticker)
 # Liquidity check (cached, runs silently in background)
 liq_ok, liq_vol, liq_oi, liq_msg = check_liquidity(selected_ticker)
 
-# ── Background watch loop - runs every refresh for ALL watched tickers ────────
+# ── Background watch loop ────────────────────────────────────────────────────
+# Watch queue rendering moved to WATCH QUEUE tab — no more top-of-page reruns
 any_new_confirm = run_background_watch_checks(tf_mult, tf_span, tf_days)
 
-# Sound alert when any ticker just confirmed
+# Sound alert only — no banner rendered here
 if any_new_confirm:
     st.markdown("""
     <audio autoplay>
-      <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAA
-EAAQARAAAAIgAA//8AZGFOaghzCAFyCAFzCAFyCAFzCAFzCAFzCAFyCAFzCAFzCAFy
-CAFzCAFzCAFzCAFyCAFzCAFzCAFyCAFzCAFzCAFzCAFyCAFzCAFzCAFyCAFzCAFzCAF" type="audio/wav">
+      <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YWoGAACBhYqFjpGTlZaXl5eWlZORjomEfnhyb" type="audio/wav">
     </audio>
     """, unsafe_allow_html=True)
 
-# ── Watch queue banner - always visible regardless of selected ticker ─────────
-init_watch_queue()
-queue = st.session_state.watch_queue
-if queue:
-    for key, item in list(queue.items()):
-        elapsed_mins = int((datetime.now() - item["added_at"]).total_seconds() / 60)
-        elapsed_secs = int((datetime.now() - item["added_at"]).total_seconds() % 60)
-        last_chk = ""
-        if item["last_checked"]:
-            secs_ago = int((datetime.now() - item["last_checked"]).total_seconds())
-            last_chk = f" | checked {secs_ago}s ago"
-
-        # Build candle history dots
-        candle_html = ""
-        for c in item.get("candles", []):
-            if c == "green":   candle_html += "<span style='color:#00d4aa;font-size:1rem'>&#9650;</span> "
-            elif c == "red":   candle_html += "<span style='color:#ff4d6d;font-size:1rem'>&#9660;</span> "
-            else:              candle_html += "<span style='color:#8899aa;font-size:0.8rem'>&#9644;</span> "
-
-        status = item["status"]
-        col_banner, col_dismiss = st.columns([6,1])
-
-        if status == "CONFIRMED":
-            # Full trade card - boom get in now
-            is_bull_w = item["direction"] == "bullish"
-            dir_color_w = "#00d4aa" if is_bull_w else "#ff4d6d"
-            with col_banner:
-                st.markdown(f"""
-                <div style='background:#061a10;border:2px solid #00d4aa;border-radius:10px;padding:14px 16px;margin:4px 0;animation:none'>
-                    <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px'>
-                        <div>
-                            <span style='color:#00d4aa;font-family:monospace;font-size:0.72rem;letter-spacing:2px'>✅ ENTRY CONFIRMED - GET IN NOW</span><br>
-                            <span style='font-size:1.1rem;font-weight:700;color:{dir_color_w}'>BUY {"CALL" if is_bull_w else "PUT"} - {item["ticker"]}</span>
-                            <span style='color:#8899aa;font-size:0.82rem;margin-left:8px'>{item["pattern"]}</span>
-                        </div>
-                        <div style='text-align:right;color:#8899aa;font-size:0.75rem;font-family:monospace'>{elapsed_mins}m {elapsed_secs}s{last_chk}</div>
-                    </div>
-                    <div style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;font-size:0.85rem;margin-top:6px'>
-                        <div><div style='color:#8899aa;font-size:0.7rem'>STRIKE</div><div style='font-weight:700;color:{dir_color_w}'>${item["strike"]:.2f}</div></div>
-                        <div><div style='color:#8899aa;font-size:0.7rem'>ENTRY</div><div style='font-weight:700'>${item["entry"]:.2f}</div></div>
-                        <div><div style='color:#8899aa;font-size:0.7rem'>TARGET</div><div style='font-weight:700;color:#00d4aa'>${item["target"]:.2f}</div></div>
-                        <div><div style='color:#8899aa;font-size:0.7rem'>STOP OUT</div><div style='font-weight:700;color:#ff4d6d'>${item["stop"]:.2f}</div></div>
-                    </div>
-                    <div style='margin-top:8px;color:#e0e6f0;font-size:0.78rem'>
-                        Candles: {candle_html} &nbsp; <span style='color:#00d4aa'>2 confirmation candles printed — execute at market price</span>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            if status == "WAITING":
-                banner_style = "background:#0d1219;border:2px solid #f0c040;border-radius:8px;padding:12px 16px;margin:4px 0;"
-                icon = "👁"; stxt = "<span style='color:#f0c040;font-weight:700'>WATCHING</span>"
-            else:
-                banner_style = "background:#1a0a0a;border:2px solid #ff4d6d;border-radius:8px;padding:12px 16px;margin:4px 0;"
-                icon = "⏳"; stxt = "<span style='color:#ff4d6d;font-weight:700'>ENTRY EARLY</span>"
-            with col_banner:
-                st.markdown(f"""
-                <div style='{banner_style}'>
-                    <div style='display:flex;justify-content:space-between;align-items:center'>
-                        <div>
-                            <span style='font-size:1.1rem'>{icon}</span>
-                            <b style='margin-left:6px'>{item['ticker']} {"CALL" if item["direction"]=="bullish" else "PUT"}</b>
-                            <span style='color:#8899aa;font-size:0.82rem;margin-left:8px'>{item['pattern']} | Strike ${item['strike']:.2f}</span>
-                        </div>
-                        <div style='color:#8899aa;font-size:0.75rem;font-family:monospace'>{elapsed_mins}m {elapsed_secs}s{last_chk}</div>
-                    </div>
-                    <div style='margin-top:6px'>{stxt} &nbsp; {candle_html}</div>
-                    <div style='color:#e0e6f0;font-size:0.82rem;margin-top:4px'>{item['message']}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-        with col_dismiss:
-            if st.button("✕", key=f"dismiss_{key}", help="Dismiss"):
-                remove_from_watch_queue(key)
-                st.rerun()
 
 mstatus, mtext = get_market_status()
 css_class = {"open":"market-open","pre":"market-pre","after":"market-pre","closed":"market-closed"}.get(mstatus,"market-closed")
@@ -2508,6 +2448,146 @@ def should_run_auto_scan():
     last = st.session_state.auto_scan_last_run
     if last is None: return True
     return (datetime.now() - last).total_seconds() >= SCAN_INTERVAL
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BACKGROUND SCAN ENGINE
+# Runs in a daemon thread completely separate from Streamlit's render cycle.
+# Streamlit never runs the scan itself — it only reads results from shared state.
+# This means reruns, watch queue updates, and auto-refresh NEVER interrupt a scan.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Module-level shared state — persists across Streamlit reruns in the same process
+_BG_LOCK    = _threading.Lock()
+_BG_TRIGGER = _threading.Event()   # set this to kick off an immediate scan
+_BG_RESULTS = {
+    "go_now":    [],
+    "watching":  [],
+    "on_deck":   [],
+    "mkt_bias":  "neutral",
+    "last_run":  None,
+    "running":   False,
+    "progress":  "",
+    "new_go":    [],
+}
+_BG_THREAD_STARTED = False
+
+def _bg_scan_loop():
+    """
+    Daemon thread — runs forever, sleeps between scans.
+    Wakes up either on _BG_TRIGGER.set() (manual trigger)
+    or every 5 minutes automatically when auto-scan is enabled.
+    Never touches Streamlit state directly.
+    """
+    import time as _time
+
+    while True:
+        # Wait for trigger or 5-minute auto interval
+        triggered = _BG_TRIGGER.wait(timeout=300)
+        _BG_TRIGGER.clear()
+
+        # Read settings from shared results dict (written by Streamlit on settings change)
+        with _BG_LOCK:
+            scan_list    = _BG_RESULTS.get("scan_list",    ["SPY", "QQQ", "IWM"])
+            toggles      = _BG_RESULTS.get("toggles",      {"db": True, "dt": True, "br": True})
+            account_size = _BG_RESULTS.get("account_size", 10000)
+            risk_pct     = _BG_RESULTS.get("risk_pct",     0.01)
+            dte_quick    = _BG_RESULTS.get("dte_quick",    3)
+            dte_swing    = _BG_RESULTS.get("dte_swing",    30)
+            max_premium  = _BG_RESULTS.get("max_premium",  15.0)
+            style        = _BG_RESULTS.get("style",        "both")
+            auto_enabled = _BG_RESULTS.get("auto_enabled", False)
+            prev_go      = _BG_RESULTS.get("go_now",       [])
+
+        # Only auto-scan if enabled; always scan on manual trigger
+        if not triggered and not auto_enabled:
+            continue
+
+        with _BG_LOCK:
+            _BG_RESULTS["running"]  = True
+            _BG_RESULTS["progress"] = "Starting scan..."
+            _BG_RESULTS["new_go"]   = []
+
+        try:
+            def _progress_cb(idx, total, ticker):
+                with _BG_LOCK:
+                    _BG_RESULTS["progress"] = "Scanning %s... (%s/%s)" % (ticker, idx+1, total)
+
+            go, watching, deck, mkt = full_scan(
+                scan_list, toggles, account_size, risk_pct,
+                dte_quick, dte_swing, max_premium, style,
+                progress_cb=_progress_cb
+            )
+
+            prev_tickers = {(r["ticker"], r.get("style","")) for r in prev_go}
+            new_go = [r for r in go if (r["ticker"], r.get("style","")) not in prev_tickers]
+
+            with _BG_LOCK:
+                _BG_RESULTS["go_now"]   = go
+                _BG_RESULTS["watching"] = watching
+                _BG_RESULTS["on_deck"]  = deck
+                _BG_RESULTS["mkt_bias"] = mkt
+                _BG_RESULTS["last_run"] = datetime.now()
+                _BG_RESULTS["running"]  = False
+                _BG_RESULTS["progress"] = "Complete — %s GO NOW, %s WATCHING" % (len(go), len(watching))
+                _BG_RESULTS["new_go"]   = new_go
+
+            # Fire alerts for new GO NOW signals
+            for r in new_go:
+                try:
+                    send_telegram_alert(r, alert_type="GO NOW")
+                except Exception:
+                    pass
+                try:
+                    save_signal_history(r)
+                except Exception:
+                    pass
+
+            # Save to Supabase
+            try:
+                save_scan_state(go, watching, deck)
+            except Exception:
+                pass
+
+        except Exception as _e:
+            with _BG_LOCK:
+                _BG_RESULTS["running"]  = False
+                _BG_RESULTS["progress"] = "Scan error: %s" % str(_e)[:80]
+
+        _time.sleep(2)  # brief pause before accepting next trigger
+
+
+def start_bg_scan_thread():
+    """Start the background scan thread once per process lifetime."""
+    global _BG_THREAD_STARTED
+    if not _BG_THREAD_STARTED:
+        t = _threading.Thread(target=_bg_scan_loop, daemon=True, name="bg_scanner")
+        t.start()
+        _BG_THREAD_STARTED = True
+
+def trigger_scan(scan_list, toggles, account_size, risk_pct,
+                 dte_quick, dte_swing, max_premium, style, auto_enabled=False):
+    """
+    Called by Streamlit to kick off a scan.
+    Writes settings to shared state, fires the trigger event.
+    Returns immediately — scan runs in background.
+    """
+    with _BG_LOCK:
+        _BG_RESULTS["scan_list"]    = scan_list
+        _BG_RESULTS["toggles"]      = toggles
+        _BG_RESULTS["account_size"] = account_size
+        _BG_RESULTS["risk_pct"]     = risk_pct
+        _BG_RESULTS["dte_quick"]    = dte_quick
+        _BG_RESULTS["dte_swing"]    = dte_swing
+        _BG_RESULTS["max_premium"]  = max_premium
+        _BG_RESULTS["style"]        = style
+        _BG_RESULTS["auto_enabled"] = auto_enabled
+    _BG_TRIGGER.set()
+
+def get_bg_results():
+    """Thread-safe read of latest scan results."""
+    with _BG_LOCK:
+        return dict(_BG_RESULTS)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SUPABASE PERSISTENCE ENGINE
@@ -2673,6 +2753,7 @@ def init_user_watchlist():
     st.session_state.user_id = user_id
 
 init_user_watchlist()  # call immediately after definition
+start_bg_scan_thread()  # start background scanner daemon
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2967,75 +3048,85 @@ def paper_close_trade(trade_id, reason="MANUAL CLOSE"):
             t["pnl_dollar"]   = round(pnl_dollar, 2)
             break
 
-def run_auto_scan_now():
+# Auto-scan: keep background thread settings in sync whenever auto-scan is enabled
+def sync_bg_auto_scan():
+    """Push current sidebar settings into bg engine and enable auto mode."""
     cfg = st.session_state.auto_scan_settings
-    sl  = st.session_state.user_watchlist if cfg["scan_list"]=="watchlist" else SCAN_UNIVERSE
-    go, watching, deck, mkt = full_scan(
-        sl, toggles, account_size, risk_pct,
-        dte_quick, dte_swing, cfg["max_premium"], cfg["style"]
-    )
-    prev_tickers = {(r["ticker"],r["style"]) for r in st.session_state.auto_scan_prev_go}
-    new_go = [r for r in go if (r["ticker"],r["style"]) not in prev_tickers]
-    st.session_state.auto_scan_prev_go  = st.session_state.auto_scan_go_now
-    st.session_state.auto_scan_go_now   = go
-    st.session_state.auto_scan_watching = watching
-    st.session_state.auto_scan_on_deck  = deck
-    st.session_state.auto_scan_mkt      = mkt
-    st.session_state.auto_scan_last_run = datetime.now()
-    save_scan_state(go, watching, deck)
-    # Fire Telegram alert + auto-enter paper trade for each new GO NOW
-    for r in new_go:
-        send_telegram_alert(r, alert_type="GO NOW")
-        save_signal_history(r)
-        if st.session_state.get("paper_auto_enabled", True):
-            paper_enter_trade(r)
-    # Check exits on all open paper trades
-    paper_check_exits()
-    return new_go
+    sl  = st.session_state.user_watchlist if cfg.get("scan_list","watchlist")=="watchlist" else SCAN_UNIVERSE
+    with _BG_LOCK:
+        _BG_RESULTS["scan_list"]    = sl
+        _BG_RESULTS["toggles"]      = toggles
+        _BG_RESULTS["account_size"] = account_size
+        _BG_RESULTS["risk_pct"]     = risk_pct
+        _BG_RESULTS["dte_quick"]    = dte_quick
+        _BG_RESULTS["dte_swing"]    = dte_swing
+        _BG_RESULTS["max_premium"]  = cfg.get("max_premium", max_premium)
+        _BG_RESULTS["style"]        = cfg.get("style", "both")
+        _BG_RESULTS["auto_enabled"] = True
 
-new_go_now = []
-if should_run_auto_scan():
-    with st.spinner("Auto-scanning market..."):
-        new_go_now = run_auto_scan_now()
+if st.session_state.auto_scan_enabled:
+    sync_bg_auto_scan()
 
 # ── LIVE STATUS BAR ───────────────────────────────────────────────────────────
+_bg_status = get_bg_results()
 sb1, sb2, sb3 = st.columns([3,2,2])
 with sb1:
     enabled = st.session_state.auto_scan_enabled
     session_label = {"open": "", "pre": " (PRE)", "after": " (AH)", "closed": " (CLOSED)"}.get(mstatus, "")
-    toggle_label = ("🟢 AUTO-SCAN ON" if enabled else "⚫ AUTO-SCAN OFF") + session_label
-    if st.button(toggle_label, key="auto_scan_toggle"):
+    _scan_active = _bg_status.get("running", False)
+    if _scan_active:
+        toggle_label = "⏳ SCANNING..."
+    else:
+        toggle_label = ("🟢 AUTO-SCAN ON" if enabled else "⚫ AUTO-SCAN OFF") + session_label
+    if st.button(toggle_label, key="auto_scan_toggle", disabled=_scan_active):
         st.session_state.auto_scan_enabled = not enabled
         if st.session_state.auto_scan_enabled:
-            st.session_state.auto_scan_last_run = None
+            sync_bg_auto_scan()
+        else:
+            with _BG_LOCK:
+                _BG_RESULTS["auto_enabled"] = False
         st.rerun()
 with sb2:
-    last    = st.session_state.auto_scan_last_run
-    enabled = st.session_state.auto_scan_enabled
+    last    = _bg_status.get("last_run")
     if last and enabled:
         secs_ago = int((datetime.now()-last).total_seconds())
         next_in  = max(0, SCAN_INTERVAL-secs_ago)
-        st.markdown(f"<div style='font-size:0.72rem;color:#8899aa;padding:6px 0'>Last: <span style='color:#d0dae8'>{secs_ago//60}m {secs_ago%60}s ago</span><br>Next: <span style='color:#00e5aa'>{next_in//60}m {next_in%60}s</span></div>", unsafe_allow_html=True)
+        if _bg_status.get("running"):
+            prog = _bg_status.get("progress","Scanning...")
+            st.markdown("<div style='font-size:0.72rem;color:#f0c040;padding:6px 0'>⏳ %s</div>" % prog, unsafe_allow_html=True)
+        else:
+            st.markdown("<div style='font-size:0.72rem;color:#8899aa;padding:6px 0'>Last: <span style='color:#d0dae8'>%dm %ds ago</span><br>Next: <span style='color:#00e5aa'>%dm %ds</span></div>" % (secs_ago//60,secs_ago%60,next_in//60,next_in%60), unsafe_allow_html=True)
 with sb3:
-    go_c  = len(st.session_state.auto_scan_go_now)
-    wat_c = len(st.session_state.auto_scan_watching)
-    dk_c  = len(st.session_state.auto_scan_on_deck)
+    go_c  = len(_bg_status.get("go_now", []))
+    wat_c = len(_bg_status.get("watching", []))
+    dk_c  = len(_bg_status.get("on_deck", []))
     if go_c + wat_c + dk_c > 0:
-        mkt_b = st.session_state.auto_scan_mkt
+        mkt_b = _bg_status.get("mkt_bias","neutral")
         mc    = "#00e5aa" if mkt_b=="bullish" else "#ff4d6d" if mkt_b=="bearish" else "#f0c040"
-        st.markdown(f"<div style='font-size:0.72rem;padding:6px 0'><span style='color:{mc}'>● {mkt_b.upper()}</span> &nbsp;<span style='color:#00e5aa'>▲{go_c} GO</span> &nbsp;<span style='color:#f0c040'>◉{wat_c} WATCH</span> &nbsp;<span style='color:#6699cc'>◎{dk_c} DECK</span></div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:0.72rem;padding:6px 0'><span style='color:%s'>● %s</span> &nbsp;<span style='color:#00e5aa'>▲%s GO</span> &nbsp;<span style='color:#f0c040'>◉%s WATCH</span> &nbsp;<span style='color:#6699cc'>◎%s DECK</span></div>" % (mc,mkt_b.upper(),go_c,wat_c,dk_c), unsafe_allow_html=True)
 
-# ── GO NOW ALERT BANNER ───────────────────────────────────────────────────────
-for ng in new_go_now:
+# ── GO NOW ALERT BANNER — fired from background thread new_go list ─────────────
+_new_go_now = _bg_status.get("new_go", [])
+# Deduplicate — only show banners for signals we haven't shown yet this session
+_shown_banners = st.session_state.get("shown_banners", set())
+for ng in _new_go_now:
+    _bkey = "%s_%s_%s" % (ng["ticker"], ng.get("style",""), _bg_status.get("last_run",""))
+    if _bkey in _shown_banners:
+        continue
+    _shown_banners.add(_bkey)
+    st.session_state.shown_banners = _shown_banners
     is_bull_ng = ng["direction"] == "bullish"
     dc_ng = "#00e5aa" if is_bull_ng else "#ff4d6d"
-    st.markdown(f"""
+    st.markdown("""
     <div style='background:#061a10;border:2px solid #00e5aa;border-radius:10px;padding:14px 18px;margin:6px 0'>
         <div style='font-family:monospace;font-size:0.65rem;letter-spacing:3px;color:#00e5aa;margin-bottom:4px'>🚨 NEW GO NOW SIGNAL</div>
-        <div style='font-size:1.1rem;font-weight:700;color:{dc_ng}'>{"BUY CALL" if is_bull_ng else "BUY PUT"} — {ng["ticker"]}</div>
-        <div style='font-size:0.8rem;color:#8899aa;margin-top:2px'>{ng["pattern"]} · {ng["confidence"]}% · {ng["gates_passed"]}/7 gates · Strike ${ng["opt"]["strike"]:.2f} · Target ${ng["opt"]["target"]:.2f} · Stop ${ng["opt"]["stop"]:.2f}</div>
+        <div style='font-size:1.1rem;font-weight:700;color:%s'>%s — %s</div>
+        <div style='font-size:0.8rem;color:#8899aa;margin-top:2px'>%s · %s%%%% · %s/7 gates · Strike $%.2f · Target $%.2f · Stop $%.2f</div>
     </div>
-    """, unsafe_allow_html=True)
+    """ % (dc_ng, "BUY CALL" if is_bull_ng else "BUY PUT", ng["ticker"],
+           ng["pattern"], ng["confidence"], ng["gates_passed"],
+           ng["opt"]["strike"], ng["opt"]["target"], ng["opt"]["stop"]),
+    unsafe_allow_html=True)
     st.components.v1.html("""<script>
     try {
         var ctx=new(window.AudioContext||window.webkitAudioContext)();
@@ -3049,10 +3140,19 @@ for ng in new_go_now:
         });
     } catch(e){}
     </script>""", height=0)
+    # Auto-enter paper trade for new GO NOW
+    if st.session_state.get("paper_auto_enabled", True):
+        paper_enter_trade(ng)
 
-# Keep the page live — rerun every second when auto-scan is on
-if st.session_state.auto_scan_enabled:
-    import time as _time; _time.sleep(1); st.rerun()
+# Page refresh — when scan is running, poll every 3s; when auto-scan on, poll every 30s
+# The bg thread does the heavy work — this just picks up results
+if AUTOREFRESH_AVAILABLE:
+    if _bg_status.get("running"):
+        from streamlit_autorefresh import st_autorefresh as _sar2
+        _sar2(interval=3000, key="scan_poll_refresh")
+    elif enabled:
+        from streamlit_autorefresh import st_autorefresh as _sar3
+        _sar3(interval=30000, key="auto_scan_poll")
 
 if earnings_days is not None:
     if earnings_days <= 1:   st.error(f"EARNINGS {'TODAY' if earnings_days==0 else 'TOMORROW'} on {selected_ticker} - Avoid new options positions.")
@@ -3082,7 +3182,7 @@ if div:
     css = f"divergence-{'bull' if div['type']=='bullish' else 'bear'}"
     st.markdown(f"<div class='{css}'><b>{div['label']}</b><br>{div['detail']}</div>", unsafe_allow_html=True)
 
-tab4,tab1,tab2,tab3,tab6,tab5,tab7 = st.tabs(["SCAN","SIGNALS","CHART","BACKTEST","PAPER","JOURNAL","HOW IT WORKS"])
+tab4,tab1,tab2,tab3,tab8,tab6,tab5,tab7 = st.tabs(["SCAN","SIGNALS","CHART","BACKTEST","WATCH QUEUE","PAPER","JOURNAL","HOW IT WORKS"])
 
 with tab1:
     cands_quick, tfs_quick = build_multi_tf_candidates(selected_ticker, toggles, account_size, risk_pct, dte_quick, "quick", atr=atr)
@@ -3501,38 +3601,43 @@ with tab4:
                 st.rerun()
     else:
         st.caption(f"Scanning {len(scan_list)} tickers through full precision stack")
-        if st.button("🔍 RUN SCAN", type="primary", use_container_width=True):
-            st.session_state.scan_running = True
-            prog_bar  = st.progress(0)
-            prog_text = st.empty()
-
-            def update_progress(idx, total, ticker):
-                prog_bar.progress((idx+1)/total)
-                prog_text.text(f"Scanning {ticker}... ({idx+1}/{total})")
-
+        # ── Live scan status from background thread ──────────────────────
+        _bg = get_bg_results()
+        if _bg["running"]:
+            st.info("⏳ %s" % _bg.get("progress", "Scanning..."))
+            # Auto-refresh every 3 seconds while scan is running
             try:
-                go_now, watching, on_deck, mkt_bias = full_scan(
-                    scan_list, toggles, account_size, risk_pct,
-                    dte_quick, dte_swing, max_premium, scan_style_key,
-                    progress_cb=update_progress
-                )
-            except Exception as _scan_err:
-                go_now, watching, on_deck, mkt_bias = [], [], [], "neutral"
-                st.error("Scan error: %s" % str(_scan_err)[:120])
-            finally:
-                st.session_state.scan_running = False
+                from streamlit_autorefresh import st_autorefresh as _sar
+                _sar(interval=3000, key="scan_progress_refresh")
+            except Exception:
+                pass
 
-            st.session_state.auto_scan_go_now   = go_now
-            st.session_state.auto_scan_watching = watching
-            st.session_state.auto_scan_on_deck  = on_deck
-            st.session_state.auto_scan_mkt      = mkt_bias
-            st.session_state.auto_scan_last_run = datetime.now()
-            save_scan_state(go_now, watching, on_deck)
+        if st.button("🔍 RUN SCAN", type="primary", use_container_width=True,
+                     disabled=_bg["running"]):
+            trigger_scan(
+                scan_list, toggles, account_size, risk_pct,
+                dte_quick, dte_swing, max_premium, scan_style_key
+            )
+            st.info("⏳ Scan started in background — this page will update automatically.")
+
+        # Read results from background thread (not from session state)
+        go_now   = _bg.get("go_now",   [])
+        watching = _bg.get("watching", [])
+        on_deck  = _bg.get("on_deck",  [])
+        mkt_bias = _bg.get("mkt_bias", "neutral")
+
+        # Also run paper exit checks whenever we read new results
+        if _bg.get("last_run") != st.session_state.get("last_paper_check"):
             paper_check_exits()
-            prog_bar.empty(); prog_text.empty()
-            total_found = len(go_now) + len(watching) + len(on_deck)
-            if total_found == 0:
-                st.warning("Scan complete — 0 signals passed filters. See debug below.")
+            st.session_state.last_paper_check = _bg.get("last_run")
+
+        # Handle new GO NOW paper trades from background thread
+        for r in _bg.get("new_go", []):
+            _key = "bg_paper_%s_%s" % (r["ticker"], r.get("style",""))
+            if not st.session_state.get(_key):
+                st.session_state[_key] = True
+                if st.session_state.get("paper_auto_enabled", True):
+                    paper_enter_trade(r)
 
     # Render results from session state after manual scan
     go_now   = st.session_state.auto_scan_go_now
@@ -3637,7 +3742,13 @@ with tab4:
             act_bg  = "#00e5aa22" if is_bull else "#ff4d6d22"
             sty_bg  = "#1a0a3a"  if r["style"] == "quick" else "#0a1a2a"
             sty_fg  = "#aa88ff"  if r["style"] == "quick" else "#6699cc"
-            blk_tag = "<span style='font-size:0.58rem;color:#f0c040'>⚡ BLOCK</span>" if block else ""
+            blk_tag      = "<span style='font-size:0.58rem;color:#f0c040'>⚡ BLOCK</span>" if block else ""
+            against_bias = r.get("detail", {}).get("against_market_bias", False)
+            bias_warn    = (
+                " &nbsp;<span style='font-size:0.58rem;color:#f0a030;background:#2a1800;"
+                "padding:1px 5px;border-radius:3px'>⚠️ vs market</span>"
+                if against_bias else ""
+            )
             exh_txt = "✅ confirmed" if exh_ok else "⏳ watching"
             sq_state = r.get("sq_state", "none")
             sq_pct   = r.get("sq_compression", 0)
@@ -3666,7 +3777,7 @@ with tab4:
                 "<span style='font-size:0.58rem;background:%s;color:%s;padding:2px 6px;border-radius:4px'>%s %s</span>" % (sty_bg, sty_fg, si, r["style"].upper()),
                 blk_tag,
                 "</div>",
-                "<div style='font-size:0.69rem;color:#8899aa'>%s</div>" % r["pattern"],
+                "<div style='font-size:0.69rem;color:#8899aa'>%s%s</div>" % (r["pattern"], bias_warn),
                 "<div style='font-size:0.65rem;color:#8899aa;margin-top:2px'>%sx vol &nbsp;·&nbsp; %s%s</div>" % (rv, exh_txt, sq_tag),
                 "</div>",
                 "<div style='text-align:right;flex-shrink:0'>",
@@ -3766,6 +3877,90 @@ with tab4:
             for i, r in enumerate(on_deck[:10]): mobile_card(r, "on_deck",  i)
         else:
             empty_bkt("No developing setups found.")
+
+with tab8:
+    st.markdown("<div class='section-title'>WATCH QUEUE</div>", unsafe_allow_html=True)
+    st.markdown("<div style='color:#8899aa;font-size:0.82rem;margin-bottom:12px'>Signals waiting for entry confirmation. Auto-checks on every refresh.</div>", unsafe_allow_html=True)
+
+    init_watch_queue()
+    _wq = st.session_state.watch_queue
+
+    if not _wq:
+        st.markdown("<div style='color:#4a5568;text-align:center;padding:40px;font-size:0.9rem'>No signals in queue. Add from the SIGNALS tab.</div>", unsafe_allow_html=True)
+    else:
+        for _wkey, item in list(_wq.items()):
+            elapsed_mins = int((datetime.now() - item["added_at"]).total_seconds() / 60)
+            elapsed_secs = int((datetime.now() - item["added_at"]).total_seconds() % 60)
+            last_chk = ""
+            if item["last_checked"]:
+                secs_ago = int((datetime.now() - item["last_checked"]).total_seconds())
+                last_chk = " | checked %ds ago" % secs_ago
+
+            candle_html = ""
+            for c in item.get("candles", []):
+                if c == "green":   candle_html += "<span style='color:#00d4aa;font-size:1rem'>&#9650;</span> "
+                elif c == "red":   candle_html += "<span style='color:#ff4d6d;font-size:1rem'>&#9660;</span> "
+                else:              candle_html += "<span style='color:#8899aa;font-size:0.8rem'>&#9644;</span> "
+
+            status = item["status"]
+            is_bull_w  = item["direction"] == "bullish"
+            dir_color_w = "#00d4aa" if is_bull_w else "#ff4d6d"
+            action_w    = "CALL" if is_bull_w else "PUT"
+
+            wq_col, dismiss_col = st.columns([6,1])
+            with wq_col:
+                if status == "CONFIRMED":
+                    st.markdown("""
+                    <div style='background:#061a10;border:2px solid #00d4aa;border-radius:10px;padding:14px 16px;margin:4px 0'>
+                        <div style='color:#00d4aa;font-family:monospace;font-size:0.72rem;letter-spacing:2px'>✅ ENTRY CONFIRMED — GET IN NOW</div>
+                        <div style='font-size:1.1rem;font-weight:700;color:{dc}'>BUY {act} — {tk}</div>
+                        <div style='color:#8899aa;font-size:0.82rem'>{pat}</div>
+                        <div style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;font-size:0.85rem;margin-top:10px'>
+                            <div><div style='color:#8899aa;font-size:0.7rem'>STRIKE</div><div style='font-weight:700;color:{dc}'>${stk:.2f}</div></div>
+                            <div><div style='color:#8899aa;font-size:0.7rem'>ENTRY</div><div style='font-weight:700'>${ent:.2f}</div></div>
+                            <div><div style='color:#8899aa;font-size:0.7rem'>TARGET</div><div style='font-weight:700;color:#00d4aa'>${tgt:.2f}</div></div>
+                            <div><div style='color:#8899aa;font-size:0.7rem'>STOP</div><div style='font-weight:700;color:#ff4d6d'>${stp:.2f}</div></div>
+                        </div>
+                        <div style='margin-top:8px;color:#e0e6f0;font-size:0.78rem'>Candles: {cnd} &nbsp; <span style='color:#00d4aa'>{elapsed_mins}m {elapsed_secs}s elapsed{last_chk}</span></div>
+                    </div>
+                    """.format(
+                        dc=dir_color_w, act=action_w, tk=item["ticker"],
+                        pat=item["pattern"], stk=item["strike"],
+                        ent=item["entry"], tgt=item["target"], stp=item["stop"],
+                        cnd=candle_html, elapsed_mins=elapsed_mins,
+                        elapsed_secs=elapsed_secs, last_chk=last_chk
+                    ), unsafe_allow_html=True)
+                else:
+                    border_clr = "#f0c040" if status == "WAITING" else "#ff4d6d"
+                    icon = "👁" if status == "WAITING" else "⏳"
+                    st.markdown("""
+                    <div style='background:#0d1219;border:2px solid {bc};border-radius:8px;padding:12px 16px;margin:4px 0'>
+                        <div style='display:flex;justify-content:space-between;align-items:center'>
+                            <div>
+                                <span style='font-size:1.1rem'>{ic}</span>
+                                <b style='margin-left:6px;color:{dc}'>{tk} {act}</b>
+                                <span style='color:#8899aa;font-size:0.82rem;margin-left:8px'>{pat} | Strike ${stk:.2f}</span>
+                            </div>
+                            <div style='color:#8899aa;font-size:0.75rem;font-family:monospace'>{em}m {es}s{lc}</div>
+                        </div>
+                        <div style='margin-top:6px'>{cnd}</div>
+                        <div style='color:#e0e6f0;font-size:0.82rem;margin-top:4px'>{msg}</div>
+                    </div>
+                    """.format(
+                        bc=border_clr, ic=icon, dc=dir_color_w,
+                        tk=item["ticker"], act=action_w, pat=item["pattern"],
+                        stk=item["strike"], em=elapsed_mins, es=elapsed_secs,
+                        lc=last_chk, cnd=candle_html, msg=item["message"]
+                    ), unsafe_allow_html=True)
+
+            with dismiss_col:
+                if st.button("✕", key="wq_dismiss_%s" % _wkey, help="Remove from queue"):
+                    remove_from_watch_queue(_wkey)
+                    st.rerun()
+
+    # Manual refresh button
+    if st.button("🔄 Refresh Queue", key="wq_refresh"):
+        st.rerun()
 
 with tab6:
     st.markdown("<div class='section-title'>PAPER TRADING</div>", unsafe_allow_html=True)
