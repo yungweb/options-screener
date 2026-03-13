@@ -1593,6 +1593,42 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                     conf_status = conf_status + " (extended hrs)"
                 if "CONFIRMED" in conf_status:
                     conf_bg = "#061a10"; conf_border = "#00d4aa"; conf_color = "#00d4aa"; conf_icon = "✅"
+                    # ── Fire Telegram + paper trade from signals tab ──────────
+                    _sig_key = "signals_fired_%s_%s_%s" % (ticker, sig.get("direction",""), i)
+                    if not st.session_state.get(_sig_key):
+                        st.session_state[_sig_key] = True
+                        _signal_r = {
+                            "ticker":       ticker,
+                            "direction":    sig.get("direction","bullish"),
+                            "action":       "CALL" if sig.get("direction")=="bullish" else "PUT",
+                            "pattern":      sig.get("pattern_label", sig.get("pattern","Signal")),
+                            "style":        "swing",
+                            "confidence":   conf,
+                            "gates_passed": gates_passed,
+                            "signals_hit":  detail.get("signals_hit", 0),
+                            "signal_detail":detail.get("signal_detail",[]),
+                            "price":        round(float(df["close"].iloc[-1]), 2),
+                            "iv_rank":      iv_rank,
+                            "earn_days":    earnings_days,
+                            "detail":       detail,
+                            "opt":          opt,
+                            "sig":          sig,
+                            "exh_confirmed":detail.get("exhaustion_confirmed", False),
+                            "exh_reasons":  detail.get("exhaustion_reasons", []),
+                            "rel_vol":      1.0,
+                            "vol_spike":    False,
+                            "block_detected": False,
+                            "sq_state":     "none",
+                            "sq_compression": 0,
+                            "market_bias":  "neutral",
+                            "sector_bias":  "neutral",
+                            "elevate":      elevate,
+                            "entry_status": "CONFIRMED",
+                        }
+                        send_telegram_alert(_signal_r, alert_type="GO NOW")
+                        save_signal_history(_signal_r)
+                        if st.session_state.get("paper_auto_enabled", True):
+                            paper_enter_trade(_signal_r)
                 elif "WAITING" in conf_status:
                     conf_bg = "#0d1219"; conf_border = "#f0c040"; conf_color = "#f0c040"; conf_icon = "👁"
                 else:
@@ -2189,7 +2225,7 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
     total     = len(scan_list)
 
     # 10 workers — fast enough without hammering yfinance rate limits
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=5) as executor:  # 5 workers to avoid yfinance rate limits
         futures = {
             executor.submit(
                 scan_single_ticker,
@@ -2200,13 +2236,13 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
             for ticker in scan_list
         }
 
-        for future in as_completed(futures):
+        for future in as_completed(futures, timeout=180):  # 3 min total max
             completed += 1
             ticker = futures[future]
             if progress_cb:
                 progress_cb(completed - 1, total, ticker)
             try:
-                records = future.result()
+                records = future.result(timeout=20)  # 20s max per ticker
                 for r in records:
                     if r.get("_rejected"):
                         on_deck.append(r)  # surface debug rejections
@@ -2229,8 +2265,11 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
                     # ON DECK: 3/5 signals, worth tracking
                     elif conf >= 55 and signals_hit >= 3:
                         on_deck.append(r)
+            except TimeoutError:
+                on_deck.append({"ticker": ticker, "_rejected": True, "_reason": "Timeout — yfinance took >20s, skipped"})
+                continue
             except Exception as _fe:
-                on_deck.append({"ticker": futures[future], "_rejected": True, "_reason": "Future error: " + str(_fe)[:60]})
+                on_deck.append({"ticker": ticker, "_rejected": True, "_reason": "Future error: " + str(_fe)[:60]})
                 continue
 
     go_now.sort(  key=lambda x: (x.get("vol_spike", False), x.get("confidence", 0)), reverse=True)
@@ -2514,6 +2553,51 @@ def save_watchlist_db(user_id, tickers):
     except Exception:
         pass  # never crash the app over a db write
 
+def save_scan_state(go_now, watching, on_deck):
+    """Persist latest scan results to Supabase so refresh doesn't wipe them."""
+    sb = get_supabase()
+    if not sb:
+        return
+    try:
+        import json as _j
+        def _safe(lst):
+            out = []
+            for r in lst[:20]:  # cap at 20 per bucket
+                try:
+                    _j.dumps(r)  # test serializable
+                    out.append(r)
+                except Exception:
+                    pass
+            return out
+        sb.table("scan_state").upsert({
+            "id":        "latest",
+            "go_now":    _j.dumps(_safe(go_now)),
+            "watching":  _j.dumps(_safe(watching)),
+            "on_deck":   _j.dumps(_safe(on_deck)),
+            "updated_at": datetime.utcnow().isoformat(),
+        }).execute()
+    except Exception:
+        pass
+
+def load_scan_state():
+    """Load last scan results from Supabase on app start."""
+    sb = get_supabase()
+    if not sb:
+        return [], [], []
+    try:
+        import json as _j
+        res = sb.table("scan_state").select("*").eq("id","latest").execute()
+        if res.data:
+            d = res.data[0]
+            return (
+                _j.loads(d.get("go_now",  "[]")),
+                _j.loads(d.get("watching","[]")),
+                _j.loads(d.get("on_deck", "[]")),
+            )
+    except Exception:
+        pass
+    return [], [], []
+
 def save_signal_history(r):
     """Save a fired signal to Supabase signal_history table."""
     sb = get_supabase()
@@ -2566,6 +2650,13 @@ def init_user_watchlist():
     saved = load_watchlist_db(user_id)
     if saved:
         st.session_state.user_watchlist = saved
+    # Restore last scan results so refresh doesn't wipe the screen
+    if not st.session_state.get("auto_scan_go_now"):
+        go, wa, od = load_scan_state()
+        if go or wa or od:
+            st.session_state.auto_scan_go_now   = go
+            st.session_state.auto_scan_watching = wa
+            st.session_state.auto_scan_on_deck  = od
     st.session_state.watchlist_loaded = True
     st.session_state.user_id = user_id
 
@@ -2879,6 +2970,7 @@ def run_auto_scan_now():
     st.session_state.auto_scan_on_deck  = deck
     st.session_state.auto_scan_mkt      = mkt
     st.session_state.auto_scan_last_run = datetime.now()
+    save_scan_state(go, watching, deck)
     # Fire Telegram alert + auto-enter paper trade for each new GO NOW
     for r in new_go:
         send_telegram_alert(r, alert_type="GO NOW")
@@ -3148,7 +3240,7 @@ with tab2:
 <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   body {{ margin:0; background:#0a0e17; }}
-  #chart {{ width:100%; height:480px; }}
+  #chart {{ width:100%%; height:480px; }}
   #legend {{ position:absolute; top:8px; left:12px; z-index:10;
             font-family:monospace; font-size:11px; color:#8899aa;
             background:rgba(10,14,23,0.85); padding:6px 10px;
@@ -3218,7 +3310,7 @@ chart.subscribeCrosshairMove(param => {
       'H:<span style="color:' + clr + '">' + c.high.toFixed(2) + '</span>  ' +
       'L:<span style="color:' + clr + '">' + c.low.toFixed(2)  + '</span>  ' +
       'C:<span style="color:' + clr + '">' + c.close.toFixed(2) + '</span>  ' +
-      '<span style="color:' + clr + '">' + (chg > 0 ? '+' : '') + chg + '%</span>';
+      '<span style="color:' + clr + '">' + (chg > 0 ? '+' : '') + chg + '%%</span>';
   }
 });
 
@@ -3231,9 +3323,9 @@ window.addEventListener('resize', () => chart.resize(chartEl.offsetWidth, 480));
     candles   = _json.dumps(candle_data),
     markers   = _json.dumps(sorted(markers, key=lambda x: x["time"])),
     pricelines= "\n".join([
-        "candles.createPriceLine({{price:{p},color:'{c}',lineWidth:{w},lineStyle:{s},axisLabelVisible:true,title:'{t}'}});".format(
+        "candles.createPriceLine({{price:{p},color:'{c}',lineWidth:{w},lineStyle:{ls},axisLabelVisible:true,title:'{t}'}});".format(
             p=pl["price"], c=pl["color"], w=pl["lineWidth"],
-            s=pl["lineStyle"], t=pl["title"]
+            ls=pl["lineStyle"], t=pl["title"]
         ) for pl in price_lines
     ]),
     ema       = _json.dumps(ema_data),
@@ -3415,6 +3507,7 @@ with tab4:
             st.session_state.auto_scan_on_deck  = on_deck
             st.session_state.auto_scan_mkt      = mkt_bias
             st.session_state.auto_scan_last_run = datetime.now()
+            save_scan_state(go_now, watching, on_deck)
             paper_check_exits()
             prog_bar.empty(); prog_text.empty()
             total_found = len(go_now) + len(watching) + len(on_deck)
