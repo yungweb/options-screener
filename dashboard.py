@@ -2345,12 +2345,12 @@ with st.sidebar:
     else:
         st.info("📲 Add TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in Railway to enable alerts")
 
-# Smart auto-refresh - activates automatically when watch queue has pending signals
+# Smart auto-refresh - DISABLED during active scan to prevent killing mid-run
 init_watch_queue()
 _queue_active = any(item["status"] != "CONFIRMED" for item in st.session_state.watch_queue.values())
-if AUTOREFRESH_AVAILABLE:
+_scan_running = st.session_state.get("scan_running", False)
+if AUTOREFRESH_AVAILABLE and not _scan_running:
     if _queue_active:
-        # Watch queue running - auto refresh every 60 seconds no manual toggle needed
         st_autorefresh(interval=60000, key="watch_autorefresh")
     elif refresh_on and refresh_interval:
         ms = {"1 min":60000,"5 min":300000,"15 min":900000}.get(refresh_interval,300000)
@@ -3502,6 +3502,7 @@ with tab4:
     else:
         st.caption(f"Scanning {len(scan_list)} tickers through full precision stack")
         if st.button("🔍 RUN SCAN", type="primary", use_container_width=True):
+            st.session_state.scan_running = True
             prog_bar  = st.progress(0)
             prog_text = st.empty()
 
@@ -3509,11 +3510,18 @@ with tab4:
                 prog_bar.progress((idx+1)/total)
                 prog_text.text(f"Scanning {ticker}... ({idx+1}/{total})")
 
-            go_now, watching, on_deck, mkt_bias = full_scan(
-                scan_list, toggles, account_size, risk_pct,
-                dte_quick, dte_swing, max_premium, scan_style_key,
-                progress_cb=update_progress
-            )
+            try:
+                go_now, watching, on_deck, mkt_bias = full_scan(
+                    scan_list, toggles, account_size, risk_pct,
+                    dte_quick, dte_swing, max_premium, scan_style_key,
+                    progress_cb=update_progress
+                )
+            except Exception as _scan_err:
+                go_now, watching, on_deck, mkt_bias = [], [], [], "neutral"
+                st.error("Scan error: %s" % str(_scan_err)[:120])
+            finally:
+                st.session_state.scan_running = False
+
             st.session_state.auto_scan_go_now   = go_now
             st.session_state.auto_scan_watching = watching
             st.session_state.auto_scan_on_deck  = on_deck
@@ -3525,7 +3533,6 @@ with tab4:
             total_found = len(go_now) + len(watching) + len(on_deck)
             if total_found == 0:
                 st.warning("Scan complete — 0 signals passed filters. See debug below.")
-            # Don't rerun — render results inline immediately
 
     # Render results from session state after manual scan
     go_now   = st.session_state.auto_scan_go_now
