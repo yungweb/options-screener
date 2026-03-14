@@ -263,6 +263,38 @@ def get_market_status():
     elif t < dtime(20, 0): return "after",  "After-Hours Trading - Until 8:00 PM ET"
     else:                  return "closed", "Market Closed - Pre-market opens 4:00 AM ET"
 
+# ── Thread-safe TTL cache ─────────────────────────────────────────────────────
+# @st.cache_data cannot be called safely from background threads (ThreadPoolExecutor).
+# Doing so fires "missing ScriptRunContext" warnings and can cause instability.
+# Functions in the scan worker path use _thread_cache instead — pure Python,
+# no Streamlit context required, thread-safe via a single lock.
+import time as _time_mod
+_THREAD_CACHE      = {}
+_THREAD_CACHE_LOCK = _threading.Lock()
+
+def _thread_cache(ttl=300):
+    """
+    Decorator: simple TTL memoize safe to call from any thread.
+    Stores results in a module-level dict keyed by (func_name, args).
+    Expired entries are evicted on the next call for that key.
+    """
+    def decorator(fn):
+        def wrapper(*args):
+            key = (fn.__name__,) + args
+            now = _time_mod.time()
+            with _THREAD_CACHE_LOCK:
+                entry = _THREAD_CACHE.get(key)
+                if entry and (now - entry[0]) < ttl:
+                    return entry[1]
+            result = fn(*args)
+            with _THREAD_CACHE_LOCK:
+                _THREAD_CACHE[key] = (now, result)
+            return result
+        wrapper.__name__ = fn.__name__
+        return wrapper
+    return decorator
+# ─────────────────────────────────────────────────────────────────────────────
+
 @st.cache_data(ttl=60)
 def fetch_ohlcv(ticker, multiplier, timespan, days_back):
     try:
@@ -304,7 +336,7 @@ def fetch_current_price(ticker):
     except:
         return None
 
-@st.cache_data(ttl=3600)
+@_thread_cache(ttl=3600)
 def check_earnings(ticker):
     try:
         import yfinance as yf
@@ -315,7 +347,7 @@ def check_earnings(ticker):
     except:
         return None
 
-@st.cache_data(ttl=300)
+@_thread_cache(ttl=300)
 def fetch_iv_rank(ticker):
     try:
         import yfinance as yf
@@ -755,7 +787,7 @@ def detect_market_regime(df):
         strength = consistency_score
     return regime, strength
 
-@st.cache_data(ttl=300)
+@_thread_cache(ttl=300)
 def check_liquidity(ticker):
     """
     Checks options liquidity via yfinance.
@@ -835,7 +867,7 @@ def calc_quick_levels(price, direction, atr):
     return entry, target, stop
 
 
-@st.cache_data(ttl=60)
+@_thread_cache(ttl=60)
 def _fetch_tf(ticker, interval, period):
     """
     Module-level cached data fetcher for multi-timeframe data.
@@ -1732,7 +1764,7 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
 # PRECISION SCAN ENGINE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=300)
+@_thread_cache(ttl=300)
 def get_market_internals():
     """
     Checks SPY and QQQ trend to determine overall market bias.
@@ -1775,7 +1807,7 @@ def get_market_internals():
     except:
         return "neutral", 50
 
-@st.cache_data(ttl=300)
+@_thread_cache(ttl=300)
 def get_sector_bias(sector_etf):
     """Returns trend direction of a sector ETF."""
     try:
