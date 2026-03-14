@@ -2511,7 +2511,9 @@ def _bg_scan_loop():
         try:
             def _progress_cb(idx, total, ticker):
                 with _BG_LOCK:
-                    _BG_RESULTS["progress"] = "Scanning %s... (%s/%s)" % (ticker, idx+1, total)
+                    _BG_RESULTS["progress"]       = "Scanning %s..." % ticker
+                    _BG_RESULTS["progress_idx"]   = idx + 1
+                    _BG_RESULTS["progress_total"] = total
 
             go, watching, deck, mkt = full_scan(
                 scan_list, toggles, account_size, risk_pct,
@@ -3620,15 +3622,37 @@ with tab4:
             except Exception:
                 pass
 
-        if _bg["running"]:
-            st.info("⏳ %s" % _bg.get("progress", "Scanning..."))
-        elif _still_waiting:
-            st.info("⏳ Scan finishing up...")
+        if _bg["running"] or _still_waiting:
+            _pidx   = _bg.get("progress_idx",   0)
+            _ptotal = _bg.get("progress_total",  len(scan_list)) or len(scan_list)
+            _ptxt   = _bg.get("progress", "Starting scan...")
+            _pct    = min(_pidx / _ptotal, 1.0) if _ptotal > 0 else 0.0
+
+            # Progress bar
+            st.markdown(
+                "<div style='font-size:0.78rem;color:#8899aa;margin-bottom:4px'>"
+                "⏳ <b>%s</b> &nbsp;·&nbsp; %s / %s tickers</div>" % (_ptxt, _pidx, _ptotal),
+                unsafe_allow_html=True
+            )
+            st.progress(_pct)
+            st.markdown(
+                "<div style='font-size:0.72rem;color:#4a5568;margin-top:2px'>"
+                "Scanner running in background — page auto-updates every 2s</div>",
+                unsafe_allow_html=True
+            )
         elif _scan_done_at:
             elapsed = int((datetime.now() - _scan_done_at).total_seconds())
-            if elapsed < 10:
-                st.success("✅ Scan complete — %s GO NOW · %s WATCHING · %s ON DECK" % (
-                    len(_bg.get("go_now",[])), len(_bg.get("watching",[])), len(_bg.get("on_deck",[]))))
+            if elapsed < 15:
+                _go_c  = len(_bg.get("go_now",   []))
+                _wat_c = len(_bg.get("watching", []))
+                _dk_c  = len(_bg.get("on_deck",  []))
+                st.markdown(
+                    "<div style='background:#061a10;border:1px solid #00d4aa;border-radius:8px;"
+                    "padding:10px 14px;font-size:0.82rem;color:#00d4aa'>✅ Scan complete &nbsp;·&nbsp; "
+                    "<b>%s GO NOW</b> &nbsp;·&nbsp; %s WATCHING &nbsp;·&nbsp; %s ON DECK</div>" % (
+                        _go_c, _wat_c, _dk_c),
+                    unsafe_allow_html=True
+                )
 
         if st.button("🔍 RUN SCAN", type="primary", use_container_width=True,
                      disabled=_bg["running"]):
