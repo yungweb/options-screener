@@ -295,19 +295,95 @@ def _thread_cache(ttl=300):
     return decorator
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ── DataFrame column helpers ──────────────────────────────────────────────────
+# yfinance v0.2.x returns MultiIndex columns for single-ticker downloads.
+# e.g. df["close"] returns a DataFrame with shape (n,1) instead of a Series.
+# _col() safely squeezes any column to a 1D float Series regardless of structure.
+
+def _col(df, name):
+    """Return column `name` from df as a guaranteed 1D float Series."""
+    c = df[name]
+    if isinstance(c, pd.DataFrame):
+        c = c.iloc[:, 0]
+    return c.astype(float)
+
+def _clean_df(df):
+    """
+    Normalize a yfinance DataFrame so all columns are flat (non-MultiIndex)
+    and contain float values. Safe to call multiple times (idempotent).
+    """
+    if df is None or df.empty:
+        return df
+    if isinstance(df.columns, pd.MultiIndex):
+        df = df.copy()
+        df.columns = [c[0].lower() if isinstance(c, tuple) else str(c).lower()
+                      for c in df.columns]
+    else:
+        df = df.copy()
+        df.columns = [str(c).lower() for c in df.columns]
+    for col in ["open", "high", "low", "close", "volume"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── yfinance session manager ──────────────────────────────────────────────────
+# Yahoo Finance rotates crumb/auth tokens. A stale session causes 401 Unauthorized.
+# We keep one module-level session and refresh it on any 401/crumb error.
+_YF_SESSION_LOCK = _threading.Lock()
+_yf_session      = None
+
+def _get_yf_session():
+    """Return a live yfinance session, refreshing on demand."""
+    global _yf_session
+    import yfinance as yf
+    import requests
+    with _YF_SESSION_LOCK:
+        if _yf_session is None:
+            _yf_session = requests.Session()
+            _yf_session.headers.update({"User-Agent": "Mozilla/5.0"})
+    return _yf_session
+
+def _yf_download(ticker, period, interval, **kwargs):
+    """
+    Wrapper around yf.download that retries once on 401/crumb errors
+    by resetting the session and trying again.
+    """
+    import yfinance as yf
+    global _yf_session
+    for attempt in range(2):
+        try:
+            df = yf.download(ticker, period=period, interval=interval,
+                             progress=False, auto_adjust=True, **kwargs)
+            return df
+        except Exception as e:
+            err = str(e).lower()
+            if attempt == 0 and ("401" in err or "crumb" in err or "unauthorized" in err):
+                # Force yfinance to reset its internal cookie/crumb cache
+                try:
+                    import yfinance.data as _yfd
+                    _yfd.YfData._crumb = None
+                    _yfd.YfData._cookie = None
+                except Exception:
+                    pass
+                with _YF_SESSION_LOCK:
+                    _yf_session = None
+                continue
+            raise
+    return None
+# ─────────────────────────────────────────────────────────────────────────────
+
 @st.cache_data(ttl=60)
 def fetch_ohlcv(ticker, multiplier, timespan, days_back):
     try:
-        import yfinance as yf
         intervals = {"minute": "5m", "hour": "1h", "day": "1d"}
         interval  = intervals.get(timespan, "1h")
         period    = f"{min(days_back, 59)}d" if timespan == "minute" else f"{days_back}d"
-        df = yf.download(ticker, period=period, interval=interval,
-                         progress=False, auto_adjust=True, prepost=True)
-        if df.empty:
+        df = _yf_download(ticker, period=period, interval=interval, prepost=True)
+        if df is None or df.empty:
             return _demo_data(ticker)
         df = df.reset_index()
-        df.columns = [c[0].lower() if isinstance(c, tuple) else c.lower() for c in df.columns]
+        df = _clean_df(df)
         df = df.rename(columns={"datetime": "timestamp", "date": "timestamp"})
         return df[["timestamp", "open", "high", "low", "close", "volume"]].dropna().reset_index(drop=True)
     except:
@@ -336,24 +412,45 @@ def fetch_current_price(ticker):
     except:
         return None
 
+# ETFs and indices never have earnings — skip immediately to avoid 404s
+_ETF_TICKERS = {
+    "SPY","QQQ","IWM","DIA","XLK","XLF","XLE","XLV","XLY","XLI",
+    "GLD","SLV","TLT","HYG","VXX","UVXY","SQQQ","TQQQ","SPXU","SPXL",
+}
+
 @_thread_cache(ttl=3600)
 def check_earnings(ticker):
+    if ticker in _ETF_TICKERS:
+        return None  # ETFs have no earnings
     try:
         import yfinance as yf
-        cal = yf.Ticker(ticker).calendar
-        if cal is None or cal.empty: return None
-        days_away = (pd.Timestamp(cal.iloc[0,0]).date()-date.today()).days
-        return days_away if 0<=days_away<=14 else None
-    except:
-        return None
+        tk  = yf.Ticker(ticker)
+        cal = tk.calendar
+        if cal is None: return None
+        # calendar can be a dict or DataFrame depending on yfinance version
+        if isinstance(cal, dict):
+            dates = cal.get("Earnings Date", [])
+            if not dates: return None
+            next_date = pd.Timestamp(dates[0]).date()
+        else:
+            if cal.empty: return None
+            next_date = pd.Timestamp(cal.iloc[0, 0]).date()
+        days_away = (next_date - date.today()).days
+        return days_away if 0 <= days_away <= 14 else None
+    except Exception:
+        return None  # 404, no fundamentals, etc — treat as no earnings
 
 @_thread_cache(ttl=300)
 def fetch_iv_rank(ticker):
     try:
         import yfinance as yf
         hist = yf.Ticker(ticker).history(period="1y")
-        if hist.empty or len(hist) < 30: return None, None
-        log_ret    = np.log(hist["Close"]/hist["Close"].shift(1)).dropna()
+        if hist is None or hist.empty or len(hist) < 30: return None, None
+        hist = _clean_df(hist)
+        close_col = "close" if "close" in hist.columns else "Close"
+        closes = _col(hist, close_col) if close_col in hist.columns else None
+        if closes is None: return None, None
+        log_ret    = np.log(closes / closes.shift(1)).dropna()
         rolling_hv = log_ret.rolling(20).std() * np.sqrt(252) * 100
         rolling_hv = rolling_hv.dropna()
         current_hv = float(rolling_hv.iloc[-1])
@@ -362,7 +459,7 @@ def fetch_iv_rank(ticker):
         if hv_high == hv_low: return 50, current_hv
         iv_rank = int((current_hv - hv_low) / (hv_high - hv_low) * 100)
         return iv_rank, current_hv
-    except:
+    except Exception:
         return None, None
 
 def calc_rsi(close, period=14):
@@ -815,15 +912,18 @@ def score_setup(df, setup):
     Confidence scoring - base layer (50 pts max).
     Final score = base + TF confluence + extra confluence = 50-100.
     """
-    close  = df["close"]; high = df["high"]; low = df["low"]
+    close  = _col(df, "close"); high = _col(df, "high"); low = _col(df, "low")
+    vol    = _col(df, "volume")
     price  = float(close.iloc[-1])
     is_bull = setup.direction == "bullish"
     ema20  = float(close.ewm(span=20).mean().iloc[-1])
     tp     = (high + low + close) / 3
-    vwap   = float((tp * df["volume"]).cumsum().iloc[-1] / df["volume"].cumsum().iloc[-1])
+    vwap_num = float((tp * vol).cumsum().iloc[-1])
+    vwap_den = float(vol.cumsum().iloc[-1])
+    vwap   = vwap_num / vwap_den if vwap_den > 0 else price
     rsi    = calc_rsi(close)
-    avg_vol = float(df["volume"].iloc[-20:].mean())
-    cur_vol = float(df["volume"].iloc[-1])
+    avg_vol = float(vol.iloc[-20:].mean())
+    cur_vol = float(vol.iloc[-1])
 
     rsi_div = detect_rsi_divergence(df)
     rsi_div_match = rsi_div is not None and (
@@ -871,19 +971,14 @@ def calc_quick_levels(price, direction, atr):
 def _fetch_tf(ticker, interval, period):
     """
     Module-level cached data fetcher for multi-timeframe data.
-    MUST be at module level — never nested inside another function.
-    @st.cache_data registered once at startup on the main thread,
-    so worker threads in ThreadPoolExecutor can call this safely
-    without triggering 'missing ScriptRunContext' errors.
+    Uses _yf_download (retries on 401/crumb) and _clean_df (flattens MultiIndex).
     """
     try:
-        import yfinance as yf
-        df = yf.download(ticker, period=period, interval=interval,
-                         progress=False, auto_adjust=True, prepost=True)
-        if df.empty:
+        df = _yf_download(ticker, period=period, interval=interval, prepost=True)
+        if df is None or df.empty:
             return None
         df = df.reset_index()
-        df.columns = [c[0].lower() if isinstance(c, tuple) else c.lower() for c in df.columns]
+        df = _clean_df(df)
         df = df.rename(columns={"datetime": "timestamp", "date": "timestamp"})
         return df[["timestamp", "open", "high", "low", "close", "volume"]].dropna().reset_index(drop=True)
     except:
@@ -988,20 +1083,42 @@ def check_vwap_confluence(df_5min, direction):
     Quick trade extra confluence: VWAP reclaim/rejection on 5min.
     For calls: previous candle closed BELOW vwap, current candle closes ABOVE = actual reclaim
     For puts:  previous candle closed ABOVE vwap, current candle closes BELOW = actual rejection
-    This ensures price is actively crossing VWAP in the signal direction,
-    not just sitting above/below it.
     Returns: (passes: bool, label: str)
     """
     if df_5min is None or len(df_5min) < 5:
         return False, "5min data unavailable"
-    close = df_5min["close"].astype(float)
-    high  = df_5min["high"].astype(float)
-    low   = df_5min["low"].astype(float)
-    vol   = df_5min["volume"].astype(float)
+    close = _col(df_5min, "close")
+    high  = _col(df_5min, "high")
+    low   = _col(df_5min, "low")
+    vol   = _col(df_5min, "volume")
     tp    = (high + low + close) / 3
-    vwap  = float((tp * vol).cumsum().iloc[-1] / vol.cumsum().iloc[-1])
+    vwap_num = float((tp * vol).cumsum().iloc[-1])
+    vwap_den = float(vol.cumsum().iloc[-1])
+    vwap  = vwap_num / vwap_den if vwap_den > 0 else float(close.iloc[-1])
     price = float(close.iloc[-1])
     prev  = float(close.iloc[-2])
+    is_bull = direction == "bullish"
+    if is_bull:
+        reclaim = prev < vwap and price > vwap
+        holding = prev > vwap and price > vwap
+        passes  = reclaim or holding
+        if reclaim:
+            label = f"5min VWAP reclaimed ↑ (${vwap:.2f}) — strong"
+        elif holding:
+            label = f"5min holding above VWAP (${vwap:.2f})"
+        else:
+            label = f"5min below VWAP (${vwap:.2f}) — no reclaim yet"
+    else:
+        rejection = prev > vwap and price < vwap
+        holding   = prev < vwap and price < vwap
+        passes    = rejection or holding
+        if rejection:
+            label = f"5min VWAP rejected ↓ (${vwap:.2f}) — strong"
+        elif holding:
+            label = f"5min holding below VWAP (${vwap:.2f})"
+        else:
+            label = f"5min above VWAP (${vwap:.2f}) — no rejection yet"
+    return passes, label
     is_bull = direction == "bullish"
     if is_bull:
         # Actual reclaim: prev closed below, current closed above
@@ -1771,13 +1888,12 @@ def get_market_internals():
     Returns: bias ("bullish"/"bearish"/"neutral"), strength (0-100)
     """
     try:
-        import yfinance as yf
         results = {}
         for sym in ["SPY","QQQ"]:
-            df = yf.download(sym, period="5d", interval="15m", progress=False, auto_adjust=True)
-            if df.empty: continue
-            df.columns = [c[0].lower() if isinstance(c,tuple) else c.lower() for c in df.columns]
-            close = df["close"].astype(float)
+            df = _yf_download(sym, period="5d", interval="15m")
+            if df is None or df.empty: continue
+            df = _clean_df(df)
+            close = _col(df, "close")
             ema20 = float(close.ewm(span=20).mean().iloc[-1])
             ema50 = float(close.ewm(span=50).mean().iloc[-1])
             price = float(close.iloc[-1])
@@ -1811,11 +1927,10 @@ def get_market_internals():
 def get_sector_bias(sector_etf):
     """Returns trend direction of a sector ETF."""
     try:
-        import yfinance as yf
-        df = yf.download(sector_etf, period="5d", interval="1h", progress=False, auto_adjust=True)
-        if df.empty: return "neutral"
-        df.columns = [c[0].lower() if isinstance(c,tuple) else c.lower() for c in df.columns]
-        close = df["close"].astype(float)
+        df = _yf_download(sector_etf, period="5d", interval="1h")
+        if df is None or df.empty: return "neutral"
+        df = _clean_df(df)
+        close = _col(df, "close")
         price = float(close.iloc[-1])
         ema20 = float(close.ewm(span=20).mean().iloc[-1])
         return "bullish" if price > ema20 else "bearish"
@@ -2440,14 +2555,12 @@ atr = calc_atr(df)
 def fetch_htf_trend(ticker):
     """Fetch daily data and return trend + RSI for confluence check."""
     try:
-        import yfinance as yf
-        raw = yf.download(ticker, period="60d", interval="1d", progress=False, auto_adjust=True)
-        if raw.empty or len(raw) < 20: return None, None, None
-        raw.columns = [c[0].lower() if isinstance(c, tuple) else c.lower() for c in raw.columns]
-        close = raw["close"].astype(float)
+        raw = _yf_download(ticker, period="60d", interval="1d")
+        if raw is None or raw.empty or len(raw) < 20: return None, None, None
+        raw = _clean_df(raw)
+        close = _col(raw, "close")
         ema20 = float(close.ewm(span=20).mean().iloc[-1])
         price = float(close.iloc[-1])
-        # Daily RSI
         delta = close.diff()
         gain  = delta.clip(lower=0).rolling(14).mean()
         loss  = (-delta.clip(upper=0)).rolling(14).mean()
@@ -3185,15 +3298,11 @@ for ng in _new_go_now:
     if st.session_state.get("paper_auto_enabled", True):
         paper_enter_trade(ng)
 
-# Page refresh — when scan is running, poll every 3s; when auto-scan on, poll every 30s
-# The bg thread does the heavy work — this just picks up results
-if AUTOREFRESH_AVAILABLE:
-    if _bg_status.get("running"):
-        from streamlit_autorefresh import st_autorefresh as _sar2
-        _sar2(interval=3000, key="scan_poll_refresh")
-    elif enabled:
-        from streamlit_autorefresh import st_autorefresh as _sar3
-        _sar3(interval=30000, key="auto_scan_poll")
+# Page refresh — only poll when auto-scan is enabled and scan is NOT running.
+# Never refresh while a scan is in progress — it creates reruns that fight the thread.
+if AUTOREFRESH_AVAILABLE and enabled and not _bg_status.get("running"):
+    from streamlit_autorefresh import st_autorefresh as _sar3
+    _sar3(interval=30000, key="auto_scan_poll")
 
 if earnings_days is not None:
     if earnings_days <= 1:   st.error(f"EARNINGS {'TODAY' if earnings_days==0 else 'TOMORROW'} on {selected_ticker} - Avoid new options positions.")
@@ -3651,14 +3760,9 @@ with tab4:
             (_scan_done_at is None or _scan_triggered > _scan_done_at)
         )
 
-        # Keep refreshing while running OR while waiting for results to appear
+        # NO autorefresh during scan — reruns fight the background thread.
+        # User hits the manual refresh button or waits for auto-scan poll.
         _should_poll = _bg["running"] or _still_waiting
-        if _should_poll:
-            try:
-                from streamlit_autorefresh import st_autorefresh as _sar
-                _sar(interval=2000, key="scan_progress_refresh")
-            except Exception:
-                pass
 
         if _bg["running"] or _still_waiting:
             _pidx   = _bg.get("progress_idx",   0)
