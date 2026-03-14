@@ -2432,27 +2432,37 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
             for ticker in scan_list
         }
 
-        # Collect results one by one with per-future timeout
-        # Wrap as_completed in try/except so one bad ticker never kills the whole scan
+        # Collect results — 12s per ticker max, 3 min total hard cap
+        # as_completed(timeout=X) raises TimeoutError if ANY future takes too long
+        # We catch it per-future so one hung ticker never freezes the whole scan
         done_tickers = set()
-        for future in as_completed(futures):
+        _per_ticker_timeout = 12
+        _global_deadline = datetime.now().timestamp() + 180  # 3 min hard cap
+
+        for future in as_completed(futures, timeout=180):
+            if datetime.now().timestamp() > _global_deadline:
+                break
             ticker = futures[future]
             completed += 1
             done_tickers.add(ticker)
             if progress_cb:
                 progress_cb(completed - 1, total, ticker)
             try:
-                records = future.result(timeout=15)
+                records = future.result(timeout=_per_ticker_timeout)
                 _process_records(records, ticker)
             except Exception as _fe:
                 on_deck.append({"ticker": ticker, "_rejected": True,
                     "_reason": "Error: " + str(_fe)[:80]})
 
+        # Cancel any futures still running (hung yfinance calls)
+        for future in futures:
+            future.cancel()
+
         # Log any that never completed
         for ticker in scan_list:
             if ticker not in done_tickers:
                 on_deck.append({"ticker": ticker, "_rejected": True,
-                    "_reason": "Never completed — likely hung on yfinance"})
+                    "_reason": "Timed out — yfinance hung, skipped"})
 
     go_now.sort(  key=lambda x: (x.get("vol_spike", False), x.get("confidence", 0)), reverse=True)
     watching.sort(key=lambda x: (x.get("vol_spike", False), x.get("confidence", 0)), reverse=True)
@@ -2665,6 +2675,8 @@ def _bg_scan_loop():
             _BG_RESULTS["new_go"]   = []
 
         try:
+            import signal as _signal
+
             def _progress_cb(idx, total, ticker):
                 with _BG_LOCK:
                     _BG_RESULTS["progress"]       = "Scanning %s..." % ticker
@@ -2709,8 +2721,12 @@ def _bg_scan_loop():
 
         except Exception as _e:
             with _BG_LOCK:
-                _BG_RESULTS["running"]  = False
-                _BG_RESULTS["progress"] = "Scan error: %s" % str(_e)[:80]
+                _BG_RESULTS["running"]   = False
+                _BG_RESULTS["last_run"]  = datetime.now()
+                _BG_RESULTS["progress"]  = "❌ Scan error: %s" % str(_e)[:120]
+                _BG_RESULTS["go_now"]    = []
+                _BG_RESULTS["watching"]  = []
+                _BG_RESULTS["on_deck"]   = []
 
         _time.sleep(2)  # brief pause before accepting next trigger
 
