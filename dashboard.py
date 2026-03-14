@@ -2515,11 +2515,12 @@ with st.sidebar:
     else:
         st.info("📲 Add TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in Railway to enable alerts")
 
-# Smart auto-refresh - DISABLED during active scan to prevent killing mid-run
+# Auto-refresh — NEVER fire while a scan is running.
+# _BG_RESULTS["running"] is the authoritative flag — session_state.scan_running is not used.
 init_watch_queue()
 _queue_active = any(item["status"] != "CONFIRMED" for item in st.session_state.watch_queue.values())
-_scan_running = st.session_state.get("scan_running", False)
-if AUTOREFRESH_AVAILABLE and not _scan_running:
+_bg_running_now = get_bg_results().get("running", False)
+if AUTOREFRESH_AVAILABLE and not _bg_running_now:
     if _queue_active:
         st_autorefresh(interval=60000, key="watch_autorefresh")
     elif refresh_on and refresh_interval:
@@ -3298,8 +3299,7 @@ for ng in _new_go_now:
     if st.session_state.get("paper_auto_enabled", True):
         paper_enter_trade(ng)
 
-# Page refresh — only poll when auto-scan is enabled and scan is NOT running.
-# Never refresh while a scan is in progress — it creates reruns that fight the thread.
+# Page refresh — only when auto-scan is enabled AND scan is NOT running.
 if AUTOREFRESH_AVAILABLE and enabled and not _bg_status.get("running"):
     from streamlit_autorefresh import st_autorefresh as _sar3
     _sar3(interval=30000, key="auto_scan_poll")
