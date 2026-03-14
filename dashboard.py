@@ -3604,22 +3604,40 @@ with tab4:
         st.caption(f"Scanning {len(scan_list)} tickers through full precision stack")
         # ── Live scan status from background thread ──────────────────────
         _bg = get_bg_results()
-        if _bg["running"]:
-            st.info("⏳ %s" % _bg.get("progress", "Scanning..."))
-            # Auto-refresh every 3 seconds while scan is running
+        _scan_triggered = st.session_state.get("scan_triggered_at")
+        _scan_done_at   = _bg.get("last_run")
+        _still_waiting  = (
+            _scan_triggered is not None and
+            (_scan_done_at is None or _scan_triggered > _scan_done_at)
+        )
+
+        # Keep refreshing while running OR while waiting for results to appear
+        _should_poll = _bg["running"] or _still_waiting
+        if _should_poll:
             try:
                 from streamlit_autorefresh import st_autorefresh as _sar
-                _sar(interval=3000, key="scan_progress_refresh")
+                _sar(interval=2000, key="scan_progress_refresh")
             except Exception:
                 pass
 
+        if _bg["running"]:
+            st.info("⏳ %s" % _bg.get("progress", "Scanning..."))
+        elif _still_waiting:
+            st.info("⏳ Scan finishing up...")
+        elif _scan_done_at:
+            elapsed = int((datetime.now() - _scan_done_at).total_seconds())
+            if elapsed < 10:
+                st.success("✅ Scan complete — %s GO NOW · %s WATCHING · %s ON DECK" % (
+                    len(_bg.get("go_now",[])), len(_bg.get("watching",[])), len(_bg.get("on_deck",[]))))
+
         if st.button("🔍 RUN SCAN", type="primary", use_container_width=True,
                      disabled=_bg["running"]):
+            st.session_state.scan_triggered_at = datetime.now()
             trigger_scan(
                 scan_list, toggles, account_size, risk_pct,
                 dte_quick, dte_swing, max_premium, scan_style_key
             )
-            st.info("⏳ Scan started in background — this page will update automatically.")
+            st.rerun()
 
         # Read results from background thread (not from session state)
         go_now   = _bg.get("go_now",   [])
