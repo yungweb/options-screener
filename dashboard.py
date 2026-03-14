@@ -1002,15 +1002,15 @@ def fetch_multi_tf(ticker, trade_style):
     Returns dict of {label: df}
     """
     if trade_style == "quick":
-        tf5  = _fetch_tf(ticker, "5m",  "2d")
+        tf5  = _fetch_tf(ticker, "5m",  "5d")   # 5d covers weekend gaps
         tf15 = _fetch_tf(ticker, "15m", "5d")
         return {
             "5min":  tf5  if tf5  is not None and len(tf5)  > 20 else None,
             "15min": tf15 if tf15 is not None and len(tf15) > 20 else None,
         }
     else:
-        tf1h  = _fetch_tf(ticker, "1h",  "14d")
-        tf4h  = _fetch_tf(ticker, "1h",  "30d")   # yfinance max 4h is limited, use 1h proxy
+        tf1h  = _fetch_tf(ticker, "1h",  "30d")
+        tf4h  = _fetch_tf(ticker, "1h",  "60d")
         tf1d  = _fetch_tf(ticker, "1d",  "90d")
         return {
             "1hr":   tf1h if tf1h  is not None and len(tf1h)  > 20 else None,
@@ -2282,7 +2282,7 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                 "_reason": "no styles available (primary_q=%s primary_s=%s)" % (primary_q is not None, primary_s is not None)})
 
         for style, df_pri, df_con, dte in styles:
-            if df_pri is None or len(df_pri) < 30:
+            if df_pri is None or len(df_pri) < 20:
                 results.append({"ticker": ticker, "_rejected": True,
                     "_reason": "[%s] df_pri too short or None (len=%s)" % (style, len(df_pri) if df_pri is not None else 0)})
                 continue
