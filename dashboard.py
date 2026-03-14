@@ -2671,8 +2671,18 @@ def _bg_scan_loop():
 
         with _BG_LOCK:
             _BG_RESULTS["running"]  = True
-            _BG_RESULTS["progress"] = "Starting scan..."
+            _BG_RESULTS["progress"] = "Initializing data connection..."
             _BG_RESULTS["new_go"]   = []
+
+        # Warm up yfinance crumb ONCE before parallel scan starts.
+        # Without this, 4 threads all race to get the crumb simultaneously
+        # and all fail with 401. One sequential call primes the cache for all.
+        try:
+            import yfinance as yf
+            _warmup = yf.download("SPY", period="1d", interval="1d",
+                                  progress=False, auto_adjust=True, threads=False)
+        except Exception:
+            pass
 
         try:
             import signal as _signal
@@ -3788,18 +3798,19 @@ with tab4:
             _ptxt   = _bg.get("progress", "Starting scan...")
             _pct    = min(_pidx / _ptotal, 1.0) if _ptotal > 0 else 0.0
 
-            # Progress bar
+            # Poll every 2s ONLY while scan is running — stops the moment scan finishes
+            try:
+                from streamlit_autorefresh import st_autorefresh as _sar
+                _sar(interval=2000, key="scan_progress_poll")
+            except Exception:
+                pass
+
             st.markdown(
                 "<div style='font-size:0.78rem;color:#8899aa;margin-bottom:4px'>"
                 "⏳ <b>%s</b> &nbsp;·&nbsp; %s / %s tickers</div>" % (_ptxt, _pidx, _ptotal),
                 unsafe_allow_html=True
             )
             st.progress(_pct)
-            st.markdown(
-                "<div style='font-size:0.72rem;color:#4a5568;margin-top:2px'>"
-                "Scanner running in background — hit 🔄 Refresh to update</div>",
-                unsafe_allow_html=True
-            )
         elif _scan_done_at:
             elapsed = int((datetime.now() - _scan_done_at).total_seconds())
             if elapsed < 15:
