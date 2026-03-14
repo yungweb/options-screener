@@ -2523,10 +2523,11 @@ try:
     _bg_running_now = _BG_RESULTS.get("running", False)
 except Exception:
     _bg_running_now = False
+# Auto-refresh completely disabled — background thread handles scanning,
+# watch queue is in its own tab. Manual refresh button on SCAN tab.
+# Only the manual_autorefresh fires IF user explicitly enables it in sidebar.
 if AUTOREFRESH_AVAILABLE and not _bg_running_now:
-    if _queue_active:
-        st_autorefresh(interval=60000, key="watch_autorefresh")
-    elif refresh_on and refresh_interval:
+    if refresh_on and refresh_interval and not _queue_active:
         ms = {"1 min":60000,"5 min":300000,"15 min":900000}.get(refresh_interval,300000)
         st_autorefresh(interval=ms, key="manual_autorefresh")
 
@@ -2798,7 +2799,7 @@ def save_watchlist_db(user_id, tickers):
         sb.table("user_watchlists").upsert({
             "user_id":    user_id,
             "tickers":    tickers,
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(tz=pytz.UTC).isoformat(),
         }).execute()
     except Exception:
         pass  # never crash the app over a db write
@@ -2824,7 +2825,7 @@ def save_scan_state(go_now, watching, on_deck):
             "go_now":    _j.dumps(_safe(go_now)),
             "watching":  _j.dumps(_safe(watching)),
             "on_deck":   _j.dumps(_safe(on_deck)),
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(tz=pytz.UTC).isoformat(),
         }).execute()
     except Exception:
         pass
@@ -2869,7 +2870,7 @@ def save_signal_history(r):
             "rr":          opt.get("rr_option"),
             "signals_hit": r.get("signals_hit", 0),
             "gates":       r.get("gates_passed", 0),
-            "fired_at":    datetime.utcnow().isoformat(),
+            "fired_at":    datetime.now(tz=pytz.UTC).isoformat(),
         }).execute()
     except Exception:
         pass  # never crash the app over a db write
@@ -3302,10 +3303,8 @@ for ng in _new_go_now:
     if st.session_state.get("paper_auto_enabled", True):
         paper_enter_trade(ng)
 
-# Page refresh — only when auto-scan is enabled AND scan is NOT running.
-if AUTOREFRESH_AVAILABLE and enabled and not _bg_status.get("running"):
-    from streamlit_autorefresh import st_autorefresh as _sar3
-    _sar3(interval=30000, key="auto_scan_poll")
+# auto_scan_poll removed — background thread runs independently,
+# no page refresh needed to trigger it.
 
 if earnings_days is not None:
     if earnings_days <= 1:   st.error(f"EARNINGS {'TODAY' if earnings_days==0 else 'TOMORROW'} on {selected_ticker} - Avoid new options positions.")
