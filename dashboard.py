@@ -344,27 +344,83 @@ def _get_yf_session():
             _yf_session.headers.update({"User-Agent": "Mozilla/5.0"})
     return _yf_session
 
+def _polygon_download(ticker, period, interval):
+    """
+    Fetch OHLCV from Polygon.io REST API.
+    Converts yfinance-style period/interval to Polygon multiplier/timespan.
+    Returns a DataFrame with columns: datetime, open, high, low, close, volume
+    or None on failure.
+    """
+    api_key = POLYGON_API_KEY
+    if not api_key:
+        return None
+    try:
+        import requests as _req
+        # Map interval → Polygon timespan
+        tf_map = {
+            "1m":  (1,  "minute"), "2m":  (2,  "minute"), "5m":  (5,  "minute"),
+            "15m": (15, "minute"), "30m": (30, "minute"),
+            "1h":  (1,  "hour"),   "2h":  (2,  "hour"),   "4h":  (4,  "hour"),
+            "1d":  (1,  "day"),    "1wk": (1,  "week"),
+        }
+        mult, span = tf_map.get(interval, (1, "day"))
+
+        # Map period → days back
+        period_days = {
+            "1d": 1, "2d": 2, "5d": 5, "7d": 7,
+            "14d": 14, "30d": 30, "60d": 60, "90d": 90,
+            "1mo": 30, "3mo": 90, "6mo": 180, "1y": 365,
+        }
+        days = period_days.get(period, 30)
+        end_dt   = datetime.now()
+        start_dt = end_dt - timedelta(days=days)
+        from_str = start_dt.strftime("%Y-%m-%d")
+        to_str   = end_dt.strftime("%Y-%m-%d")
+
+        url = (
+            "https://api.polygon.io/v2/aggs/ticker/%s/range/%s/%s/%s/%s"
+            "?adjusted=true&sort=asc&limit=50000&apiKey=%s"
+            % (ticker.upper(), mult, span, from_str, to_str, api_key)
+        )
+        r = _req.get(url, timeout=10)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        results = data.get("results", [])
+        if not results:
+            return None
+
+        df = pd.DataFrame(results)
+        df["datetime"] = pd.to_datetime(df["t"], unit="ms", utc=True).dt.tz_convert("America/New_York").dt.tz_localize(None)
+        df = df.rename(columns={"o":"open","h":"high","l":"low","c":"close","v":"volume"})
+        return df[["datetime","open","high","low","close","volume"]].dropna().reset_index(drop=True)
+    except Exception:
+        return None
+
+
 def _yf_download(ticker, period, interval, **kwargs):
     """
-    Wrapper around yf.download. On 401/crumb errors returns None immediately
-    so the scan skips that ticker instead of hanging.
+    Polygon-first data fetcher. Falls back to yfinance if Polygon key missing.
+    Polygon eliminates 401/crumb issues entirely in containerized environments.
     """
-    import yfinance as yf
+    # Try Polygon first — reliable in Railway, no auth issues
+    if POLYGON_API_KEY:
+        df = _polygon_download(ticker, period, interval)
+        if df is not None and not df.empty:
+            return df
+
+    # Fallback to yfinance (works locally, may 401 on Railway)
     try:
+        import yfinance as yf
         df = yf.download(
             ticker, period=period, interval=interval,
-            progress=False, auto_adjust=True,
-            threads=False,   # single-threaded avoids crumb race conditions
-            **kwargs
+            progress=False, auto_adjust=True, threads=False, **kwargs
         )
-        if df is None or df.empty:
-            return None
-        return df
-    except Exception as e:
-        err = str(e).lower()
-        if "401" in err or "crumb" in err or "unauthorized" in err or "delisted" in err:
-            return None   # fail fast — don't retry, don't hang
-        return None
+        if df is not None and not df.empty:
+            return df
+    except Exception:
+        pass
+    return None
 # ─────────────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=60)
@@ -2671,18 +2727,8 @@ def _bg_scan_loop():
 
         with _BG_LOCK:
             _BG_RESULTS["running"]  = True
-            _BG_RESULTS["progress"] = "Initializing data connection..."
+            _BG_RESULTS["progress"] = "Starting scan..."
             _BG_RESULTS["new_go"]   = []
-
-        # Warm up yfinance crumb ONCE before parallel scan starts.
-        # Without this, 4 threads all race to get the crumb simultaneously
-        # and all fail with 401. One sequential call primes the cache for all.
-        try:
-            import yfinance as yf
-            _warmup = yf.download("SPY", period="1d", interval="1d",
-                                  progress=False, auto_adjust=True, threads=False)
-        except Exception:
-            pass
 
         try:
             import signal as _signal
