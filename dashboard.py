@@ -3785,6 +3785,23 @@ with tab4:
     else:
         st.caption(f"Scanning {len(scan_list)} tickers through full precision stack")
         # ── Live scan status from background thread ──────────────────────
+        # ── RAW DEBUG — remove before launch ─────────────────────────────
+        with st.expander("⚙️ RAW STATE DEBUG", expanded=True):
+            _raw = get_bg_results()
+            st.write({
+                "running":        _raw.get("running"),
+                "progress":       _raw.get("progress"),
+                "progress_idx":   _raw.get("progress_idx"),
+                "progress_total": _raw.get("progress_total"),
+                "last_run":       str(_raw.get("last_run")),
+                "go_now_count":   len(_raw.get("go_now",[])),
+                "watching_count": len(_raw.get("watching",[])),
+                "on_deck_count":  len(_raw.get("on_deck",[])),
+                "scan_triggered": str(st.session_state.get("scan_triggered_at")),
+                "thread_started": _BG_THREAD_STARTED,
+            })
+        # ─────────────────────────────────────────────────────────────────
+
         _bg = get_bg_results()
         _scan_triggered = st.session_state.get("scan_triggered_at")
         _scan_done_at   = _bg.get("last_run")
