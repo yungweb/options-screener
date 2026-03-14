@@ -2519,7 +2519,10 @@ with st.sidebar:
 # _BG_RESULTS["running"] is the authoritative flag — session_state.scan_running is not used.
 init_watch_queue()
 _queue_active = any(item["status"] != "CONFIRMED" for item in st.session_state.watch_queue.values())
-_bg_running_now = get_bg_results().get("running", False)
+try:
+    _bg_running_now = _BG_RESULTS.get("running", False)
+except Exception:
+    _bg_running_now = False
 if AUTOREFRESH_AVAILABLE and not _bg_running_now:
     if _queue_active:
         st_autorefresh(interval=60000, key="watch_autorefresh")
