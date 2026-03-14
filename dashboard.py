@@ -264,7 +264,6 @@ def get_market_status():
     else:                  return "closed", "Market Closed - Pre-market opens 4:00 AM ET"
 
 @st.cache_data(ttl=60)
-@st.cache_data(ttl=60)
 def fetch_ohlcv(ticker, multiplier, timespan, days_back):
     try:
         import yfinance as yf
@@ -836,6 +835,29 @@ def calc_quick_levels(price, direction, atr):
     return entry, target, stop
 
 
+@st.cache_data(ttl=60)
+def _fetch_tf(ticker, interval, period):
+    """
+    Module-level cached data fetcher for multi-timeframe data.
+    MUST be at module level — never nested inside another function.
+    @st.cache_data registered once at startup on the main thread,
+    so worker threads in ThreadPoolExecutor can call this safely
+    without triggering 'missing ScriptRunContext' errors.
+    """
+    try:
+        import yfinance as yf
+        df = yf.download(ticker, period=period, interval=interval,
+                         progress=False, auto_adjust=True, prepost=True)
+        if df.empty:
+            return None
+        df = df.reset_index()
+        df.columns = [c[0].lower() if isinstance(c, tuple) else c.lower() for c in df.columns]
+        df = df.rename(columns={"datetime": "timestamp", "date": "timestamp"})
+        return df[["timestamp", "open", "high", "low", "close", "volume"]].dropna().reset_index(drop=True)
+    except:
+        return None
+
+
 def fetch_multi_tf(ticker, trade_style):
     """
     Fetches the correct timeframes automatically based on trade style.
@@ -843,33 +865,17 @@ def fetch_multi_tf(ticker, trade_style):
     Swing: 1hr (primary) + 4hr (confirmation) + Daily (trend anchor)
     Returns dict of {label: df}
     """
-    import yfinance as yf
-
-    @st.cache_data(ttl=60)
-    def _fetch(ticker, interval, period):
-        try:
-            df = yf.download(ticker, period=period, interval=interval,
-                             progress=False, auto_adjust=True, prepost=True)
-            if df.empty:
-                return None
-            df = df.reset_index()
-            df.columns = [c[0].lower() if isinstance(c, tuple) else c.lower() for c in df.columns]
-            df = df.rename(columns={"datetime": "timestamp", "date": "timestamp"})
-            return df[["timestamp", "open", "high", "low", "close", "volume"]].dropna().reset_index(drop=True)
-        except:
-            return None
-
     if trade_style == "quick":
-        tf5  = _fetch(ticker, "5m",  "2d")
-        tf15 = _fetch(ticker, "15m", "5d")
+        tf5  = _fetch_tf(ticker, "5m",  "2d")
+        tf15 = _fetch_tf(ticker, "15m", "5d")
         return {
             "5min":  tf5  if tf5  is not None and len(tf5)  > 20 else None,
             "15min": tf15 if tf15 is not None and len(tf15) > 20 else None,
         }
     else:
-        tf1h  = _fetch(ticker, "1h",  "14d")
-        tf4h  = _fetch(ticker, "1h",  "30d")   # yfinance max 4h is limited, use 1h proxy
-        tf1d  = _fetch(ticker, "1d",  "90d")
+        tf1h  = _fetch_tf(ticker, "1h",  "14d")
+        tf4h  = _fetch_tf(ticker, "1h",  "30d")   # yfinance max 4h is limited, use 1h proxy
+        tf1d  = _fetch_tf(ticker, "1d",  "90d")
         return {
             "1hr":   tf1h if tf1h  is not None and len(tf1h)  > 20 else None,
             "4hr":   tf4h if tf4h  is not None and len(tf4h)  > 40 else None,
