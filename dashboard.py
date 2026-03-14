@@ -409,18 +409,7 @@ def _yf_download(ticker, period, interval, **kwargs):
         if df is not None and not df.empty:
             return df
 
-    # Fallback to yfinance (works locally, may 401 on Railway)
-    try:
-        import yfinance as yf
-        df = yf.download(
-            ticker, period=period, interval=interval,
-            progress=False, auto_adjust=True, threads=False, **kwargs
-        )
-        if df is not None and not df.empty:
-            return df
-    except Exception:
-        pass
-    return None
+    return None  # Polygon key missing or returned no data
 # ─────────────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=60)
@@ -472,25 +461,9 @@ _ETF_TICKERS = {
 
 @_thread_cache(ttl=3600)
 def check_earnings(ticker):
-    if ticker in _ETF_TICKERS:
-        return None
-    try:
-        import yfinance as yf
-        # Use a short history download to avoid 401 from Ticker() calls
-        tk = yf.Ticker(ticker)
-        cal = tk.get_calendar()
-        if cal is None or (hasattr(cal, "empty") and cal.empty): return None
-        if isinstance(cal, dict):
-            dates = cal.get("Earnings Date", [])
-            if not dates: return None
-            next_date = pd.Timestamp(dates[0]).date()
-        else:
-            if cal.empty: return None
-            next_date = pd.Timestamp(cal.iloc[0, 0]).date()
-        days_away = (next_date - date.today()).days
-        return days_away if 0 <= days_away <= 14 else None
-    except Exception:
-        return None
+    # Earnings check disabled — yfinance Ticker() causes 401 on Railway.
+    # Gate 6 in run_seven_point_gate will show as unchecked but won't block scan.
+    return None
 
 @_thread_cache(ttl=300)
 def fetch_iv_rank(ticker):
@@ -938,26 +911,9 @@ def detect_market_regime(df):
 
 @_thread_cache(ttl=300)
 def check_liquidity(ticker):
-    """
-    Checks options liquidity via yfinance.
-    Returns: liquid (bool), avg_volume, avg_oi, message
-    """
-    try:
-        import yfinance as yf
-        tk = yf.Ticker(ticker)
-        exps = tk.options
-        if not exps: return False, 0, 0, "No options data"
-        # Use nearest expiration
-        chain = tk.option_chain(exps[0])
-        calls = chain.calls
-        if calls.empty: return False, 0, 0, "No calls data"
-        avg_vol = float(calls["volume"].fillna(0).mean())
-        avg_oi  = float(calls["openInterest"].fillna(0).mean())
-        liquid  = avg_vol >= 50 and avg_oi >= 100
-        msg = f"Avg vol {avg_vol:.0f} | OI {avg_oi:.0f}"
-        return liquid, avg_vol, avg_oi, msg
-    except:
-        return True, 0, 0, "Liquidity check unavailable"
+    # Liquidity check via yfinance Ticker() disabled — causes 401 on Railway.
+    # Returns True so scan proceeds; user should verify OI manually before entry.
+    return True, 0, 0, "Verify OI manually"
 
 def score_setup(df, setup):
     """
