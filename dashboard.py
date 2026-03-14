@@ -382,7 +382,7 @@ def _polygon_download(ticker, period, interval):
             "?adjusted=true&sort=asc&limit=50000&apiKey=%s"
             % (ticker.upper(), mult, span, from_str, to_str, api_key)
         )
-        r = _req.get(url, timeout=10)
+        r = _req.get(url, timeout=4)
         if r.status_code != 200:
             return None
         data = r.json()
@@ -444,6 +444,7 @@ def _demo_data(ticker, bars=200):
     vol = np.random.randint(500000,3000000,bars)
     return pd.DataFrame({"timestamp":dates,"open":op,"high":hi,"low":lo,"close":close,"volume":vol})
 
+@_thread_cache(ttl=60)
 def fetch_current_price(ticker):
     try:
         df = _yf_download(ticker, period="1d", interval="1m")
@@ -1932,6 +1933,7 @@ def get_market_internals():
         return "neutral", 50
 
 @_thread_cache(ttl=300)
+@_thread_cache(ttl=300)
 def get_sector_bias(sector_etf):
     """Returns trend direction of a sector ETF."""
     try:
@@ -2433,7 +2435,7 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
                         conf, gates_passed, signals_hit, entry_status)})
 
     # Submit all futures first
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    with ThreadPoolExecutor(max_workers=1) as executor:  # sequential — avoids Polygon rate limits
         futures = {
             executor.submit(
                 scan_single_ticker,
@@ -2451,6 +2453,7 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
         _per_ticker_timeout = 12
         _global_deadline = datetime.now().timestamp() + 180  # 3 min hard cap
 
+        # Fire progress immediately when each future completes
         for future in as_completed(futures, timeout=180):
             if datetime.now().timestamp() > _global_deadline:
                 break
@@ -2458,7 +2461,7 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
             completed += 1
             done_tickers.add(ticker)
             if progress_cb:
-                progress_cb(completed - 1, total, ticker)
+                progress_cb(completed, total, ticker)
             try:
                 records = future.result(timeout=_per_ticker_timeout)
                 _process_records(records, ticker)
