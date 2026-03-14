@@ -3792,6 +3792,17 @@ with tab4:
             _scan_triggered is not None and
             (_scan_done_at is None or _scan_triggered > _scan_done_at)
         )
+        # Detect the exact moment scan just finished — trigger one final rerun
+        _just_finished = (
+            not _bg["running"] and
+            _scan_done_at is not None and
+            _scan_triggered is not None and
+            _scan_done_at > _scan_triggered and
+            st.session_state.get("last_rendered_scan") != _scan_done_at
+        )
+        if _just_finished:
+            st.session_state.last_rendered_scan = _scan_done_at
+            st.rerun()
 
         # NO autorefresh during scan — reruns fight the background thread.
         # User hits the manual refresh button or waits for auto-scan poll.
