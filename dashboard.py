@@ -3841,18 +3841,14 @@ with tab4:
                 if st.session_state.get("paper_auto_enabled", True):
                     paper_enter_trade(r)
 
-    # Render results from session state after manual scan
-    go_now   = st.session_state.auto_scan_go_now
-    watching = st.session_state.auto_scan_watching
-    on_deck  = st.session_state.auto_scan_on_deck
-    mkt_bias = st.session_state.auto_scan_mkt
+    # Results already set from _bg above — do not overwrite with session state
 
     # ── Debug: show why tickers were rejected ──────────────────────────────────
     rejected = [r for r in on_deck if r.get("_rejected")]
     real_on_deck = [r for r in on_deck if not r.get("_rejected")]
     on_deck = real_on_deck
 
-    last_run = st.session_state.auto_scan_last_run
+    last_run = _bg.get("last_run") or st.session_state.get("auto_scan_last_run")
     if last_run:
         with st.expander("🔍 DEBUG — Scan results (%s rejected, %s passed)" % (
             len(rejected), len(go_now)+len(watching)+len(real_on_deck)), expanded=False):
