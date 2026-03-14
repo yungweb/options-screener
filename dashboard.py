@@ -3785,115 +3785,78 @@ with tab4:
     else:
         st.caption(f"Scanning {len(scan_list)} tickers through full precision stack")
         # ── Live scan status from background thread ──────────────────────
-        # ── RAW DEBUG — remove before launch ─────────────────────────────
-        with st.expander("⚙️ RAW STATE DEBUG", expanded=True):
-            _raw = get_bg_results()
-            st.write({
-                "running":        _raw.get("running"),
-                "progress":       _raw.get("progress"),
-                "progress_idx":   _raw.get("progress_idx"),
-                "progress_total": _raw.get("progress_total"),
-                "last_run":       str(_raw.get("last_run")),
-                "go_now_count":   len(_raw.get("go_now",[])),
-                "watching_count": len(_raw.get("watching",[])),
-                "on_deck_count":  len(_raw.get("on_deck",[])),
-                "scan_triggered": str(st.session_state.get("scan_triggered_at")),
-                "thread_started": _BG_THREAD_STARTED,
-            })
-        # ─────────────────────────────────────────────────────────────────
+        # ── Inline scan — runs directly in Streamlit, results stored in session state
+        # Background thread doesn't work on Railway multi-worker deployments
+        # (each worker has its own memory space, results never reach the page)
 
-        _bg = get_bg_results()
-        _scan_triggered = st.session_state.get("scan_triggered_at")
-        _scan_done_at   = _bg.get("last_run")
-        _still_waiting  = (
-            _scan_triggered is not None and
-            (_scan_done_at is None or _scan_triggered > _scan_done_at)
-        )
-        # Detect the exact moment scan just finished — trigger one final rerun
-        _just_finished = (
-            not _bg["running"] and
-            _scan_done_at is not None and
-            _scan_triggered is not None and
-            _scan_done_at > _scan_triggered and
-            st.session_state.get("last_rendered_scan") != _scan_done_at
-        )
-        if _just_finished:
-            st.session_state.last_rendered_scan = _scan_done_at
-            st.rerun()
+        go_now   = st.session_state.get("scan_go_now",   [])
+        watching = st.session_state.get("scan_watching", [])
+        on_deck  = st.session_state.get("scan_on_deck",  [])
+        mkt_bias = st.session_state.get("scan_mkt",      "neutral")
 
-        # NO autorefresh during scan — reruns fight the background thread.
-        # User hits the manual refresh button or waits for auto-scan poll.
-        _should_poll = _bg["running"] or _still_waiting
+        if st.button("🔍 RUN SCAN", type="primary", use_container_width=True):
+            # Kill all autorefresh before scan starts
+            prog_bar  = st.progress(0)
+            prog_text = st.empty()
 
-        if _bg["running"] or _still_waiting:
-            _pidx   = _bg.get("progress_idx",   0)
-            _ptotal = _bg.get("progress_total",  len(scan_list)) or len(scan_list)
-            _ptxt   = _bg.get("progress", "Starting scan...")
-            _pct    = min(_pidx / _ptotal, 1.0) if _ptotal > 0 else 0.0
-
-            # Poll every 2s ONLY while scan is running — stops the moment scan finishes
-            try:
-                from streamlit_autorefresh import st_autorefresh as _sar
-                _sar(interval=2000, key="scan_progress_poll")
-            except Exception:
-                pass
-
-            st.markdown(
-                "<div style='font-size:0.78rem;color:#8899aa;margin-bottom:4px'>"
-                "⏳ <b>%s</b> &nbsp;·&nbsp; %s / %s tickers</div>" % (_ptxt, _pidx, _ptotal),
-                unsafe_allow_html=True
-            )
-            st.progress(_pct)
-        elif _scan_done_at:
-            elapsed = int((datetime.now() - _scan_done_at).total_seconds())
-            if elapsed < 15:
-                _go_c  = len(_bg.get("go_now",   []))
-                _wat_c = len(_bg.get("watching", []))
-                _dk_c  = len(_bg.get("on_deck",  []))
-                st.markdown(
-                    "<div style='background:#061a10;border:1px solid #00d4aa;border-radius:8px;"
-                    "padding:10px 14px;font-size:0.82rem;color:#00d4aa'>✅ Scan complete &nbsp;·&nbsp; "
-                    "<b>%s GO NOW</b> &nbsp;·&nbsp; %s WATCHING &nbsp;·&nbsp; %s ON DECK</div>" % (
-                        _go_c, _wat_c, _dk_c),
+            def _cb(idx, total, ticker):
+                prog_bar.progress(idx / total)
+                prog_text.markdown(
+                    "<div style='font-size:0.78rem;color:#8899aa'>"
+                    "⏳ <b>Scanning %s...</b> &nbsp;·&nbsp; %s / %s tickers</div>" % (ticker, idx, total),
                     unsafe_allow_html=True
                 )
 
-        if st.button("🔍 RUN SCAN", type="primary", use_container_width=True,
-                     disabled=_bg["running"]):
-            st.session_state.scan_triggered_at = datetime.now()
-            trigger_scan(
+            go_now, watching, on_deck, mkt_bias = full_scan(
                 scan_list, toggles, account_size, risk_pct,
-                dte_quick, dte_swing, max_premium, scan_style_key
+                dte_quick, dte_swing, max_premium, scan_style_key,
+                progress_cb=_cb
             )
-            st.rerun()
+            prog_bar.empty()
+            prog_text.empty()
 
-        # Read results from background thread (not from session state)
-        go_now   = _bg.get("go_now",   [])
-        watching = _bg.get("watching", [])
-        on_deck  = _bg.get("on_deck",  [])
-        mkt_bias = _bg.get("mkt_bias", "neutral")
+            st.session_state.scan_go_now   = go_now
+            st.session_state.scan_watching = watching
+            st.session_state.scan_on_deck  = on_deck
+            st.session_state.scan_mkt      = mkt_bias
+            st.session_state.scan_last_run = datetime.now()
 
-        # Also run paper exit checks whenever we read new results
-        if _bg.get("last_run") != st.session_state.get("last_paper_check"):
             paper_check_exits()
-            st.session_state.last_paper_check = _bg.get("last_run")
 
-        # Handle new GO NOW paper trades from background thread
-        for r in _bg.get("new_go", []):
-            _key = "bg_paper_%s_%s" % (r["ticker"], r.get("style",""))
-            if not st.session_state.get(_key):
-                st.session_state[_key] = True
-                if st.session_state.get("paper_auto_enabled", True):
-                    paper_enter_trade(r)
+            # Fire Telegram + paper trades for GO NOW signals
+            for r in go_now:
+                _key = "fired_%s_%s" % (r["ticker"], r.get("style",""))
+                if not st.session_state.get(_key):
+                    st.session_state[_key] = True
+                    try: send_telegram_alert(r, alert_type="GO NOW")
+                    except: pass
+                    try: save_signal_history(r)
+                    except: pass
+                    if st.session_state.get("paper_auto_enabled", True):
+                        paper_enter_trade(r)
 
-    # Results already set from _bg above — do not overwrite with session state
+            save_scan_state(go_now, watching, on_deck)
+
+    # ── show completion banner
+    _last_run = st.session_state.get("scan_last_run")
+    if _last_run:
+        elapsed = int((datetime.now() - _last_run).total_seconds())
+        if elapsed < 15:
+            st.markdown(
+                "<div style='background:#061a10;border:1px solid #00d4aa;border-radius:8px;"
+                "padding:10px 14px;font-size:0.82rem;color:#00d4aa;margin-bottom:8px'>"
+                "✅ Scan complete &nbsp;·&nbsp; <b>%s GO NOW</b> &nbsp;·&nbsp; "
+                "%s WATCHING &nbsp;·&nbsp; %s ON DECK</div>" % (
+                    len(go_now), len(watching), len(on_deck)),
+                unsafe_allow_html=True
+            )
 
     # ── Debug: show why tickers were rejected ──────────────────────────────────
     rejected = [r for r in on_deck if r.get("_rejected")]
     real_on_deck = [r for r in on_deck if not r.get("_rejected")]
     on_deck = real_on_deck
 
-    last_run = _bg.get("last_run") or st.session_state.get("auto_scan_last_run")
+    last_run = st.session_state.get("scan_last_run") or st.session_state.get("auto_scan_last_run")
     if last_run:
         with st.expander("🔍 DEBUG — Scan results (%s rejected, %s passed)" % (
             len(rejected), len(go_now)+len(watching)+len(real_on_deck)), expanded=False):
