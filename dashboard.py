@@ -3779,7 +3779,7 @@ with tab4:
             st.progress(_pct)
             st.markdown(
                 "<div style='font-size:0.72rem;color:#4a5568;margin-top:2px'>"
-                "Scanner running in background — page auto-updates every 2s</div>",
+                "Scanner running in background — hit 🔄 Refresh to update</div>",
                 unsafe_allow_html=True
             )
         elif _scan_done_at:
@@ -3796,14 +3796,19 @@ with tab4:
                     unsafe_allow_html=True
                 )
 
-        if st.button("🔍 RUN SCAN", type="primary", use_container_width=True,
-                     disabled=_bg["running"]):
-            st.session_state.scan_triggered_at = datetime.now()
-            trigger_scan(
-                scan_list, toggles, account_size, risk_pct,
-                dte_quick, dte_swing, max_premium, scan_style_key
-            )
-            st.rerun()
+        _btn_col1, _btn_col2 = st.columns([4, 1])
+        with _btn_col1:
+            if st.button("🔍 RUN SCAN", type="primary", use_container_width=True,
+                         disabled=_bg["running"]):
+                st.session_state.scan_triggered_at = datetime.now()
+                trigger_scan(
+                    scan_list, toggles, account_size, risk_pct,
+                    dte_quick, dte_swing, max_premium, scan_style_key
+                )
+                st.rerun()
+        with _btn_col2:
+            if st.button("🔄", use_container_width=True, help="Refresh scan results"):
+                st.rerun()
 
         # Read results from background thread (not from session state)
         go_now   = _bg.get("go_now",   [])
