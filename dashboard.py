@@ -202,7 +202,7 @@ SCAN_UNIVERSE = [
     "SPY","QQQ","IWM","DIA","AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","BRK-B",
     # Tech / Semis
     "AMD","INTC","AVGO","QCOM","MU","AMAT","LRCX","KLAC","MRVL","CRDO","SMCI","ARM","TSM",
-    "PLTR","SNOW","DDOG","NET","CRWD","ZS","PANW","FTNT","OKTA","S","SQ","COIN","HOOD",
+    "PLTR","SNOW","DDOG","NET","CRWD","ZS","PANW","FTNT","OKTA","S","XYZ","COIN","HOOD",
     "NBIS","VRT","AAOI","ASTS","ZETA","RDW","IREN","WDC",
     # Large cap growth
     "NFLX","UBER","LYFT","ABNB","SHOP","MELI","SE","GRAB","BABA","JD","PDD",
@@ -230,7 +230,7 @@ SECTOR_ETF = {
     "PLTR":"XLK","SNOW":"XLK","DDOG":"XLK","NET":"XLK","CRWD":"XLK","ZS":"XLK",
     "PANW":"XLK","FTNT":"XLK","OKTA":"XLK","S":"XLK","NBIS":"XLK","VRT":"XLK",
     "AAOI":"XLK","ASTS":"XLK","ZETA":"XLK","IREN":"XLK",
-    "SQ":"XLF","COIN":"XLF","HOOD":"XLF","PYPL":"XLF","V":"XLF","MA":"XLF",
+    "XYZ":"XLF","COIN":"XLF","HOOD":"XLF","PYPL":"XLF","V":"XLF","MA":"XLF",
     "JPM":"XLF","BAC":"XLF","GS":"XLF","MS":"XLF","C":"XLF","WFC":"XLF",
     "BLK":"XLF","AXP":"XLF",
     "UNH":"XLV","JNJ":"XLV","PFE":"XLV","MRNA":"XLV","BNTX":"XLV","ABBV":"XLV",
@@ -346,31 +346,25 @@ def _get_yf_session():
 
 def _yf_download(ticker, period, interval, **kwargs):
     """
-    Wrapper around yf.download that retries once on 401/crumb errors
-    by resetting the session and trying again.
+    Wrapper around yf.download. On 401/crumb errors returns None immediately
+    so the scan skips that ticker instead of hanging.
     """
     import yfinance as yf
-    global _yf_session
-    for attempt in range(2):
-        try:
-            df = yf.download(ticker, period=period, interval=interval,
-                             progress=False, auto_adjust=True, **kwargs)
-            return df
-        except Exception as e:
-            err = str(e).lower()
-            if attempt == 0 and ("401" in err or "crumb" in err or "unauthorized" in err):
-                # Force yfinance to reset its internal cookie/crumb cache
-                try:
-                    import yfinance.data as _yfd
-                    _yfd.YfData._crumb = None
-                    _yfd.YfData._cookie = None
-                except Exception:
-                    pass
-                with _YF_SESSION_LOCK:
-                    _yf_session = None
-                continue
-            raise
-    return None
+    try:
+        df = yf.download(
+            ticker, period=period, interval=interval,
+            progress=False, auto_adjust=True,
+            threads=False,   # single-threaded avoids crumb race conditions
+            **kwargs
+        )
+        if df is None or df.empty:
+            return None
+        return df
+    except Exception as e:
+        err = str(e).lower()
+        if "401" in err or "crumb" in err or "unauthorized" in err or "delisted" in err:
+            return None   # fail fast — don't retry, don't hang
+        return None
 # ─────────────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=60)
