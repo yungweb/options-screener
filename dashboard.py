@@ -206,7 +206,7 @@ SCAN_UNIVERSE = [
     "NBIS","VRT","AAOI","ASTS","ZETA","RDW","IREN","WDC",
     # Large cap growth
     "NFLX","UBER","LYFT","ABNB","SHOP","MELI","SE","GRAB","BABA","JD","PDD",
-    "RBLX","U","TTWO","EA","ATVI",
+    "RBLX","U","TTWO","EA",
     # Financials
     "JPM","BAC","GS","MS","C","WFC","BLK","V","MA","PYPL","AXP",
     # Healthcare / Biotech
@@ -401,8 +401,10 @@ def _demo_data(ticker, bars=200):
 
 def fetch_current_price(ticker):
     try:
-        import yfinance as yf
-        return round(float(yf.Ticker(ticker).fast_info["last_price"]),2)
+        df = _yf_download(ticker, period="1d", interval="1m")
+        if df is None or df.empty: return None
+        df = _clean_df(df.reset_index())
+        return round(float(_col(df,"close").iloc[-1]), 2)
     except:
         return None
 
@@ -415,13 +417,13 @@ _ETF_TICKERS = {
 @_thread_cache(ttl=3600)
 def check_earnings(ticker):
     if ticker in _ETF_TICKERS:
-        return None  # ETFs have no earnings
+        return None
     try:
         import yfinance as yf
-        tk  = yf.Ticker(ticker)
-        cal = tk.calendar
-        if cal is None: return None
-        # calendar can be a dict or DataFrame depending on yfinance version
+        # Use a short history download to avoid 401 from Ticker() calls
+        tk = yf.Ticker(ticker)
+        cal = tk.get_calendar()
+        if cal is None or (hasattr(cal, "empty") and cal.empty): return None
         if isinstance(cal, dict):
             dates = cal.get("Earnings Date", [])
             if not dates: return None
@@ -432,13 +434,13 @@ def check_earnings(ticker):
         days_away = (next_date - date.today()).days
         return days_away if 0 <= days_away <= 14 else None
     except Exception:
-        return None  # 404, no fundamentals, etc — treat as no earnings
+        return None
 
 @_thread_cache(ttl=300)
 def fetch_iv_rank(ticker):
     try:
-        import yfinance as yf
-        hist = yf.Ticker(ticker).history(period="1y")
+        hist = _yf_download(ticker, period="1y", interval="1d")
+        if hist is not None: hist = hist.reset_index()
         if hist is None or hist.empty or len(hist) < 30: return None, None
         hist = _clean_df(hist)
         close_col = "close" if "close" in hist.columns else "Close"
@@ -2052,33 +2054,37 @@ def precision_score(ticker, direction, df_primary, df_confirm,
 
     # Gap check — stock already moved hard against signal
     try:
-        import yfinance as yf
-        fast       = yf.Ticker(ticker).fast_info
-        prev_close = float(fast.get("previousClose", 0) or 0)
-        curr_price = float(current_price) if current_price else 0
-        if prev_close > 0 and curr_price > 0:
-            gap_pct = (curr_price - prev_close) / prev_close * 100
-            if direction == "bearish" and gap_pct > 3.0:
-                return None, "Gapped up %.1f%% against PUT signal — invalidated" % gap_pct
-            if direction == "bullish" and gap_pct < -3.0:
-                return None, "Gapped down %.1f%% against CALL signal — invalidated" % gap_pct
+        _gap_df = _yf_download(ticker, period="2d", interval="1d")
+        if _gap_df is not None and len(_gap_df) >= 2:
+            _gap_df  = _clean_df(_gap_df.reset_index())
+            _closes  = _col(_gap_df, "close")
+            prev_close = float(_closes.iloc[-2])
+            curr_price = float(current_price) if current_price else float(_closes.iloc[-1])
+            if prev_close > 0 and curr_price > 0:
+                gap_pct = (curr_price - prev_close) / prev_close * 100
+                if direction == "bearish" and gap_pct > 3.0:
+                    return None, "Gapped up %.1f%% against PUT signal — invalidated" % gap_pct
+                if direction == "bullish" and gap_pct < -3.0:
+                    return None, "Gapped down %.1f%% against CALL signal — invalidated" % gap_pct
     except Exception:
         pass
 
     # Sector momentum hard stop
     try:
-        import yfinance as yf
         sector_etf = SECTOR_ETF.get(ticker, "SPY")
         if sector_etf and sector_etf != ticker:
-            sec_fast = yf.Ticker(sector_etf).fast_info
-            sec_prev = float(sec_fast.get("previousClose", 0) or 0)
-            sec_curr = float(sec_fast.get("lastPrice", 0) or sec_fast.get("last_price", 0) or 0)
-            if sec_prev > 0 and sec_curr > 0:
-                sec_move = (sec_curr - sec_prev) / sec_prev * 100
-                if direction == "bearish" and sec_move > 2.0:
-                    return None, "Sector %s up %.1f%% — fighting PUT signal" % (sector_etf, sec_move)
-                if direction == "bullish" and sec_move < -2.0:
-                    return None, "Sector %s down %.1f%% — fighting CALL signal" % (sector_etf, sec_move)
+            _sec_df = _yf_download(sector_etf, period="2d", interval="1d")
+            if _sec_df is not None and len(_sec_df) >= 2:
+                _sec_df  = _clean_df(_sec_df.reset_index())
+                _sc      = _col(_sec_df, "close")
+                sec_prev = float(_sc.iloc[-2])
+                sec_curr = float(_sc.iloc[-1])
+                if sec_prev > 0 and sec_curr > 0:
+                    sec_move = (sec_curr - sec_prev) / sec_prev * 100
+                    if direction == "bearish" and sec_move > 2.0:
+                        return None, "Sector %s up %.1f%% — fighting PUT signal" % (sector_etf, sec_move)
+                    if direction == "bullish" and sec_move < -2.0:
+                        return None, "Sector %s down %.1f%% — fighting CALL signal" % (sector_etf, sec_move)
     except Exception:
         pass
 
@@ -3808,19 +3814,14 @@ with tab4:
                     unsafe_allow_html=True
                 )
 
-        _btn_col1, _btn_col2 = st.columns([4, 1])
-        with _btn_col1:
-            if st.button("🔍 RUN SCAN", type="primary", use_container_width=True,
-                         disabled=_bg["running"]):
-                st.session_state.scan_triggered_at = datetime.now()
-                trigger_scan(
-                    scan_list, toggles, account_size, risk_pct,
-                    dte_quick, dte_swing, max_premium, scan_style_key
-                )
-                st.rerun()
-        with _btn_col2:
-            if st.button("🔄", use_container_width=True, help="Refresh scan results"):
-                st.rerun()
+        if st.button("🔍 RUN SCAN", type="primary", use_container_width=True,
+                     disabled=_bg["running"]):
+            st.session_state.scan_triggered_at = datetime.now()
+            trigger_scan(
+                scan_list, toggles, account_size, risk_pct,
+                dte_quick, dte_swing, max_premium, scan_style_key
+            )
+            st.rerun()
 
         # Read results from background thread (not from session state)
         go_now   = _bg.get("go_now",   [])
