@@ -199,27 +199,32 @@ WATCHLIST = DEFAULT_WATCHLIST  # overridden at runtime by session state
 
 # Full scan universe - 120 most liquid options tickers across all sectors
 SCAN_UNIVERSE = [
-    # Mega cap / Index
-    "SPY","QQQ","IWM","DIA","AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","BRK-B",
-    # Tech / Semis
+    # Mega cap / Index ETFs
+    "SPY","QQQ","IWM","DIA","AAPL","MSFT","NVDA","AMZN","GOOGL","GOOG","META","TSLA","BRK-B",
+    # Semis
     "AMD","INTC","AVGO","QCOM","MU","AMAT","LRCX","KLAC","MRVL","CRDO","SMCI","ARM","TSM",
-    "PLTR","SNOW","DDOG","NET","CRWD","ZS","PANW","FTNT","OKTA","S","XYZ","COIN","HOOD",
-    "NBIS","VRT","AAOI","ASTS","ZETA","RDW","IREN","WDC",
+    # Tech / Cloud / Cyber
+    "PLTR","SNOW","DDOG","NET","CRWD","ZS","PANW","FTNT","OKTA","S","XYZ","COIN","VRT","WDC",
+    "APP","AXON","MSTR","NBIS","ZETA","AAOI",
     # Large cap growth
-    "NFLX","UBER","LYFT","ABNB","SHOP","MELI","SE","GRAB","BABA","JD","PDD",
+    "NFLX","UBER","LYFT","ABNB","SHOP","MELI","BABA","PDD","SE","GRAB",
     "RBLX","U","TTWO","EA",
     # Financials
     "JPM","BAC","GS","MS","C","WFC","BLK","V","MA","PYPL","AXP",
+    "SOFI","AFRM","HOOD",
     # Healthcare / Biotech
     "UNH","JNJ","PFE","MRNA","BNTX","ABBV","LLY","BMY","GILD","REGN","BIIB",
-    # Energy
-    "XOM","CVX","OXY","SLB","HAL","MPC","PSX",
+    # Energy / Power
+    "XOM","CVX","OXY","SLB","HAL","MPC","PSX","VST","CEG","GEV",
     # Consumer
-    "AMZN","WMT","TGT","COST","HD","LOW","NKE","LULU","MCD","SBUX","CMG",
-    # Industrial / EV
+    "WMT","TGT","COST","HD","LOW","NKE","LULU","MCD","SBUX","CMG",
+    "DKNG","CELH","HIMS",
+    # Industrial / EV / Defense
     "GE","CAT","DE","BA","LMT","RTX","RIVN","LCID","F","GM",
+    # Speculative / High momentum
+    "ASTS","RDW","IREN",
     # ETF sectors
-    "XLK","XLF","XLE","XLV","XLY","XLI","GLD","SLV","TLT","HYG",
+    "XLK","XLF","XLE","XLV","XLY","XLI","GLD","SLV","TLT","HYG","IBIT",
 ]
 SCAN_UNIVERSE = list(dict.fromkeys(SCAN_UNIVERSE))  # deduplicate
 
