@@ -2509,8 +2509,14 @@ with st.sidebar:
     st.markdown("## OPTIONS SCREENER v6")
     st.markdown("---")
     selected_ticker = st.selectbox("TICKER", WATCHLIST)
-    custom = st.text_input("Or type any ticker","").upper().strip()
-    if custom: selected_ticker = custom
+    custom = st.text_input("Or type ticker symbol", "", placeholder="e.g. NVDA").upper().strip()
+    if custom:
+        # Validate — tickers are 1-5 uppercase letters only, no spaces or full names
+        import re as _re
+        if _re.match(r'^[A-Z]{1,5}$', custom):
+            selected_ticker = custom
+        else:
+            st.error("Enter a ticker symbol only (e.g. NVDA, AAPL) — not a company name")
     selected_tf = st.selectbox("CHART TIMEFRAME", list(TIMEFRAMES.keys()), index=2)
     st.caption("Signals use automatic timeframes per mode.")
     st.markdown("---")
