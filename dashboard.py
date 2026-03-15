@@ -549,7 +549,10 @@ def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, c
 
     # IV adjustment: quick trades use higher IV estimate (short-dated premiums are inflated)
     iv_adj  = min(iv * 1.3, 0.80) if actual_dte <= 7 else iv
-    premium = round(current_price * iv_adj * (max(actual_dte, 1)/365)**0.5 * 0.4, 2)
+    # ATM option premium approximation: price * IV * sqrt(DTE/365) * ~0.4 for ATM
+    # But 0.4 is too high for high-priced stocks — use 0.38 for quick (ATM) 0.25 for swing (OTM)
+    otm_discount = 0.38 if trade_style == "quick" else 0.22
+    premium = round(current_price * iv_adj * (max(actual_dte, 1)/365)**0.5 * otm_discount, 2)
     premium = max(premium, 0.05)
     breakeven = (strike + premium) if is_call else (strike - premium)
 
@@ -2468,8 +2471,9 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
             except Exception as _fe:
                 on_deck.append({"ticker": ticker, "_rejected": True,
                     "_reason": "Error: " + str(_fe)[:80]})
-            # Small pause between tickers — prevents Polygon free tier rate limiting
-            import time as _t; _t.sleep(0.5)
+            # Polygon free tier = 5 calls/minute. Each ticker uses ~5 calls.
+            # 12s delay keeps us under the limit.
+            import time as _t; _t.sleep(12)
 
         # Cancel any futures still running (hung yfinance calls)
         for future in futures:
@@ -3755,7 +3759,7 @@ with tab4:
         scan_style_key = "quick" if "Quick" in scan_style else "swing" if "Swing" in scan_style else "both"
         st.session_state.auto_scan_settings["style"] = scan_style_key
     with sc2:
-        max_premium = st.number_input("Max Premium ($/sh)", value=15.00, step=0.50, min_value=0.50)
+        max_premium = st.number_input("Max Premium ($/sh)", value=25.00, step=0.50, min_value=0.50)
         st.session_state.auto_scan_settings["max_premium"] = max_premium
     with sc3:
         scan_universe_choice = st.radio("Universe", ["My Watchlist","Full Scan (120+)"], index=0, horizontal=True)
