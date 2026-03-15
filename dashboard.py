@@ -3890,41 +3890,46 @@ with tab4:
                 st.markdown("No rejection data captured — exception likely happening before scan_single_ticker runs.")
                 st.markdown("Check Railway logs for Python errors.")
 
-    # ── Signal History ─────────────────────────────────────────────────────────
-    st.markdown("---")
-    with st.expander("📜 Signal History — Last 50 GO NOW Signals", expanded=False):
-        history = load_signal_history(50)
-        if not history:
-            if SUPABASE_URL and SUPABASE_KEY:
-                st.caption("No signals fired yet. Run a scan during market hours to start building history.")
-            else:
-                st.caption("⚠️ Add SUPABASE_URL + SUPABASE_KEY to Railway to enable signal history.")
-        else:
-            for h in history:
-                fired = h.get("fired_at","")[:16].replace("T"," ")
-                action_color = "#00e5aa" if h.get("action") == "CALL" else "#ff4d6d"
-                st.markdown(
-                    "<div style='background:#080c12;border-radius:8px;padding:10px 14px;"
-                    "margin-bottom:6px;border-left:3px solid %s'>"
-                    "<span style='color:%s;font-weight:700;font-size:0.85rem'>%s %s</span>"
-                    "<span style='color:#8899aa;font-size:0.75rem;margin-left:10px'>%s · %s</span>"
-                    "<br><span style='color:#d0dae8;font-size:0.75rem'>"
-                    "Conf: %s%% · Gates: %s · Signals: %s/5 · "
-                    "Entry $%s · Target $%s · Premium $%s · R:R %sx"
-                    "</span></div>" % (
-                        action_color, action_color,
-                        h.get("ticker","?"), h.get("action","?"),
-                        h.get("style","?").upper(), fired,
-                        h.get("confidence","?"),
-                        h.get("gates","?"),
-                        h.get("signals_hit","?"),
-                        h.get("entry","?"),
-                        h.get("target","?"),
-                        h.get("premium","?"),
-                        h.get("rr","?"),
-                    ),
-                    unsafe_allow_html=True
-                )
+    # ── Win Rate Badge ─────────────────────────────────────────────────────────
+    _all_trades   = st.session_state.get("paper_trades", [])
+    _closed       = [t for t in _all_trades if t.get("status") != "OPEN"]
+    _wins         = [t for t in _closed if t.get("is_win")]
+    _total_closed = len(_closed)
+    _win_rate     = round(len(_wins) / _total_closed * 100) if _total_closed > 0 else None
+    _open_count   = len([t for t in _all_trades if t.get("status") == "OPEN"])
+
+    if _total_closed > 0:
+        _wr_color = "#00e5aa" if _win_rate >= 60 else "#f0c040" if _win_rate >= 45 else "#ff4d6d"
+        st.markdown(
+            "<div style='background:#0d1421;border:1px solid %s44;border-radius:10px;"
+            "padding:12px 16px;margin-top:8px;display:flex;align-items:center;gap:16px'>"
+            "<div style='text-align:center'>"
+            "<div style='font-size:1.6rem;font-weight:700;color:%s'>%s%%</div>"
+            "<div style='font-size:0.65rem;color:#8899aa;letter-spacing:1px'>WIN RATE</div>"
+            "</div>"
+            "<div style='width:1px;height:36px;background:#1e2d40'></div>"
+            "<div style='display:flex;gap:20px;font-size:0.78rem'>"
+            "<div><div style='color:#00e5aa;font-weight:700'>%s</div><div style='color:#8899aa;font-size:0.68rem'>WINS</div></div>"
+            "<div><div style='color:#ff4d6d;font-weight:700'>%s</div><div style='color:#8899aa;font-size:0.68rem'>LOSSES</div></div>"
+            "<div><div style='color:#f0c040;font-weight:700'>%s</div><div style='color:#8899aa;font-size:0.68rem'>OPEN</div></div>"
+            "<div><div style='color:#d0dae8;font-weight:700'>%s</div><div style='color:#8899aa;font-size:0.68rem'>TOTAL</div></div>"
+            "</div>"
+            "<div style='margin-left:auto;font-size:0.68rem;color:#4a5568'>Paper trading · not financial advice</div>"
+            "</div>" % (
+                _wr_color, _wr_color, _win_rate,
+                len(_wins), _total_closed - len(_wins),
+                _open_count, _total_closed
+            ),
+            unsafe_allow_html=True
+        )
+    elif _open_count > 0:
+        st.markdown(
+            "<div style='background:#0d1421;border:1px solid #1e2d40;border-radius:10px;"
+            "padding:12px 16px;margin-top:8px;font-size:0.78rem;color:#8899aa'>"
+            "📊 <b style='color:#f0c040'>%s open trade%s</b> — win rate will appear when first trade closes"
+            "</div>" % (_open_count, "s" if _open_count != 1 else ""),
+            unsafe_allow_html=True
+        )
 
     if go_now or watching or on_deck or rejected:
         bias_color = "#00e5aa" if mkt_bias=="bullish" else "#ff4d6d" if mkt_bias=="bearish" else "#f0c040"
