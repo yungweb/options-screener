@@ -2413,16 +2413,26 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
 
             low_rr = r.get("low_rr", False)
 
-            # GO NOW — loosened: confirmed + 3/5 signals + gates 4+ + decent confidence
-            if (conf >= 70 and gates_passed >= 4 and
-                entry_status == "CONFIRMED" and signals_hit >= 3 and not low_rr):
+            # ── GO NOW — high conviction only, Telegram fires on these
+            # Requires: strong confidence + good gates + entry confirmed
+            # + exhaustion confirmed + at least 3/5 signals + solid RR
+            # Target: 3-7 per day on full universe, not every scan
+            if (conf >= 75 and gates_passed >= 5 and
+                entry_status == "CONFIRMED" and exh_ok and
+                signals_hit >= 3 and not low_rr):
                 go_now.append(r)
 
-            # WATCHING — setup forming, RR ok, needs confirmation
+            # ── WATCHING — solid setup, one piece missing
+            # Conf a bit lower OR exhaustion not confirmed OR gates at 4
+            elif (conf >= 65 and gates_passed >= 4 and
+                  entry_status == "CONFIRMED" and signals_hit >= 3 and not low_rr):
+                watching.append(r)
+
+            # ── ALSO WATCHING — confirmed entry, building conviction
             elif conf >= 60 and gates_passed >= 3 and signals_hit >= 2 and not low_rr:
                 watching.append(r)
 
-            # ON DECK — weak signals, low RR, or early setup — track it
+            # ── ON DECK — developing, low RR, or early stage
             elif conf >= 45 or signals_hit >= 2 or low_rr:
                 r["_on_deck_reason"] = (
                     "Low RR (%.1f:1)" % r.get("opt", {}).get("rr_option", 0) if low_rr
@@ -3830,10 +3840,17 @@ with tab4:
             paper_check_exits()
 
             # Fire Telegram + paper trades for GO NOW signals
+            # Dedup: same ticker+style won't fire again within 60 minutes
             for r in go_now:
+                _now = datetime.now()
                 _key = "fired_%s_%s" % (r["ticker"], r.get("style",""))
-                if not st.session_state.get(_key):
-                    st.session_state[_key] = True
+                _last_fired = st.session_state.get(_key)
+                _cooldown_ok = (
+                    _last_fired is None or
+                    (_now - _last_fired).total_seconds() > 3600
+                )
+                if _cooldown_ok:
+                    st.session_state[_key] = _now
                     try: send_telegram_alert(r, alert_type="GO NOW")
                     except: pass
                     try: save_signal_history(r)
