@@ -407,16 +407,39 @@ def _polygon_download(ticker, period, interval):
 
 def _yf_download(ticker, period, interval, **kwargs):
     """
-    Polygon-first data fetcher. Falls back to yfinance if Polygon key missing.
-    Polygon eliminates 401/crumb issues entirely in containerized environments.
+    yfinance-first with browser headers to avoid 401 crumb errors on Railway.
+    Falls back to Polygon if yfinance fails.
     """
-    # Try Polygon first — reliable in Railway, no auth issues
+    # Try yfinance first — free, real-time, works with proper headers
+    try:
+        import yfinance as yf
+        import requests
+        # Use a session with browser-like headers to avoid 401s
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate",
+            "Connection": "keep-alive",
+        })
+        df = yf.download(
+            ticker, period=period, interval=interval,
+            progress=False, auto_adjust=True,
+            threads=False, session=session, **kwargs
+        )
+        if df is not None and not df.empty:
+            return df
+    except Exception:
+        pass
+
+    # Fallback to Polygon if yfinance fails
     if POLYGON_API_KEY:
         df = _polygon_download(ticker, period, interval)
         if df is not None and not df.empty:
             return df
 
-    return None  # Polygon key missing or returned no data
+    return None
 # ─────────────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=60)
@@ -2534,9 +2557,6 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
             except Exception as _fe:
                 on_deck.append({"ticker": ticker, "_rejected": True,
                     "_reason": "Error: " + str(_fe)[:80]})
-            # Polygon free tier = 5 calls/minute. Each ticker uses ~5 calls.
-            # 12s delay keeps us under the limit.
-            import time as _t; _t.sleep(12)
 
         # Cancel any futures still running (hung yfinance calls)
         for future in futures:
@@ -3981,15 +4001,6 @@ with tab4:
     on_deck = real_on_deck
 
     last_run = st.session_state.get("scan_last_run") or st.session_state.get("auto_scan_last_run")
-    if last_run:
-        with st.expander("🔍 DEBUG — Scan results (%s rejected, %s passed)" % (
-            len(rejected), len(go_now)+len(watching)+len(real_on_deck)), expanded=False):
-            if rejected:
-                for r in rejected[:30]:
-                    st.markdown("**%s** — `%s`" % (r.get("ticker","?"), r.get("_reason","unknown")))
-            else:
-                st.markdown("No rejection data captured — exception likely happening before scan_single_ticker runs.")
-                st.markdown("Check Railway logs for Python errors.")
 
     # ── Win Rate Badge ─────────────────────────────────────────────────────────
     _all_trades   = st.session_state.get("paper_trades", [])
