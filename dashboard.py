@@ -2468,6 +2468,8 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
             except Exception as _fe:
                 on_deck.append({"ticker": ticker, "_rejected": True,
                     "_reason": "Error: " + str(_fe)[:80]})
+            # Small pause between tickers — prevents Polygon free tier rate limiting
+            import time as _t; _t.sleep(0.5)
 
         # Cancel any futures still running (hung yfinance calls)
         for future in futures:
@@ -3753,7 +3755,7 @@ with tab4:
         scan_style_key = "quick" if "Quick" in scan_style else "swing" if "Swing" in scan_style else "both"
         st.session_state.auto_scan_settings["style"] = scan_style_key
     with sc2:
-        max_premium = st.number_input("Max Premium ($/sh)", value=5.00, step=0.50, min_value=0.50)
+        max_premium = st.number_input("Max Premium ($/sh)", value=15.00, step=0.50, min_value=0.50)
         st.session_state.auto_scan_settings["max_premium"] = max_premium
     with sc3:
         scan_universe_choice = st.radio("Universe", ["My Watchlist","Full Scan (120+)"], index=0, horizontal=True)
