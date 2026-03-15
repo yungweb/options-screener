@@ -187,6 +187,7 @@ except ImportError:
 
 ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
 ADMIN_UID          = os.environ.get("ADMIN_UID", "158a9910")  # Only this user fires Telegram
+MAKE_WEBHOOK_URL   = os.environ.get("MAKE_WEBHOOK_URL", "https://hook.us2.make.com/k4yp47rg33vdinypxzb3tl7ch6j4u229")
 POLYGON_API_KEY    = os.environ.get("POLYGON_API_KEY", "")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
@@ -920,10 +921,55 @@ def detect_market_regime(df):
     return regime, strength
 
 @_thread_cache(ttl=300)
+@_thread_cache(ttl=300)
 def check_liquidity(ticker):
-    # Liquidity check via yfinance Ticker() disabled — causes 401 on Railway.
-    # Returns True so scan proceeds; user should verify OI manually before entry.
-    return True, 0, 0, "Verify OI manually"
+    """
+    Check options liquidity via Polygon options snapshot API.
+    Returns: (liquid bool, avg_volume, avg_oi, message)
+    Liquid = avg volume >= 50 AND avg OI >= 100 on nearest expiry calls.
+    """
+    if not POLYGON_API_KEY:
+        return True, 0, 0, "Verify OI manually"
+    try:
+        import requests as _req
+        # Get options contracts for this ticker — nearest expiry, calls
+        url = (
+            "https://api.polygon.io/v3/snapshot/options/%s"
+            "?limit=25&apiKey=%s" % (ticker.upper(), POLYGON_API_KEY)
+        )
+        r = _req.get(url, timeout=4)
+        if r.status_code != 200:
+            return True, 0, 0, "Liquidity unavailable"
+        data = r.json()
+        results = data.get("results", [])
+        if not results:
+            return False, 0, 0, "No options data found"
+
+        # Pull volume and OI from snapshot
+        volumes = []
+        ois     = []
+        for item in results:
+            day  = item.get("day", {})
+            det  = item.get("details", {})
+            vol  = day.get("volume", 0) or 0
+            oi   = item.get("open_interest", 0) or 0
+            volumes.append(float(vol))
+            ois.append(float(oi))
+
+        avg_vol = round(sum(volumes) / len(volumes), 0) if volumes else 0
+        avg_oi  = round(sum(ois)     / len(ois),     0) if ois     else 0
+        liquid  = avg_vol >= 50 and avg_oi >= 100
+
+        if liquid:
+            msg = "Vol %.0f · OI %.0f" % (avg_vol, avg_oi)
+        elif avg_oi < 100:
+            msg = "⚠️ Low OI (%.0f) — wide spreads likely" % avg_oi
+        else:
+            msg = "⚠️ Low volume (%.0f) — hard to exit" % avg_vol
+
+        return liquid, avg_vol, avg_oi, msg
+    except Exception as e:
+        return True, 0, 0, "Liquidity check error"
 
 def score_setup(df, setup):
     """
@@ -2980,6 +3026,45 @@ start_bg_scan_thread()  # start background scanner daemon
 # TELEGRAM ALERT ENGINE
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def send_make_webhook(r):
+    """
+    Fires signal data to Make.com webhook for automated Canva + Instagram posting.
+    Only fires from admin account.
+    """
+    if not MAKE_WEBHOOK_URL:
+        return
+    try:
+        import urllib.request, json
+        opt = r.get("opt", {})
+        payload = json.dumps({
+            "ticker":     r.get("ticker", ""),
+            "action":     r.get("action", ""),
+            "direction":  r.get("direction", ""),
+            "pattern":    r.get("pattern", ""),
+            "style":      r.get("style", ""),
+            "confidence": r.get("confidence", 0),
+            "entry":      round(float(opt.get("entry", 0)), 2),
+            "target":     round(float(opt.get("target", 0)), 2),
+            "stop":       round(float(opt.get("stop", 0)), 2),
+            "strike":     round(float(opt.get("strike", 0)), 2),
+            "premium":    round(float(opt.get("premium", 0)), 2),
+            "rr":         opt.get("rr", 0),
+            "expiration": opt.get("expiration", ""),
+            "gates":      r.get("gates_passed", 0),
+            "signals":    r.get("signals_hit", 0),
+            "fired_at":   datetime.now().strftime("%m/%d/%Y %I:%M %p ET"),
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            MAKE_WEBHOOK_URL,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass  # Never block the scan if Make is down
+
+
 def send_telegram_alert(r, alert_type="GO NOW"):
     """
     Sends a formatted signal alert to the Telegram channel.
@@ -3866,6 +3951,8 @@ with tab4:
                 if _cooldown_ok and st.session_state.get("user_id", "") == ADMIN_UID:
                     st.session_state[_key] = _now
                     try: send_telegram_alert(r, alert_type="GO NOW")
+                    except: pass
+                    try: send_make_webhook(r)
                     except: pass
                     try: save_signal_history(r)
                     except: pass
