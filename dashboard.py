@@ -186,6 +186,7 @@ except ImportError:
     AUTOREFRESH_AVAILABLE = False
 
 ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
+ADMIN_UID          = os.environ.get("ADMIN_UID", "158a9910")  # Only this user fires Telegram
 POLYGON_API_KEY    = os.environ.get("POLYGON_API_KEY", "")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
@@ -1795,7 +1796,8 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                             "elevate":      elevate,
                             "entry_status": "CONFIRMED",
                         }
-                        send_telegram_alert(_signal_r, alert_type="GO NOW")
+                        if st.session_state.get("user_id","") == ADMIN_UID:
+                            send_telegram_alert(_signal_r, alert_type="GO NOW")
                         save_signal_history(_signal_r)
                         if st.session_state.get("paper_auto_enabled", True):
                             paper_enter_trade(_signal_r)
@@ -2736,7 +2738,8 @@ def _bg_scan_loop():
             # Fire alerts for new GO NOW signals
             for r in new_go:
                 try:
-                    send_telegram_alert(r, alert_type="GO NOW")
+                    if _BG_RESULTS.get("user_id","") == ADMIN_UID:
+                        send_telegram_alert(r, alert_type="GO NOW")
                 except Exception:
                     pass
                 try:
@@ -3849,7 +3852,7 @@ with tab4:
                     _last_fired is None or
                     (_now - _last_fired).total_seconds() > 3600
                 )
-                if _cooldown_ok:
+                if _cooldown_ok and st.session_state.get("user_id", "") == ADMIN_UID:
                     st.session_state[_key] = _now
                     try: send_telegram_alert(r, alert_type="GO NOW")
                     except: pass
