@@ -1706,10 +1706,10 @@ def check_ema50_slope(df_daily, direction):
     is_bull = direction == "bullish"
     if is_bull:
         passes = slope_pct > 0
-        label  = f"Daily EMA50 rising (+{slope_pct:.2f}%)" if passes else f"Daily EMA50 falling ({slope_pct:.2f}%)"
+        label  = "Trend Slope: Rising" if passes else "Trend Slope: Falling"
     else:
         passes = slope_pct < 0
-        label  = f"Daily EMA50 falling ({slope_pct:.2f}%)" if passes else f"Daily EMA50 rising (+{slope_pct:.2f}%)"
+        label  = "Trend Slope: Falling" if passes else "Trend Slope: Rising"
     return passes, label
 
 def check_tf_trend_agreement(dfs, direction):
@@ -2371,8 +2371,8 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                 if _fib_sig.get("confirmed"):
                     _fl = _fib_sig.get("level", "")
                     _fp = _fib_sig.get("level_price", 0)
-                    _fh = _fib_sig.get("fib_swing_high", 0)
-                    _fw = _fib_sig.get("fib_swing_low", 0)
+                    _fh = _fib_sig.get("swing_high", 0)
+                    _fw = _fib_sig.get("swing_low", 0)
                     _fc = "#00e5aa" if _fl == "61.8%" else "#f0c040"
                     st.markdown(
                         "<div style='background:#0d1219;border:1px solid %s;border-radius:8px;"
