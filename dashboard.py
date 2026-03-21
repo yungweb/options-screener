@@ -290,13 +290,38 @@ check_auth()
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600;700&display=swap');
-* { font-family: 'Barlow', sans-serif; }
-body, .stApp { background: #0a0e17; color: #F5F5F5; }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Montserrat:wght@600;700&family=Share+Tech+Mono&family=Barlow:wght@300;400;600;700&display=swap');
+* { font-family: 'Inter', 'Barlow', sans-serif; }
+body, .stApp { background: #0B0B0C; color: #F5F5F5; }
 .stSidebar { background: #1A1A1D !important; border-right: 1px solid #2A2A2D; }
+
+/* Hide Streamlit chrome */
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+header { visibility: hidden; }
+.stDeployButton { display: none; }
+
+/* Gold gradient buttons */
+.stButton>button {
+    background: linear-gradient(90deg, #D4AF37, #F6E27A) !important;
+    color: #0B0B0C !important;
+    border-radius: 6px !important;
+    font-weight: 700 !important;
+    border: none !important;
+    transition: all 0.2s ease !important;
+}
+.stButton>button:hover {
+    opacity: 0.9 !important;
+    transform: translateY(-1px) !important;
+}
+
+/* Block container padding */
+.block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
+
 .big-price { font-size: 2rem; font-weight: 700; }
 .section-title { color: #D4AF37; font-family: 'Share Tech Mono', monospace; font-size: 0.75rem; letter-spacing: 2px; margin: 20px 0 8px; border-bottom: 1px solid #2A2A2D; padding-bottom: 4px; }
-.metric-card { background: #111827; border: 1px solid #2A2A2D; border-radius: 8px; padding: 14px; margin: 4px 0; }
+.metric-card { background: #111827; border: 1px solid #2A2A2D; border-radius: 8px; padding: 14px; margin: 4px 0; transition: all 0.2s ease; }
+.metric-card:hover { border-color: #D4AF37; transform: translateY(-2px); }
 .rank-best   { background: #1A1500; border: 2px solid #D4AF37; border-radius: 12px; padding: 16px; margin: 6px 0; }
 .rank-better { background: #0a1a0a; border: 2px solid #40c070; border-radius: 12px; padding: 16px; margin: 6px 0; }
 .rank-good   { background: #141a0a; border: 2px solid #F6E27A; border-radius: 12px; padding: 16px; margin: 6px 0; }
