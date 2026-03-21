@@ -4138,7 +4138,7 @@ for ng in _new_go_now:
     dc_ng = "#D4AF37" if is_bull_ng else "#C1121F"
     st.markdown("""
     <div style='background:#1A1500;border:2px solid #D4AF37;border-radius:10px;padding:14px 18px;margin:6px 0'>
-        <div style='font-family:monospace;font-size:0.65rem;letter-spacing:3px;color:#D4AF37;margin-bottom:4px'>🚨 NEW GO NOW SIGNAL</div>
+        <div style='font-family:monospace;font-size:0.65rem;letter-spacing:3px;color:#22C55E;margin-bottom:4px'>🚨 NEW GO NOW SIGNAL</div>
         <div style='font-size:1.1rem;font-weight:700;color:%s'>%s - %s</div>
         <div style='font-size:0.8rem;color:#A1A1A6;margin-top:2px'>%s · %s%%%% · %s/7 gates · Strike $%.2f · Target $%.2f · Stop $%.2f</div>
     </div>
@@ -4816,9 +4816,9 @@ with tab4:
              padding:10px 16px;margin-bottom:4px;font-size:0.72rem'>
             <div style='color:{bias_color}'>{bias_icon} MARKET: <b>{mkt_bias.upper()}</b></div>
             <div style='display:flex;gap:20px'>
-                <span style='color:#D4AF37'>● {len(go_now)} GO NOW</span>
-                <span style='color:#F6E27A'>● {len(watching)} WATCHING</span>
-                <span style='color:#A1A1A6'>● {len(on_deck)} ON DECK</span>
+                <span style='color:#22C55E'>● {len(go_now)} GO NOW</span>
+                <span style='color:#D4AF37'>● {len(watching)} WATCHING</span>
+                <span style='color:#C1121F'>● {len(on_deck)} ON DECK</span>
             </div>
             <div style='color:#A1A1A6'>{total_found} total signals</div>
         </div>
@@ -4848,7 +4848,7 @@ with tab4:
                     "<span style='font-size:1rem;font-weight:700;color:%s'>%s</span>"
                     "<span style='font-size:0.65rem;background:#ffffff11;color:%s;"
                     "padding:2px 6px;border-radius:4px;margin-left:6px'>%s</span>"
-                    "<span style='font-size:0.65rem;color:#F6E27A;margin-left:auto'>📋 ON DECK</span>"
+                    "<span style='font-size:0.65rem;color:#C1121F;margin-left:auto'>📋 ON DECK</span>"
                     "</div>"
                     "<div style='font-size:0.72rem;color:#A1A1A6;margin-top:4px'>%s</div>"
                     "<div style='font-size:0.68rem;color:#4a5568;margin-top:2px'>%s · conf %s%%</div>"
@@ -4866,7 +4866,7 @@ with tab4:
             rv     = round(r.get("rel_vol", 1.0), 1)
             block  = r.get("block_detected", False)
             si     = "⚡" if r.get("style","swing")=="quick" else "📅"
-            border = "#D4AF3744" if bucket=="go_now" else "#F6E27A44" if bucket=="watching" else "#2A2A2D"
+            border = "#22C55E44" if bucket=="go_now" else "#D4AF3744" if bucket=="watching" else "#C1121F44"
 
             # Build card using % string formatting to avoid all quote conflicts
             R = 28
@@ -5045,7 +5045,7 @@ with tab4:
         def empty_bkt(msg):
             st.markdown(f"<div style='padding:14px;color:#A1A1A6;font-size:0.78rem;background:#1A1A1D;border-radius:10px;text-align:center'>{msg}</div>", unsafe_allow_html=True)
 
-        section_hdr("GO NOW", "#C1121F", len(go_now))
+        section_hdr("GO NOW", "#22C55E", len(go_now))
         if go_now:
             for i, r in enumerate(go_now[:5]):   mobile_card(r, "go_now",   i)
         else:
@@ -5057,7 +5057,7 @@ with tab4:
         else:
             empty_bkt("No setups in confirmation phase right now.")
 
-        section_hdr("ON DECK", "#A1A1A6", len(on_deck))
+        section_hdr("ON DECK", "#C1121F", len(on_deck))
         if on_deck:
             for i, r in enumerate(on_deck[:10]): mobile_card(r, "on_deck",  i)
         else:
