@@ -14,7 +14,7 @@ import threading as _threading
 from pattern_detection import detect_double_bottom, detect_double_top, detect_break_and_retest
 from backtester import run_backtest
 
-st.set_page_config(page_title="Options Screener", page_icon="📡", layout="centered", initial_sidebar_state="expanded")
+st.set_page_config(page_title="PaidButPressured", page_icon="📡", layout="centered", initial_sidebar_state="expanded")
 
 # ── PWA MANIFEST + SERVICE WORKER INJECTION ───────────────────────────────────
 st.markdown("""
@@ -3233,7 +3233,7 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## OPTIONS SCREENER v6")
+
     _user_email = st.session_state.get("user_email", "")
     if _user_email:
         st.markdown("<div style='font-size:0.65rem;color:#A1A1A6;margin-bottom:4px'>Signed in as<br><b style='color:#F5F5F5'>%s</b></div>" % _user_email, unsafe_allow_html=True)
