@@ -27,7 +27,7 @@ st.markdown("""
 <style>
   /* PWA fullscreen feel - hide Streamlit chrome on mobile */
   @media (display-mode: standalone) {
-    header[data-testid="stHeader"] { display: none; }
+    header[data-testid="stHeader"] { background: transparent !important; }
     .stDeployButton { display: none; }
     #MainMenu { display: none; }
     footer { display: none; }
@@ -295,10 +295,10 @@ st.markdown("""
 body, .stApp { background: #0B0B0C; color: #F5F5F5; }
 .stSidebar { background: #1A1A1D !important; border-right: 1px solid #2A2A2D; }
 
-/* Hide Streamlit chrome */
+/* Hide Streamlit branding but keep sidebar toggle */
+header[data-testid="stHeader"] { background: transparent !important; }
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
-header { visibility: hidden; }
 .stDeployButton { display: none; }
 
 /* Gold gradient buttons */
