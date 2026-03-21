@@ -285,7 +285,186 @@ def check_auth():
         )
     st.stop()
 
+
+def check_onboarding():
+    """
+    Shows onboarding flow for first-time users.
+    Tracks completion via Supabase onboarding_complete flag.
+    Skip button available on every step.
+    """
+    # Already completed onboarding this session
+    if st.session_state.get("onboarding_complete"):
+        return
+
+    # Check Supabase for onboarding status
+    user_id = st.session_state.get("user_id")
+    if user_id:
+        try:
+            sb = get_supabase()
+            if sb:
+                res = sb.table("user_data").select("preferences").eq("user_id", str(user_id)).execute()
+                if res.data:
+                    import json as _j
+                    prefs = _j.loads(res.data[0].get("preferences", "{}"))
+                    if prefs.get("onboarding_complete"):
+                        st.session_state.onboarding_complete = True
+                        return
+        except Exception:
+            pass
+
+    # Initialize step
+    if "onboarding_step" not in st.session_state:
+        st.session_state.onboarding_step = 1
+
+    step = st.session_state.onboarding_step
+
+    def complete_onboarding():
+        st.session_state.onboarding_complete = True
+        # Save to Supabase
+        if user_id:
+            try:
+                sb = get_supabase()
+                if sb:
+                    import json as _j
+                    res = sb.table("user_data").select("preferences").eq("user_id", str(user_id)).execute()
+                    prefs = {}
+                    if res.data:
+                        prefs = _j.loads(res.data[0].get("preferences", "{}"))
+                    prefs["onboarding_complete"] = True
+                    sb.table("user_data").upsert({
+                        "user_id": str(user_id),
+                        "preferences": _j.dumps(prefs),
+                        "updated_at": datetime.now(tz=pytz.UTC).isoformat()
+                    }).execute()
+            except Exception:
+                pass
+
+    # Onboarding UI
+    st.markdown("""
+<style>
+.ob-wrap { max-width:480px; margin:40px auto; padding:32px 36px;
+           background:#1A1A1D; border:1px solid #2A2A2D; border-radius:16px; }
+.ob-step { font-size:0.65rem; color:#A1A1A6; letter-spacing:3px;
+           text-align:center; margin-bottom:8px; }
+.ob-title { font-size:1.4rem; font-weight:700; color:#F5F5F5;
+            text-align:center; margin-bottom:8px; }
+.ob-body { font-size:0.85rem; color:#A1A1A6; text-align:center;
+           line-height:1.8; margin-bottom:24px; }
+.ob-badge { display:inline-block; padding:4px 14px; border-radius:20px;
+            font-size:0.75rem; font-weight:700; margin:4px; }
+</style>
+""", unsafe_allow_html=True)
+
+    col = st.columns([1, 6, 1])[1]
+    with col:
+        if step == 1:
+            st.markdown("""
+<div class='ob-wrap'>
+  <div class='ob-step'>STEP 1 OF 4</div>
+  <div class='ob-title'>Welcome to PaidButPressured 📡</div>
+  <div class='ob-body'>
+    A real-time options screener built for active traders.<br><br>
+    We scan the market, filter out the noise, and surface only the 
+    highest-conviction setups — with clear entry, target, and stop levels.<br><br>
+    <b style='color:#D4AF37'>Let's show you how it works.</b>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("Skip Tutorial", use_container_width=True, key="ob_skip_1"):
+                    complete_onboarding()
+                    st.rerun()
+            with c2:
+                if st.button("Let's Go →", type="primary", use_container_width=True, key="ob_next_1"):
+                    st.session_state.onboarding_step = 2
+                    st.rerun()
+
+        elif step == 2:
+            st.markdown("""
+<div class='ob-wrap'>
+  <div class='ob-step'>STEP 2 OF 4</div>
+  <div class='ob-title'>How to Scan 🔍</div>
+  <div class='ob-body'>
+    Open the <b style='color:#F5F5F5'>SCAN tab</b> and pick a sector from the dropdown.<br><br>
+    Start with <b style='color:#D4AF37'>My Watchlist</b> for tickers you already follow,
+    or choose a sector like <b style='color:#D4AF37'>Tech & Semis</b> or 
+    <b style='color:#D4AF37'>High Momentum</b>.<br><br>
+    Hit <b style='color:#F5F5F5'>RUN SCAN</b> and let the engine do the work.
+  </div>
+</div>
+""", unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("← Back", use_container_width=True, key="ob_back_2"):
+                    st.session_state.onboarding_step = 1
+                    st.rerun()
+            with c2:
+                if st.button("Got it →", type="primary", use_container_width=True, key="ob_next_2"):
+                    st.session_state.onboarding_step = 3
+                    st.rerun()
+
+        elif step == 3:
+            st.markdown("""
+<div class='ob-wrap'>
+  <div class='ob-step'>STEP 3 OF 4</div>
+  <div class='ob-title'>Reading Signals 🚦</div>
+  <div class='ob-body'>
+    Every signal lands in one of three buckets:<br><br>
+    <span class='ob-badge' style='background:#22C55E22;color:#22C55E;border:1px solid #22C55E'>
+      🟢 GO NOW
+    </span>
+    Entry confirmed. Highest conviction. Act now.<br><br>
+    <span class='ob-badge' style='background:#D4AF3722;color:#D4AF37;border:1px solid #D4AF37'>
+      🟡 WATCHING
+    </span>
+    Building conviction. Wait for confirmation.<br><br>
+    <span class='ob-badge' style='background:#C1121F22;color:#C1121F;border:1px solid #C1121F'>
+      🔴 ON DECK
+    </span>
+    Setup developing. Not ready yet.
+  </div>
+</div>
+""", unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("← Back", use_container_width=True, key="ob_back_3"):
+                    st.session_state.onboarding_step = 2
+                    st.rerun()
+            with c2:
+                if st.button("Makes sense →", type="primary", use_container_width=True, key="ob_next_3"):
+                    st.session_state.onboarding_step = 4
+                    st.rerun()
+
+        elif step == 4:
+            st.markdown("""
+<div class='ob-wrap'>
+  <div class='ob-step'>STEP 4 OF 4</div>
+  <div class='ob-title'>Watch Queue 👁</div>
+  <div class='ob-body'>
+    See a WATCHING signal you like?<br><br>
+    Hit the <b style='color:#D4AF37'>Watch button</b> on the signal card and we'll 
+    track the entry timing for you.<br><br>
+    Check the <b style='color:#F5F5F5'>WATCH QUEUE tab</b> to see when your 
+    signal confirms — and get ready to enter.<br><br>
+    <b style='color:#D4AF37'>You're ready. Let's find some setups.</b>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("← Back", use_container_width=True, key="ob_back_4"):
+                    st.session_state.onboarding_step = 3
+                    st.rerun()
+            with c2:
+                if st.button("Start Scanning →", type="primary", use_container_width=True, key="ob_finish"):
+                    complete_onboarding()
+                    st.rerun()
+
+    st.stop()
+
 check_auth()
+check_onboarding()  # Show first-time tutorial
 # ─────────────────────────────────────────────────────────────────────────────
 
 st.markdown("""
@@ -1238,6 +1417,8 @@ def init_auto_scan():
         st.session_state.paper_trades = []  # loaded from Supabase after functions defined
     if "user_watchlist"      not in st.session_state: st.session_state.user_watchlist       = list(DEFAULT_WATCHLIST)
     if "watchlist_loaded"    not in st.session_state: st.session_state.watchlist_loaded     = False
+    if "onboarding_complete" not in st.session_state: st.session_state.onboarding_complete  = False
+    if "onboarding_step"     not in st.session_state: st.session_state.onboarding_step      = 1
     if "user_id"             not in st.session_state: st.session_state.user_id              = None
     if "tos_agreed"          not in st.session_state: st.session_state.tos_agreed           = False
 
@@ -3242,6 +3423,7 @@ with st.sidebar:
             keys_to_clear = [
                 "authenticated", "tos_agreed", "user_email", "user_id", "is_admin",
                 "watchlist_loaded", "wq_loaded", "watch_queue", "user_watchlist",
+                "onboarding_complete", "onboarding_step",
                 "_access_token", "_refresh_token", "_last_token_refresh",
                 "auto_scan_go_now", "auto_scan_watching", "auto_scan_on_deck",
             ]
