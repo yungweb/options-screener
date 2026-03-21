@@ -1336,13 +1336,13 @@ def get_trend(df):
     ll = [float(low.iloc[i])  for i in range(-10,0)]
     lower_highs = len(hl)>=9 and hl[-1]<hl[-5]<hl[-9]
     higher_lows = len(ll)>=9 and ll[-1]>ll[-5]>ll[-9]
-    bear={"below_ema":{"pass":price<ema20,"label":f"Price below EMA 20 (${ema20:.2f})"},
-          "below_vwap":{"pass":price<vwap,"label":f"Price below VWAP (${vwap:.2f})"},
+    bear={"below_ema":{"pass":price<ema20,"label":"Trend Filter: Aligned" if price<ema20 else "Trend Filter: Against"},
+          "below_vwap":{"pass":price<vwap,"label":"Intraday Bias: Aligned" if price<vwap else "Intraday Bias: Against"},
           "rsi_high":  {"pass":rsi>55,    "label":f"RSI elevated ({rsi:.0f})"},
           "down_vol":  {"pass":down_vol>up_vol,"label":"Heavier volume on down bars"},
           "lower_highs":{"pass":lower_highs,"label":"Lower highs forming"}}
-    bull={"above_ema": {"pass":price>ema20,"label":f"Price above EMA 20 (${ema20:.2f})"},
-          "above_vwap":{"pass":price>vwap, "label":f"Price above VWAP (${vwap:.2f})"},
+    bull={"above_ema": {"pass":price>ema20,"label":"Trend Filter: Aligned" if price>ema20 else "Trend Filter: Against"},
+          "above_vwap":{"pass":price>vwap, "label":"Intraday Bias: Aligned" if price>vwap else "Intraday Bias: Against"},
           "rsi_low":   {"pass":rsi<45,     "label":f"RSI low ({rsi:.0f})"},
           "up_vol":    {"pass":up_vol>down_vol,"label":"Heavier volume on up bars"},
           "higher_lows":{"pass":higher_lows,"label":"Higher lows forming"}}
@@ -1463,10 +1463,10 @@ def score_setup(df, setup):
 
     factors = {
         "Pattern":{"pass":True,          "label":"Pattern confirmed"},
-        "RSI Div":{"pass":rsi_div_match, "label":f"RSI divergence {'confirmed' if rsi_div_match else 'not detected'}"},
-        "Volume": {"pass":vol_expanding, "label":f"Volume {'spike' if vol_expanding else 'expanding' if vol_present else 'weak'} ({cur_vol/1e6:.1f}M vs avg {avg_vol/1e6:.1f}M)"},
-        "EMA":    {"pass":(price>ema20 if is_bull else price<ema20),"label":f"Price {'above' if is_bull else 'below'} EMA 20 (${ema20:.2f})"},
-        "VWAP":   {"pass":(price>vwap  if is_bull else price<vwap), "label":f"Price {'above' if is_bull else 'below'} VWAP (${vwap:.2f})"},
+        "RSI Div":{"pass":rsi_div_match, "label":"Price Divergence: Confirmed" if rsi_div_match else "Price Divergence: Not Detected"},
+        "Volume": {"pass":vol_expanding, "label":"Volume: Confirmed" if vol_expanding else ("Volume: Present" if vol_present else "Volume: Insufficient")},
+        "EMA":    {"pass":(price>ema20 if is_bull else price<ema20),"label":"Trend Filter: Aligned" if (price>ema20 if is_bull else price<ema20) else "Trend Filter: Against"},
+        "VWAP":   {"pass":(price>vwap  if is_bull else price<vwap), "label":"Intraday Bias: Aligned" if (price>vwap if is_bull else price<vwap) else "Intraday Bias: Against"},
     }
 
     # Base score: each factor = 10pts, max 50
@@ -1647,21 +1647,21 @@ def check_vwap_confluence(df_5min, direction):
         holding = prev > vwap and price > vwap
         passes  = reclaim or holding
         if reclaim:
-            label = f"5min VWAP reclaimed ↑ (${vwap:.2f}) - strong"
+            label = "5min Intraday: Strong Reclaim ✅"
         elif holding:
-            label = f"5min holding above VWAP (${vwap:.2f})"
+            label = "5min Intraday: Holding Bullish"
         else:
-            label = f"5min below VWAP (${vwap:.2f}) - no reclaim yet"
+            label = "5min Intraday: Waiting for Reclaim"
     else:
         rejection = prev > vwap and price < vwap
         holding   = prev < vwap and price < vwap
         passes    = rejection or holding
         if rejection:
-            label = f"5min VWAP rejected ↓ (${vwap:.2f}) - strong"
+            label = "5min Intraday: Strong Rejection ✅"
         elif holding:
-            label = f"5min holding below VWAP (${vwap:.2f})"
+            label = "5min Intraday: Holding Bearish"
         else:
-            label = f"5min above VWAP (${vwap:.2f}) - no rejection yet"
+            label = "5min Intraday: Waiting for Rejection"
     return passes, label
     is_bull = direction == "bullish"
     if is_bull:
@@ -1671,22 +1671,22 @@ def check_vwap_confluence(df_5min, direction):
         holding = prev > vwap and price > vwap
         passes  = reclaim or holding
         if reclaim:
-            label = f"5min VWAP reclaimed ↑ (${vwap:.2f}) - strong"
+            label = "5min Intraday: Strong Reclaim ✅"
         elif holding:
-            label = f"5min holding above VWAP (${vwap:.2f})"
+            label = "5min Intraday: Holding Bullish"
         else:
-            label = f"5min below VWAP (${vwap:.2f}) - no reclaim yet"
+            label = "5min Intraday: Waiting for Reclaim"
     else:
         # Actual rejection: prev closed above, current closed below
         rejection = prev > vwap and price < vwap
         holding   = prev < vwap and price < vwap
         passes    = rejection or holding
         if rejection:
-            label = f"5min VWAP rejected ↓ (${vwap:.2f}) - strong"
+            label = "5min Intraday: Strong Rejection ✅"
         elif holding:
-            label = f"5min holding below VWAP (${vwap:.2f})"
+            label = "5min Intraday: Holding Bearish"
         else:
-            label = f"5min above VWAP (${vwap:.2f}) - no rejection yet"
+            label = "5min Intraday: Waiting for Rejection"
     return passes, label
 
 def check_ema50_slope(df_daily, direction):
@@ -2175,7 +2175,7 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                 g_color = "#e0e6f0" if gdata["pass"] else "#8899aa"
                 # Sanitize label - remove any characters that could break HTML
                 g_label = str(gdata["label"]).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;").replace("'","&#39;")
-                gates_dots += "<div class='factor-row'><span class='" + dot + "'></span><span style='color:" + g_color + ";font-size:0.78rem'><b>" + gname + ":</b> " + g_label + "</span></div>"
+                gates_dots += "<div class='factor-row'><span class='" + dot + "'></span><span style='color:" + g_color + ";font-size:0.78rem'>" + g_label + "</span></div>"
 
             # Build as plain string - no f-string so special chars in labels cant break it
             gate_html = (
