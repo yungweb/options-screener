@@ -23,7 +23,7 @@ st.markdown("""
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="PaidButPressured">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#00e5aa">
+<meta name="theme-color" content="#D4AF37">
 <style>
   /* PWA fullscreen feel - hide Streamlit chrome on mobile */
   @media (display-mode: standalone) {
@@ -51,20 +51,20 @@ st.markdown("""
     banner.id = 'pwa-install-banner';
     banner.innerHTML = `
       <div style="position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
-                  background:#0d1421;border:1px solid #00e5aa;border-radius:12px;
+                  background:#1A1A1D;border:1px solid #D4AF37;border-radius:12px;
                   padding:12px 20px;z-index:9999;display:flex;align-items:center;gap:12px;
                   box-shadow:0 4px 20px rgba(0,229,170,0.2);max-width:320px;width:90%">
         <span style="font-size:1.2rem">📡</span>
         <div>
-          <div style="color:#d0dae8;font-size:0.8rem;font-weight:700">Add to Home Screen</div>
-          <div style="color:#8899aa;font-size:0.7rem">Install PaidButPressured as an app</div>
+          <div style="color:#F5F5F5;font-size:0.8rem;font-weight:700">Add to Home Screen</div>
+          <div style="color:#A1A1A6;font-size:0.7rem">Install PaidButPressured as an app</div>
         </div>
-        <button onclick="installPWA()" style="background:#00e5aa;color:#060c14;border:none;
+        <button onclick="installPWA()" style="background:#D4AF37;color:#0B0B0C;border:none;
                 border-radius:8px;padding:6px 14px;font-weight:700;font-size:0.75rem;cursor:pointer">
           Install
         </button>
         <button onclick="document.getElementById('pwa-install-banner').remove()"
-                style="background:transparent;border:none;color:#8899aa;cursor:pointer;font-size:1rem">✕</button>
+                style="background:transparent;border:none;color:#A1A1A6;cursor:pointer;font-size:1rem">✕</button>
       </div>
     `;
     document.body.appendChild(banner);
@@ -194,10 +194,10 @@ def check_auth():
     st.markdown("""
 <style>
 .auth-wrap { max-width:400px; margin:60px auto; padding:32px 36px;
-             background:#0d1421; border:1px solid #1e2d40; border-radius:16px; }
-.auth-title { font-size:1.4rem; font-weight:700; color:#d0dae8;
+             background:#1A1A1D; border:1px solid #2A2A2D; border-radius:16px; }
+.auth-title { font-size:1.4rem; font-weight:700; color:#F5F5F5;
               text-align:center; letter-spacing:2px; margin-bottom:4px; }
-.auth-sub   { font-size:0.75rem; color:#8899aa; text-align:center; margin-bottom:24px; }
+.auth-sub   { font-size:0.75rem; color:#A1A1A6; text-align:center; margin-bottom:24px; }
 </style>
 <div class="auth-wrap">
   <div class="auth-title">📡 PAIDBUTPRESSURED</div>
@@ -292,36 +292,36 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600;700&display=swap');
 * { font-family: 'Barlow', sans-serif; }
-body, .stApp { background: #0a0e17; color: #e0e6f0; }
-.stSidebar { background: #0d1219 !important; border-right: 1px solid #1e2d40; }
+body, .stApp { background: #0a0e17; color: #F5F5F5; }
+.stSidebar { background: #1A1A1D !important; border-right: 1px solid #2A2A2D; }
 .big-price { font-size: 2rem; font-weight: 700; }
-.section-title { color: #00d4aa; font-family: 'Share Tech Mono', monospace; font-size: 0.75rem; letter-spacing: 2px; margin: 20px 0 8px; border-bottom: 1px solid #1e2d40; padding-bottom: 4px; }
-.metric-card { background: #111827; border: 1px solid #1e2d40; border-radius: 8px; padding: 14px; margin: 4px 0; }
-.rank-best   { background: #061a10; border: 2px solid #00d4aa; border-radius: 12px; padding: 16px; margin: 6px 0; }
+.section-title { color: #D4AF37; font-family: 'Share Tech Mono', monospace; font-size: 0.75rem; letter-spacing: 2px; margin: 20px 0 8px; border-bottom: 1px solid #2A2A2D; padding-bottom: 4px; }
+.metric-card { background: #111827; border: 1px solid #2A2A2D; border-radius: 8px; padding: 14px; margin: 4px 0; }
+.rank-best   { background: #1A1500; border: 2px solid #D4AF37; border-radius: 12px; padding: 16px; margin: 6px 0; }
 .rank-better { background: #0a1a0a; border: 2px solid #40c070; border-radius: 12px; padding: 16px; margin: 6px 0; }
-.rank-good   { background: #141a0a; border: 2px solid #f0c040; border-radius: 12px; padding: 16px; margin: 6px 0; }
+.rank-good   { background: #141a0a; border: 2px solid #F6E27A; border-radius: 12px; padding: 16px; margin: 6px 0; }
 .rank-badge  { font-family: 'Share Tech Mono', monospace; font-size: 0.7rem; letter-spacing: 2px; padding: 3px 10px; border-radius: 20px; display: inline-block; margin-bottom: 8px; }
-.badge-best   { background: #00d4aa22; color: #00d4aa; }
+.badge-best   { background: #D4AF3722; color: #D4AF37; }
 .badge-better { background: #40c07022; color: #40c070; }
-.badge-good   { background: #f0c04022; color: #f0c040; }
-.conf-num-best   { font-size: 2.2rem; font-weight: 700; color: #00d4aa; }
+.badge-good   { background: #F6E27A22; color: #F6E27A; }
+.conf-num-best   { font-size: 2.2rem; font-weight: 700; color: #D4AF37; }
 .conf-num-better { font-size: 2.2rem; font-weight: 700; color: #40c070; }
-.conf-num-good   { font-size: 2.2rem; font-weight: 700; color: #f0c040; }
+.conf-num-good   { font-size: 2.2rem; font-weight: 700; color: #F6E27A; }
 .factor-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 0.82rem; }
-.dot-green  { width: 8px; height: 8px; background: #00d4aa; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-.dot-red    { width: 8px; height: 8px; background: #ff4d6d; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-.dot-yellow { width: 8px; height: 8px; background: #f0c040; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-.trade-box  { background: #111827; border-radius: 8px; padding: 14px; margin-top: 10px; border-left: 3px solid #00d4aa; }
-.trade-box.bear { border-left-color: #ff4d6d; }
-.exit-rules { background: #0d1525; border: 1px solid #1e2d40; border-radius: 8px; padding: 12px 14px; margin-top: 10px; font-size: 0.83rem; }
-.gate-box   { background: #0d1219; border: 1px solid #1e2d40; border-radius: 8px; padding: 12px 14px; margin-top: 8px; }
-.ai-placeholder { background: #0d1219; border: 1px dashed #1e2d40; border-radius: 8px; padding: 14px; margin-top: 10px; color: #8899aa; font-size: 0.83rem; text-align: center; }
-.conflict-warn { background: #1a150a; border: 1px solid #f0c040; border-radius: 8px; padding: 10px 14px; margin: 6px 0; font-size: 0.83rem; color: #f0c040; }
-.market-open   { background: #061a10; border: 1px solid #00d4aa; border-radius: 8px; padding: 8px 14px; margin-bottom: 10px; color: #00d4aa; font-size: 0.85rem; }
-.market-closed { background: #1a1010; border: 1px solid #ff4d6d; border-radius: 8px; padding: 8px 14px; margin-bottom: 10px; color: #ff4d6d; font-size: 0.85rem; }
-.market-pre    { background: #1a150a; border: 1px solid #f0c040; border-radius: 8px; padding: 8px 14px; margin-bottom: 10px; color: #f0c040; font-size: 0.85rem; }
-.divergence-bull { background: #061a10; border: 1px solid #00d4aa; border-radius: 8px; padding: 10px 14px; margin: 6px 0; font-size: 0.83rem; color: #00d4aa; }
-.divergence-bear { background: #1a0610; border: 1px solid #ff4d6d; border-radius: 8px; padding: 10px 14px; margin: 6px 0; font-size: 0.83rem; color: #ff4d6d; }
+.dot-green  { width: 8px; height: 8px; background: #D4AF37; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot-red    { width: 8px; height: 8px; background: #C1121F; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot-yellow { width: 8px; height: 8px; background: #F6E27A; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.trade-box  { background: #111827; border-radius: 8px; padding: 14px; margin-top: 10px; border-left: 3px solid #D4AF37; }
+.trade-box.bear { border-left-color: #C1121F; }
+.exit-rules { background: #0d1525; border: 1px solid #2A2A2D; border-radius: 8px; padding: 12px 14px; margin-top: 10px; font-size: 0.83rem; }
+.gate-box   { background: #1A1A1D; border: 1px solid #2A2A2D; border-radius: 8px; padding: 12px 14px; margin-top: 8px; }
+.ai-placeholder { background: #1A1A1D; border: 1px dashed #2A2A2D; border-radius: 8px; padding: 14px; margin-top: 10px; color: #A1A1A6; font-size: 0.83rem; text-align: center; }
+.conflict-warn { background: #1a150a; border: 1px solid #F6E27A; border-radius: 8px; padding: 10px 14px; margin: 6px 0; font-size: 0.83rem; color: #F6E27A; }
+.market-open   { background: #1A1500; border: 1px solid #D4AF37; border-radius: 8px; padding: 8px 14px; margin-bottom: 10px; color: #D4AF37; font-size: 0.85rem; }
+.market-closed { background: #1a1010; border: 1px solid #C1121F; border-radius: 8px; padding: 8px 14px; margin-bottom: 10px; color: #C1121F; font-size: 0.85rem; }
+.market-pre    { background: #1a150a; border: 1px solid #F6E27A; border-radius: 8px; padding: 8px 14px; margin-bottom: 10px; color: #F6E27A; font-size: 0.85rem; }
+.divergence-bull { background: #1A1500; border: 1px solid #D4AF37; border-radius: 8px; padding: 10px 14px; margin: 6px 0; font-size: 0.83rem; color: #D4AF37; }
+.divergence-bear { background: #1a0610; border: 1px solid #C1121F; border-radius: 8px; padding: 10px 14px; margin: 6px 0; font-size: 0.83rem; color: #C1121F; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -2072,8 +2072,8 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
     """Renders signal cards for a given candidate list. Called once per column."""
     if not candidates:
         st.markdown(
-            "<div style='background:#111827;border:1px solid #1e2d40;border-radius:12px;"
-            "padding:20px;text-align:center;color:#8899aa;font-size:0.85rem'>"
+            "<div style='background:#111827;border:1px solid #2A2A2D;border-radius:12px;"
+            "padding:20px;text-align:center;color:#A1A1A6;font-size:0.85rem'>"
             "No signals found for this mode.</div>", unsafe_allow_html=True)
         return
 
@@ -2091,7 +2091,7 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
         ri = rank_icons[i]   if i<3 else ""
 
         is_bull   = sig["direction"] == "bullish"
-        dir_color = "#00d4aa" if is_bull else "#ff4d6d"
+        dir_color = "#D4AF37" if is_bull else "#C1121F"
         dir_label = "BUY CALL" if is_bull else "BUY PUT"
 
         # Trade style badge
@@ -2099,10 +2099,10 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
         if sig_style == "quick":
             style_badge = "<span style='background:#1a0a3a;color:#aa88ff;font-family:monospace;font-size:0.68rem;padding:2px 7px;border-radius:10px;margin-left:6px'>⚡ QUICK</span>"
         else:
-            style_badge = "<span style='background:#0a1a2a;color:#6699cc;font-family:monospace;font-size:0.68rem;padding:2px 7px;border-radius:10px;margin-left:6px'>📅 SWING</span>"
+            style_badge = "<span style='background:#0a1a2a;color:#A1A1A6;font-family:monospace;font-size:0.68rem;padding:2px 7px;border-radius:10px;margin-left:6px'>📅 SWING</span>"
 
         # Liquidity warning (silent fail - only shows if explicitly illiquid)
-        liq_warn = "" if liq_ok else "<span style='color:#f0c040;font-size:0.75rem;margin-left:8px'>⚠ Low liquidity</span>"
+        liq_warn = "" if liq_ok else "<span style='color:#F6E27A;font-size:0.75rem;margin-left:8px'>⚠ Low liquidity</span>"
 
         # Regime indicator (1 line, subtle)
         sig_regime   = sig.get("regime","unknown")
@@ -2118,27 +2118,27 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
         quick_warn_html = ""
         if sig_style == "quick" and mstatus != "open":
             session_name = {"pre": "Pre-Market", "after": "After-Hours", "closed": "Market Closed"}.get(mstatus, "Extended Hours")
-            quick_warn_html = "<div style='background:#1a150a;border:1px solid #f0c040;border-radius:6px;padding:8px 12px;margin-bottom:6px;color:#f0c040;font-size:0.8rem'>⚡ %s - Quick trade levels based on latest price. Use for planning only.</div>" % session_name
+            quick_warn_html = "<div style='background:#1a150a;border:1px solid #F6E27A;border-radius:6px;padding:8px 12px;margin-bottom:6px;color:#F6E27A;font-size:0.8rem'>⚡ %s - Quick trade levels based on latest price. Use for planning only.</div>" % session_name
 
         dots_html = ""
         for f in sig["factors"].values():
             dot = "dot-green" if f["pass"] else "dot-red"
-            dots_html += f"<div class='factor-row'><span class='{dot}'></span><span style='color:{'#e0e6f0' if f['pass'] else '#8899aa'}'>{f['label']}</span></div>"
+            dots_html += f"<div class='factor-row'><span class='{dot}'></span><span style='color:{'#F5F5F5' if f['pass'] else '#A1A1A6'}'>{f['label']}</span></div>"
 
         # Multi-TF confluence rows
         tf_details = sig.get("tf_details", [])
         extra_conf = sig.get("extra_confluence", {})
         tf_html = ""
         if tf_details:
-            tf_html += "<div style='margin-top:8px;padding-top:8px;border-top:1px solid #1e2d40'>"
-            tf_html += "<div style='color:#8899aa;font-family:monospace;font-size:0.68rem;letter-spacing:1px;margin-bottom:4px'>TIMEFRAME CONFLUENCE</div>"
+            tf_html += "<div style='margin-top:8px;padding-top:8px;border-top:1px solid #2A2A2D'>"
+            tf_html += "<div style='color:#A1A1A6;font-family:monospace;font-size:0.68rem;letter-spacing:1px;margin-bottom:4px'>TIMEFRAME CONFLUENCE</div>"
             for td in tf_details:
                 dot = "dot-green" if td["agrees"] else "dot-red"
-                c_color = "#e0e6f0" if td["agrees"] else "#8899aa"
+                c_color = "#F5F5F5" if td["agrees"] else "#A1A1A6"
                 tf_html += "<div class='factor-row'><span class='" + dot + "'></span><span style='color:" + c_color + ";font-size:0.78rem'><b>" + td["tf"].upper() + ":</b> " + td["trend"].upper() + "</span></div>"
             if extra_conf:
                 dot = "dot-green" if extra_conf.get("pass") else "dot-yellow"
-                c_color = "#e0e6f0" if extra_conf.get("pass") else "#8899aa"
+                c_color = "#F5F5F5" if extra_conf.get("pass") else "#A1A1A6"
                 tf_html += "<div class='factor-row'><span class='" + dot + "'></span><span style='color:" + c_color + ";font-size:0.78rem'><b>" + str(extra_conf.get("name","")) + ":</b> " + str(extra_conf.get("label","")) + "</span></div>"
             tf_html += "</div>"
 
@@ -2150,11 +2150,11 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                 <div>
                     <span class='rank-badge {bc}'>{ri} {rl}</span>{style_badge}{liq_warn}
                     <div style='font-size:1.1rem;font-weight:700;color:{dir_color};margin-top:4px'>{dir_label} - {ticker}</div>
-                    <div style='color:#8899aa;font-size:0.82rem;margin-top:2px'>{sig['pattern_label']} &nbsp;<span style='font-size:0.75rem'>{regime_icon} {regime_label}</span></div>
+                    <div style='color:#A1A1A6;font-size:0.82rem;margin-top:2px'>{sig['pattern_label']} &nbsp;<span style='font-size:0.75rem'>{regime_icon} {regime_label}</span></div>
                 </div>
                 <div style='text-align:right'>
                     <div class='{cc}'>{sig['confidence']}%</div>
-                    <div style='font-size:0.7rem;font-family:monospace;margin-top:2px;color:#8899aa'>{"GO" if sig['confidence']>=90 else "STRONG" if sig['confidence']>=80 else "WATCH" if sig['confidence']>=70 else "WEAK" if sig['confidence']>=60 else "WAIT"}</div>
+                    <div style='font-size:0.7rem;font-family:monospace;margin-top:2px;color:#A1A1A6'>{"GO" if sig['confidence']>=90 else "STRONG" if sig['confidence']>=80 else "WATCH" if sig['confidence']>=70 else "WEAK" if sig['confidence']>=60 else "WAIT"}</div>
                 </div>
             </div>
             <div style='margin-top:10px'>{dots_html}{tf_html}</div>
@@ -2165,8 +2165,8 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
             opt = calc_trade(sig["entry"],sig["stop"],sig["target"],sig["direction"],dte,account_size,risk_pct,current_price,atr=atr,trade_style=trade_style)
             gates, gates_passed, elevate = run_seven_point_gate(df,sig,opt,iv_rank,earnings_days,opt["actual_dte"])
             est_days, dte_rec = estimate_move_timeframe(sig["pattern_label"])
-            gate_color = "#00d4aa" if gates_passed>=6 else "#f0c040" if gates_passed>=4 else "#ff4d6d"
-            elev_badge = "<span style='background:#00d4aa22;color:#00d4aa;padding:2px 8px;border-radius:10px;font-size:0.72rem;margin-left:8px'>PRIME SETUP</span>" if elevate else ""
+            gate_color = "#D4AF37" if gates_passed>=6 else "#F6E27A" if gates_passed>=4 else "#C1121F"
+            elev_badge = "<span style='background:#D4AF3722;color:#D4AF37;padding:2px 8px;border-radius:10px;font-size:0.72rem;margin-left:8px'>PRIME SETUP</span>" if elevate else ""
 
             # Fibonacci confluence for signals tab
             try:
@@ -2180,7 +2180,7 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                 if gdata["critical"] and not gdata["pass"]: dot = "dot-red"
                 elif gdata["pass"]:                          dot = "dot-green"
                 else:                                        dot = "dot-yellow"
-                g_color = "#e0e6f0" if gdata["pass"] else "#8899aa"
+                g_color = "#F5F5F5" if gdata["pass"] else "#A1A1A6"
                 # Sanitize label - remove any characters that could break HTML
                 g_label = str(gdata["label"]).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;").replace("'","&#39;")
                 gates_dots += "<div class='factor-row'><span class='" + dot + "'></span><span style='color:" + g_color + ";font-size:0.78rem'>" + g_label + "</span></div>"
@@ -2193,7 +2193,7 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                 + elev_badge +
                 "</div>"
                 + gates_dots +
-                "<div style='color:#8899aa;font-size:0.75rem;margin-top:6px'>Pattern needs ~" + str(est_days) + " days to play out | Recommended DTE: " + str(dte_rec) + "+ days</div>"
+                "<div style='color:#A1A1A6;font-size:0.75rem;margin-top:6px'>Pattern needs ~" + str(est_days) + " days to play out | Recommended DTE: " + str(dte_rec) + "+ days</div>"
                 "</div>"
             )
             st.markdown(gate_html, unsafe_allow_html=True)
@@ -2201,36 +2201,36 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
             # ── HTF Confluence ────────────────────────────────────────────
             if htf_trend is not None:
                 htf_agrees = htf_trend == sig["direction"]
-                htf_color  = "#00d4aa" if htf_agrees else "#ff4d6d"
+                htf_color  = "#D4AF37" if htf_agrees else "#C1121F"
                 htf_icon   = "✅" if htf_agrees else "⚠️"
                 htf_label  = ("DAILY TREND CONFIRMS" if htf_agrees else "DAILY TREND CONFLICTS")
                 htf_detail = "Daily chart agrees - higher timeframe is aligned." if htf_agrees else "Daily chart is moving the other way. Extra caution - counter-trend trade."
                 htf_html = (
-                    "<div style='background:#0d1219;border:1px solid " + htf_color + "33;border-radius:8px;padding:10px 14px;margin-top:6px'>"
+                    "<div style='background:#1A1A1D;border:1px solid " + htf_color + "33;border-radius:8px;padding:10px 14px;margin-top:6px'>"
                     "<div style='display:flex;align-items:center;gap:8px'>"
                     "<span>" + htf_icon + "</span>"
                     "<span style='color:" + htf_color + ";font-family:monospace;font-size:0.72rem;font-weight:700'>" + htf_label + "</span>"
-                    "<span style='color:#8899aa;font-size:0.78rem;margin-left:4px'>Daily trend: " + htf_trend.upper() + " | RSI " + str(htf_rsi) + " | EMA20 $" + str(htf_ema) + "</span>"
+                    "<span style='color:#A1A1A6;font-size:0.78rem;margin-left:4px'>Daily trend: " + htf_trend.upper() + " | RSI " + str(htf_rsi) + " | EMA20 $" + str(htf_ema) + "</span>"
                     "</div>"
-                    "<div style='color:#8899aa;font-size:0.78rem;margin-top:4px'>" + htf_detail + "</div>"
+                    "<div style='color:#A1A1A6;font-size:0.78rem;margin-top:4px'>" + htf_detail + "</div>"
                     "</div>"
                 )
                 st.markdown(htf_html, unsafe_allow_html=True)
 
             # ── Move probability ──────────────────────────────────────────
-            tr_color = "#00d4aa" if opt["target_realistic"]=="Likely" else "#f0c040" if opt["target_realistic"]=="Possible" else "#ff4d6d"
+            tr_color = "#D4AF37" if opt["target_realistic"]=="Likely" else "#F6E27A" if opt["target_realistic"]=="Possible" else "#C1121F"
             atr_txt  = (str(opt["atr_multiples"]) + "x ATR needed") if opt["atr_multiples"] else ""
             move_html = (
-                "<div style='background:#0d1219;border:1px solid #1e2d40;border-radius:8px;padding:10px 14px;margin-top:6px'>"
+                "<div style='background:#1A1A1D;border:1px solid #2A2A2D;border-radius:8px;padding:10px 14px;margin-top:6px'>"
                 "<div style='display:flex;justify-content:space-between;align-items:center'>"
-                "<span style='color:#8899aa;font-family:monospace;font-size:0.72rem'>MOVE REQUIRED</span>"
+                "<span style='color:#A1A1A6;font-family:monospace;font-size:0.72rem'>MOVE REQUIRED</span>"
                 "<span style='color:" + tr_color + ";font-weight:700;font-size:0.85rem'>" + opt["target_realistic"].upper() + "</span>"
                 "</div>"
                 "<div style='margin-top:4px;font-size:0.82rem'>"
-                "Price needs to move <b style='color:#e0e6f0'>" + str(opt["move_pct"]) + "%</b>"
-                + (" &nbsp;|&nbsp; <span style='color:#8899aa'>" + atr_txt + "</span>" if atr_txt else "") +
+                "Price needs to move <b style='color:#F5F5F5'>" + str(opt["move_pct"]) + "%</b>"
+                + (" &nbsp;|&nbsp; <span style='color:#A1A1A6'>" + atr_txt + "</span>" if atr_txt else "") +
                 "</div>"
-                "<div style='color:#8899aa;font-size:0.75rem;margin-top:2px'>"
+                "<div style='color:#A1A1A6;font-size:0.75rem;margin-top:2px'>"
                 + ("Likely = &le;2x ATR &nbsp; Possible = 2-4x ATR &nbsp; Ambitious = 4x+ ATR" if opt["atr_multiples"] else "") +
                 "</div>"
                 "</div>"
@@ -2238,26 +2238,26 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
             st.markdown(move_html, unsafe_allow_html=True)
 
             if not opt["delta_ok"]:
-                st.markdown(f"<div style='background:#1a150a;border:1px solid #f0c040;border-radius:6px;padding:8px 12px;margin-top:6px;color:#f0c040;font-size:0.8rem'>Delta {opt['delta']:.2f} outside 0.35-0.85 ideal range</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='background:#1a150a;border:1px solid #F6E27A;border-radius:6px;padding:8px 12px;margin-top:6px;color:#F6E27A;font-size:0.8rem'>Delta {opt['delta']:.2f} outside 0.35-0.85 ideal range</div>", unsafe_allow_html=True)
 
-            delta_color = "#00d4aa" if opt["delta_ok"] else "#f0c040"
+            delta_color = "#D4AF37" if opt["delta_ok"] else "#F6E27A"
             st.markdown(f"""
             <div class='trade-box {"" if is_bull else "bear"}'>
                 <div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.88rem'>
-                    <div><div style='color:#8899aa;font-size:0.72rem'>STRIKE</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>${opt['strike']:.2f}</div></div>
-                    <div><div style='color:#8899aa;font-size:0.72rem'>PAY MAX</div><div style='font-weight:700'>${opt['premium']:.2f}/sh</div></div>
-                    <div><div style='color:#8899aa;font-size:0.72rem'>ENTRY</div><div style='font-weight:700'>${opt['entry']:.2f}</div></div>
-                    <div><div style='color:#8899aa;font-size:0.72rem'>DELTA</div><div style='font-weight:700;color:{delta_color}'>{opt['delta']:.2f}</div></div>
-                    <div><div style='color:#8899aa;font-size:0.72rem'>EXIT TARGET</div><div style='font-weight:700;color:#00d4aa'>${opt['target']:.2f}</div></div>
-                    <div><div style='color:#8899aa;font-size:0.72rem'>STOP OUT</div><div style='font-weight:700;color:#ff4d6d'>${opt['stop']:.2f}</div></div>
-                    <div><div style='color:#8899aa;font-size:0.72rem'>R:R RATIO</div><div style='font-weight:700;color:#00d4aa'>{opt['rr']}x</div></div>
-                    <div><div style='color:#8899aa;font-size:0.72rem'>MAX LOSS</div><div style='font-weight:700;color:#ff4d6d'>${opt['max_loss']:.0f}</div></div>
-                    <div><div style='color:#8899aa;font-size:0.72rem'>CONTRACTS</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>{opt['contracts']}</div></div>
-                    <div><div style='color:#8899aa;font-size:0.72rem'>PROFIT AT TARGET</div><div style='font-size:1.2rem;font-weight:700;color:#00d4aa'>${opt['profit_at_target']:,.0f}</div></div>
+                    <div><div style='color:#A1A1A6;font-size:0.72rem'>STRIKE</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>${opt['strike']:.2f}</div></div>
+                    <div><div style='color:#A1A1A6;font-size:0.72rem'>PAY MAX</div><div style='font-weight:700'>${opt['premium']:.2f}/sh</div></div>
+                    <div><div style='color:#A1A1A6;font-size:0.72rem'>ENTRY</div><div style='font-weight:700'>${opt['entry']:.2f}</div></div>
+                    <div><div style='color:#A1A1A6;font-size:0.72rem'>DELTA</div><div style='font-weight:700;color:{delta_color}'>{opt['delta']:.2f}</div></div>
+                    <div><div style='color:#A1A1A6;font-size:0.72rem'>EXIT TARGET</div><div style='font-weight:700;color:#D4AF37'>${opt['target']:.2f}</div></div>
+                    <div><div style='color:#A1A1A6;font-size:0.72rem'>STOP OUT</div><div style='font-weight:700;color:#C1121F'>${opt['stop']:.2f}</div></div>
+                    <div><div style='color:#A1A1A6;font-size:0.72rem'>R:R RATIO</div><div style='font-weight:700;color:#D4AF37'>{opt['rr']}x</div></div>
+                    <div><div style='color:#A1A1A6;font-size:0.72rem'>MAX LOSS</div><div style='font-weight:700;color:#C1121F'>${opt['max_loss']:.0f}</div></div>
+                    <div><div style='color:#A1A1A6;font-size:0.72rem'>CONTRACTS</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>{opt['contracts']}</div></div>
+                    <div><div style='color:#A1A1A6;font-size:0.72rem'>PROFIT AT TARGET</div><div style='font-size:1.2rem;font-weight:700;color:#D4AF37'>${opt['profit_at_target']:,.0f}</div></div>
                 </div>
-                <div style='margin-top:8px;padding-top:8px;border-top:1px solid #1e2d40;display:flex;justify-content:space-between;align-items:center'>
-                    <div><div style='color:#8899aa;font-size:0.72rem'>EXPIRES</div><div style='font-weight:700'>{opt['expiration']}</div></div>
-                    <div style='text-align:right'><div style='color:#8899aa;font-size:0.72rem'>POSITION SIZE</div><div style='font-weight:700'>${opt['position_dollars']:.0f} <span style='color:#8899aa;font-size:0.75rem'>({opt['pct_of_account']}% of account)</span></div></div>
+                <div style='margin-top:8px;padding-top:8px;border-top:1px solid #2A2A2D;display:flex;justify-content:space-between;align-items:center'>
+                    <div><div style='color:#A1A1A6;font-size:0.72rem'>EXPIRES</div><div style='font-weight:700'>{opt['expiration']}</div></div>
+                    <div style='text-align:right'><div style='color:#A1A1A6;font-size:0.72rem'>POSITION SIZE</div><div style='font-weight:700'>${opt['position_dollars']:.0f} <span style='color:#A1A1A6;font-size:0.75rem'>({opt['pct_of_account']}% of account)</span></div></div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -2283,10 +2283,10 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
 
             st.markdown(f"""
             <div class='exit-rules'>
-                <div style='color:#00d4aa;font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:6px'>EXIT RULES - DECIDE BEFORE YOU ENTER</div>
+                <div style='color:#D4AF37;font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:6px'>EXIT RULES - DECIDE BEFORE YOU ENTER</div>
                 <div style='margin:4px 0'><b>{'Partial exit:' if _can_split else 'Full exit:'}</b> {exit_take}</div>
-                <div style='margin:4px 0'><b>Close all</b> if {ticker} closes {'below' if is_bull else 'above'} <b style='color:#ff4d6d'>${opt['exit_stop_stock']:.2f}</b> - pattern failed, no questions asked.</div>
-                <div style='margin:4px 0;color:#8899aa;font-size:0.8rem'>{exit_hold}</div>
+                <div style='margin:4px 0'><b>Close all</b> if {ticker} closes {'below' if is_bull else 'above'} <b style='color:#C1121F'>${opt['exit_stop_stock']:.2f}</b> - pattern failed, no questions asked.</div>
+                <div style='margin:4px 0;color:#A1A1A6;font-size:0.8rem'>{exit_hold}</div>
             </div>
             """, unsafe_allow_html=True)
 
@@ -2301,7 +2301,7 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                 if mstatus != "open":
                     conf_status = conf_status + " (extended hrs)"
                 if "CONFIRMED" in conf_status:
-                    conf_bg = "#061a10"; conf_border = "#00d4aa"; conf_color = "#00d4aa"; conf_icon = "✅"
+                    conf_bg = "#1A1500"; conf_border = "#D4AF37"; conf_color = "#D4AF37"; conf_icon = "✅"
                     # ── Fire Telegram + paper trade from signals tab ──────────
                     _sig_key = "signals_fired_%s_%s_%s" % (ticker, sig.get("direction",""), i)
                     if not st.session_state.get(_sig_key):
@@ -2345,15 +2345,15 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                         if st.session_state.get("paper_auto_enabled", True):
                             paper_enter_trade(_signal_r)
                 elif "WAITING" in conf_status:
-                    conf_bg = "#0d1219"; conf_border = "#f0c040"; conf_color = "#f0c040"; conf_icon = "👁"
+                    conf_bg = "#1A1A1D"; conf_border = "#F6E27A"; conf_color = "#F6E27A"; conf_icon = "👁"
                 else:
-                    conf_bg = "#1a0a0a"; conf_border = "#ff4d6d"; conf_color = "#ff4d6d"; conf_icon = "⏳"
+                    conf_bg = "#1a0a0a"; conf_border = "#C1121F"; conf_color = "#C1121F"; conf_icon = "⏳"
 
                 candle_html = ""
                 for c in conf_result.get("candles", []):
-                    if c == "green":   candle_html += "<span style='color:#00d4aa'>&#9650;</span> "
-                    elif c == "red":   candle_html += "<span style='color:#ff4d6d'>&#9660;</span> "
-                    else:              candle_html += "<span style='color:#8899aa'>&#9644;</span> "
+                    if c == "green":   candle_html += "<span style='color:#D4AF37'>&#9650;</span> "
+                    elif c == "red":   candle_html += "<span style='color:#C1121F'>&#9660;</span> "
+                    else:              candle_html += "<span style='color:#A1A1A6'>&#9644;</span> "
 
                 st.markdown(f"""
                 <div style='background:{conf_bg};border:1px solid {conf_border};border-radius:8px;padding:10px 14px;margin-top:8px'>
@@ -2361,9 +2361,9 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                     <div style='display:flex;align-items:center;gap:10px'>
                         <span style='font-size:1.1rem'>{conf_icon}</span>
                         <span style='font-weight:700;color:{conf_color}'>{conf_status}</span>
-                        <span style='color:#8899aa;font-size:0.82rem'>Recent candles: {candle_html}</span>
+                        <span style='color:#A1A1A6;font-size:0.82rem'>Recent candles: {candle_html}</span>
                     </div>
-                    <div style='color:#e0e6f0;font-size:0.82rem;margin-top:4px'>{conf_result["message"]}</div>
+                    <div style='color:#F5F5F5;font-size:0.82rem;margin-top:4px'>{conf_result["message"]}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -2373,14 +2373,14 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                     _fp = _fib_sig.get("level_price", 0)
                     _fh = _fib_sig.get("swing_high", 0)
                     _fw = _fib_sig.get("swing_low", 0)
-                    _fc = "#00e5aa" if _fl == "61.8%" else "#f0c040"
+                    _fc = "#D4AF37" if _fl == "61.8%" else "#F6E27A"
                     st.markdown(
-                        "<div style='background:#0d1219;border:1px solid %s;border-radius:8px;"
+                        "<div style='background:#1A1A1D;border:1px solid %s;border-radius:8px;"
                         "padding:10px 14px;margin-top:8px'>"
-                        "<div style='color:#8899aa;font-family:monospace;font-size:0.68rem;"
+                        "<div style='color:#A1A1A6;font-family:monospace;font-size:0.68rem;"
                         "letter-spacing:1px;margin-bottom:4px'>FIBONACCI CONFLUENCE</div>"
                         "<div style='font-size:0.9rem;font-weight:700;color:%s'>🔶 %s Retracement</div>"
-                        "<div style='font-size:0.75rem;color:#8899aa;margin-top:2px'>"
+                        "<div style='font-size:0.75rem;color:#A1A1A6;margin-top:2px'>"
                         "Level: $%.2f &nbsp;·&nbsp; Range: $%.2f — $%.2f</div>"
                         "</div>" % (_fc, _fc, _fl, _fp, _fw, _fh),
                         unsafe_allow_html=True
@@ -2388,9 +2388,9 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
 
                 # Show Watch button prominently for strong setups — no auto-adding
                 if elevate and not already_watching and conf_status != "CONFIRMED":
-                    st.markdown(f"<div style='background:#0d1219;border:1px solid #00e5aa;border-radius:6px;padding:6px 12px;margin-top:4px;color:#00e5aa;font-size:0.8rem'>🚨 {gates_passed}/7 gates — elite setup. Hit Watch to track entry timing.</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='background:#1A1A1D;border:1px solid #D4AF37;border-radius:6px;padding:6px 12px;margin-top:4px;color:#D4AF37;font-size:0.8rem'>🚨 {gates_passed}/7 gates — elite setup. Hit Watch to track entry timing.</div>", unsafe_allow_html=True)
                 elif gates_passed >= 5 and not already_watching and conf_status != "CONFIRMED":
-                    st.markdown(f"<div style='background:#0d1219;border:1px solid #f0c040;border-radius:6px;padding:6px 12px;margin-top:4px;color:#f0c040;font-size:0.8rem'>⚡ {gates_passed}/7 gates - strong setup. Hit Watch to track entry timing.</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='background:#1A1A1D;border:1px solid #F6E27A;border-radius:6px;padding:6px 12px;margin-top:4px;color:#F6E27A;font-size:0.8rem'>⚡ {gates_passed}/7 gates - strong setup. Hit Watch to track entry timing.</div>", unsafe_allow_html=True)
 
 
             if True:  # AI brief available in all sessions
@@ -2411,16 +2411,16 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                             st.error(f"AI call failed: {ai['error']}")
                         else:
                             rating = ai.get("rating","")
-                            if "Strong" in rating:     r_color = "#00d4aa"; r_bg = "#061a10"; r_border = "#00d4aa"
-                            elif "Moderate" in rating: r_color = "#f0c040"; r_bg = "#1a150a"; r_border = "#f0c040"
-                            else:                      r_color = "#ff4d6d"; r_bg = "#1a0a0a"; r_border = "#ff4d6d"
+                            if "Strong" in rating:     r_color = "#D4AF37"; r_bg = "#1A1500"; r_border = "#D4AF37"
+                            elif "Moderate" in rating: r_color = "#F6E27A"; r_bg = "#1a150a"; r_border = "#F6E27A"
+                            else:                      r_color = "#C1121F"; r_bg = "#1a0a0a"; r_border = "#C1121F"
                             st.markdown(f"""
                             <div style='background:{r_bg};border:1px solid {r_border};border-radius:8px;padding:14px;margin-top:8px'>
-                                <div style='color:#8899aa;font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:6px'>AI TRADE BRIEF</div>
+                                <div style='color:#A1A1A6;font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:6px'>AI TRADE BRIEF</div>
                                 <div style='font-size:1.1rem;font-weight:700;color:{r_color};margin-bottom:10px'>🤖 {rating}</div>
-                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#8899aa'>REASONING</span><br>{ai.get("reasoning","")}</div>
-                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#ff4d6d'>KEY RISK</span><br>{ai.get("risk","")}</div>
-                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#00d4aa'>EDGE</span><br>{ai.get("edge","")}</div>
+                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#A1A1A6'>REASONING</span><br>{ai.get("reasoning","")}</div>
+                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#C1121F'>KEY RISK</span><br>{ai.get("risk","")}</div>
+                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#D4AF37'>EDGE</span><br>{ai.get("edge","")}</div>
                             </div>
                             """, unsafe_allow_html=True)
                 else:
@@ -2440,8 +2440,8 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                         # Don't rerun - keeps signal visible with success message
                 else:
                     st.markdown(
-                        "<div style='background:#061a10;border:1px solid #00d4aa;border-radius:6px;"
-                        "padding:6px 12px;font-size:0.75rem;color:#00d4aa;text-align:center'>"
+                        "<div style='background:#1A1500;border:1px solid #D4AF37;border-radius:6px;"
+                        "padding:6px 12px;font-size:0.75rem;color:#D4AF37;text-align:center'>"
                         "✅ In Watch Queue</div>",
                         unsafe_allow_html=True
                     )
@@ -2450,7 +2450,7 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                         st.rerun()
 
         if i < len(candidates) - 1:
-            st.markdown("<hr style='border-color:#1e2d40;margin:12px 0'>", unsafe_allow_html=True)
+            st.markdown("<hr style='border-color:#2A2A2D;margin:12px 0'>", unsafe_allow_html=True)
 
 
 
@@ -3211,7 +3211,7 @@ with st.sidebar:
     st.markdown("## OPTIONS SCREENER v6")
     _user_email = st.session_state.get("user_email", "")
     if _user_email:
-        st.markdown("<div style='font-size:0.65rem;color:#8899aa;margin-bottom:4px'>Signed in as<br><b style='color:#d0dae8'>%s</b></div>" % _user_email, unsafe_allow_html=True)
+        st.markdown("<div style='font-size:0.65rem;color:#A1A1A6;margin-bottom:4px'>Signed in as<br><b style='color:#F5F5F5'>%s</b></div>" % _user_email, unsafe_allow_html=True)
         if st.button("Sign Out", use_container_width=True, key="logout_btn"):
             # Clear everything — full session wipe
             keys_to_clear = [
@@ -4110,12 +4110,12 @@ for ng in _new_go_now:
     _shown_banners.add(_bkey)
     st.session_state.shown_banners = _shown_banners
     is_bull_ng = ng["direction"] == "bullish"
-    dc_ng = "#00e5aa" if is_bull_ng else "#ff4d6d"
+    dc_ng = "#D4AF37" if is_bull_ng else "#C1121F"
     st.markdown("""
-    <div style='background:#061a10;border:2px solid #00e5aa;border-radius:10px;padding:14px 18px;margin:6px 0'>
-        <div style='font-family:monospace;font-size:0.65rem;letter-spacing:3px;color:#00e5aa;margin-bottom:4px'>🚨 NEW GO NOW SIGNAL</div>
+    <div style='background:#1A1500;border:2px solid #D4AF37;border-radius:10px;padding:14px 18px;margin:6px 0'>
+        <div style='font-family:monospace;font-size:0.65rem;letter-spacing:3px;color:#D4AF37;margin-bottom:4px'>🚨 NEW GO NOW SIGNAL</div>
         <div style='font-size:1.1rem;font-weight:700;color:%s'>%s - %s</div>
-        <div style='font-size:0.8rem;color:#8899aa;margin-top:2px'>%s · %s%%%% · %s/7 gates · Strike $%.2f · Target $%.2f · Stop $%.2f</div>
+        <div style='font-size:0.8rem;color:#A1A1A6;margin-top:2px'>%s · %s%%%% · %s/7 gates · Strike $%.2f · Target $%.2f · Stop $%.2f</div>
     </div>
     """ % (dc_ng, "BUY CALL" if is_bull_ng else "BUY PUT", ng["ticker"],
            ng["pattern"], ng["confidence"], ng["gates_passed"],
@@ -4148,21 +4148,21 @@ if earnings_days is not None:
 
 c1,c2,c3,c4 = st.columns([2,1,1,1])
 with c1:
-    color   = "#00d4aa" if pct_change>=0 else "#ff4d6d"
+    color   = "#D4AF37" if pct_change>=0 else "#C1121F"
     arrow   = "UP" if pct_change>=0 else "DN"
-    prepost = "" if mstatus=="open" else " <span style='color:#f0c040;font-size:0.72rem'>(delayed)</span>"
-    st.markdown(f"<div class='metric-card'><div style='color:#8899aa;font-size:0.8rem'>{selected_ticker} . {selected_tf}</div><div class='big-price'>${current_price:,.2f}{prepost}</div><div style='color:{color}'>{arrow} {pct_change:+.2f}%</div></div>", unsafe_allow_html=True)
+    prepost = "" if mstatus=="open" else " <span style='color:#F6E27A;font-size:0.72rem'>(delayed)</span>"
+    st.markdown(f"<div class='metric-card'><div style='color:#A1A1A6;font-size:0.8rem'>{selected_ticker} . {selected_tf}</div><div class='big-price'>${current_price:,.2f}{prepost}</div><div style='color:{color}'>{arrow} {pct_change:+.2f}%</div></div>", unsafe_allow_html=True)
 with c2:
     ema20v = float(df["close"].ewm(span=20).mean().iloc[-1])
     above  = current_price > ema20v
-    st.markdown(f"<div class='metric-card'><div style='color:#8899aa;font-size:0.75rem'>TREND</div><div style='font-weight:700;color:{'#00d4aa' if above else '#ff4d6d'}'>{'BULL' if above else 'BEAR'}</div></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='metric-card'><div style='color:#A1A1A6;font-size:0.75rem'>TREND</div><div style='font-weight:700;color:{'#D4AF37' if above else '#C1121F'}'>{'BULL' if above else 'BEAR'}</div></div>", unsafe_allow_html=True)
 with c3:
     vol = float(df["volume"].iloc[-1])
-    st.markdown(f"<div class='metric-card'><div style='color:#8899aa;font-size:0.75rem'>VOLUME</div><div style='font-weight:700'>{vol/1e6:.1f}M</div></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='metric-card'><div style='color:#A1A1A6;font-size:0.75rem'>VOLUME</div><div style='font-weight:700'>{vol/1e6:.1f}M</div></div>", unsafe_allow_html=True)
 with c4:
-    iv_color = "#00d4aa" if iv_rank is not None and iv_rank<50 else "#f0c040" if iv_rank is not None and iv_rank<70 else "#ff4d6d"
+    iv_color = "#D4AF37" if iv_rank is not None and iv_rank<50 else "#F6E27A" if iv_rank is not None and iv_rank<70 else "#C1121F"
     iv_text  = f"{iv_rank}%" if iv_rank is not None else "N/A"
-    st.markdown(f"<div class='metric-card'><div style='color:#8899aa;font-size:0.75rem'>IV RANK</div><div style='font-weight:700;color:{iv_color}'>{iv_text}</div></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='metric-card'><div style='color:#A1A1A6;font-size:0.75rem'>IV RANK</div><div style='font-weight:700;color:{iv_color}'>{iv_text}</div></div>", unsafe_allow_html=True)
 
 div = detect_rsi_divergence(df)
 if div:
@@ -4179,7 +4179,7 @@ with tab1:
     no_swing = len(cands_swing) == 0
 
     if no_quick and no_swing:
-        st.markdown("""<div style='background:#111827;border:2px solid #1e2d40;border-radius:12px;padding:24px;text-align:center;color:#8899aa'>
+        st.markdown("""<div style='background:#111827;border:2px solid #2A2A2D;border-radius:12px;padding:24px;text-align:center;color:#A1A1A6'>
             <div style='font-size:1rem;font-weight:700;margin:8px 0'>NO SIGNALS FOUND</div>
             <div style='font-size:0.85rem'>Try Daily or 4 Hour timeframe, enable more patterns, or check a different ticker.</div>
         </div>""", unsafe_allow_html=True)
@@ -4191,7 +4191,7 @@ with tab1:
         with col_q:
             st.markdown(f"<div style='background:#1a0a3a;border-radius:6px;padding:6px 12px;text-align:center;color:#aa88ff;font-family:monospace;font-size:0.75rem;letter-spacing:1px'>⚡ QUICK &nbsp;|&nbsp; {dte_quick}DTE</div>", unsafe_allow_html=True)
         with col_s:
-            st.markdown(f"<div style='background:#0a1a2a;border-radius:6px;padding:6px 12px;text-align:center;color:#6699cc;font-family:monospace;font-size:0.75rem;letter-spacing:1px'>📅 SWING &nbsp;|&nbsp; {dte_swing}DTE</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='background:#0a1a2a;border-radius:6px;padding:6px 12px;text-align:center;color:#A1A1A6;font-family:monospace;font-size:0.75rem;letter-spacing:1px'>📅 SWING &nbsp;|&nbsp; {dte_swing}DTE</div>", unsafe_allow_html=True)
 
         with col_q:
             render_signal_cards(cands_quick, selected_ticker, dte_quick, "quick", "q",
@@ -4237,7 +4237,7 @@ with tab2:
         vol_data = [
             {"time":  _ts(row.timestamp),
              "value": float(row.volume),
-             "color": "#00e5aa44" if float(row.close) >= float(row.open) else "#ff4d6d44"}
+             "color": "#D4AF3744" if float(row.close) >= float(row.open) else "#C1121F44"}
             for _, row in _df.iterrows()
         ]
 
@@ -4274,14 +4274,14 @@ with tab2:
                     markers.append({
                         "time":     _ts(row["timestamp"]),
                         "position": "belowBar",
-                        "color":    "#00e5aa",
+                        "color":    "#D4AF37",
                         "shape":    "circle",
                         "text":     "B%s" % (i+1)
                     })
                 markers.append({
                     "time":     marker_time,
                     "position": "aboveBar",
-                    "color":    "#00e5aa",
+                    "color":    "#D4AF37",
                     "shape":    "arrowUp",
                     "text":     "ENTRY ▲ %s" % pat_name
                 })
@@ -4293,14 +4293,14 @@ with tab2:
                     markers.append({
                         "time":     _ts(row["timestamp"]),
                         "position": "aboveBar",
-                        "color":    "#ff4d6d",
+                        "color":    "#C1121F",
                         "shape":    "circle",
                         "text":     "T%s" % (i+1)
                     })
                 markers.append({
                     "time":     marker_time,
                     "position": "belowBar",
-                    "color":    "#ff4d6d",
+                    "color":    "#C1121F",
                     "shape":    "arrowDown",
                     "text":     "ENTRY ▼ %s" % pat_name
                 })
@@ -4312,7 +4312,7 @@ with tab2:
                 markers.append({
                     "time":     marker_time,
                     "position": pos,
-                    "color":    "#00e5aa" if is_bull else "#ff4d6d",
+                    "color":    "#D4AF37" if is_bull else "#C1121F",
                     "shape":    arrow,
                     "text":     "ENTRY %s" % pat_name
                 })
@@ -4322,13 +4322,13 @@ with tab2:
         for s in chart_setups[:1]:  # show lines for best setup only
             is_bull = s.direction == "bullish"
             price_lines += [
-                {"price": round(s.entry_price, 4), "color": "#00e5aa" if is_bull else "#ff4d6d",
+                {"price": round(s.entry_price, 4), "color": "#D4AF37" if is_bull else "#C1121F",
                  "lineWidth": 2, "lineStyle": 0, "axisLabelVisible": True,
                  "title": "Entry $%.2f" % s.entry_price},
-                {"price": round(s.target, 4), "color": "#00e5aa",
+                {"price": round(s.target, 4), "color": "#D4AF37",
                  "lineWidth": 1, "lineStyle": 1, "axisLabelVisible": True,
                  "title": "Target $%.2f" % s.target},
-                {"price": round(s.stop_loss, 4), "color": "#ff4d6d",
+                {"price": round(s.stop_loss, 4), "color": "#C1121F",
                  "lineWidth": 1, "lineStyle": 2, "axisLabelVisible": True,
                  "title": "Stop $%.2f" % s.stop_loss},
             ]
@@ -4344,9 +4344,9 @@ with tab2:
   body {{ margin:0; background:#0a0e17; }}
   #chart {{ width:100%%; height:480px; }}
   #legend {{ position:absolute; top:8px; left:12px; z-index:10;
-            font-family:monospace; font-size:11px; color:#8899aa;
+            font-family:monospace; font-size:11px; color:#A1A1A6;
             background:rgba(10,14,23,0.85); padding:6px 10px;
-            border-radius:6px; border:1px solid #1e2d40; pointer-events:none; }}
+            border-radius:6px; border:1px solid #2A2A2D; pointer-events:none; }}
 </style>
 </head>
 <body>
@@ -4357,18 +4357,18 @@ const chartEl = document.getElementById('chart');
 const chart = LightweightCharts.createChart(chartEl, {{
   width:  chartEl.offsetWidth || 800,
   height: 480,
-  layout: {{ background: {{ color: '#0a0e17' }}, textColor: '#8899aa' }},
+  layout: {{ background: {{ color: '#0a0e17' }}, textColor: '#A1A1A6' }},
   grid:   {{ vertLines: {{ color: '#111827' }}, horzLines: {{ color: '#111827' }} }},
   crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }},
-  rightPriceScale: {{ borderColor: '#1e2d40' }},
-  timeScale: {{ borderColor: '#1e2d40', timeVisible: true, secondsVisible: false }},
+  rightPriceScale: {{ borderColor: '#2A2A2D' }},
+  timeScale: {{ borderColor: '#2A2A2D', timeVisible: true, secondsVisible: false }},
 }});
 
 // Candlestick series
 const candles = chart.addCandlestickSeries({{
-  upColor: '#00e5aa', downColor: '#ff4d6d',
-  borderUpColor: '#00e5aa', borderDownColor: '#ff4d6d',
-  wickUpColor: '#00e5aa', wickDownColor: '#ff4d6d',
+  upColor: '#D4AF37', downColor: '#C1121F',
+  borderUpColor: '#D4AF37', borderDownColor: '#C1121F',
+  wickUpColor: '#D4AF37', wickDownColor: '#C1121F',
 }});
 candles.setData({candles});
 candles.setMarkers({markers});
@@ -4377,7 +4377,7 @@ candles.setMarkers({markers});
 {pricelines}
 
 // EMA 20
-const ema = chart.addLineSeries({{ color: '#f0c040', lineWidth: 1,
+const ema = chart.addLineSeries({{ color: '#F6E27A', lineWidth: 1,
   lineStyle: LightweightCharts.LineStyle.Dashed, priceLineVisible: false,
   lastValueVisible: false, title: 'EMA20' }});
 ema.setData({ema});
@@ -4405,9 +4405,9 @@ chart.subscribeCrosshairMove(param => {{
   const c = param.seriesData.get(candles);
   if (c) {{
     const chg = ((c.close - c.open) / c.open * 100).toFixed(2);
-    const clr = c.close >= c.open ? '#00e5aa' : '#ff4d6d';
+    const clr = c.close >= c.open ? '#D4AF37' : '#C1121F';
     legend.innerHTML =
-      '<span style="color:#d0dae8;font-weight:700">{ticker}</span>  ' +
+      '<span style="color:#F5F5F5;font-weight:700">{ticker}</span>  ' +
       'O:<span style="color:' + clr + '">' + c.open.toFixed(2) + '</span>  ' +
       'H:<span style="color:' + clr + '">' + c.high.toFixed(2) + '</span>  ' +
       'L:<span style="color:' + clr + '">' + c.low.toFixed(2)  + '</span>  ' +
@@ -4445,14 +4445,14 @@ window.addEventListener('resize', () => chart.resize(chartEl.offsetWidth, 480));
             for s in chart_setups[:1]:  # best setup only
                 is_bull  = s.direction == "bullish"
                 pat_name = s.pattern.replace("Double","Double ").replace("BreakRetest","Break & Retest")
-                border   = "#00e5aa" if is_bull else "#ff4d6d"
+                border   = "#D4AF37" if is_bull else "#C1121F"
                 action   = "CALL ▲" if is_bull else "PUT ▼"
                 st.markdown(
-                    "<div style='background:#080c12;border:1px solid %s;border-radius:8px;"
+                    "<div style='background:#0B0B0C;border:1px solid %s;border-radius:8px;"
                     "padding:8px 14px;font-size:0.75rem;min-width:180px'>"
                     "<span style='color:%s;font-weight:700'>%s %s</span><br>"
-                    "<span style='color:#8899aa'>%s</span><br>"
-                    "<span style='color:#d0dae8'>Entry $%.2f · Target $%.2f · Stop $%.2f</span>"
+                    "<span style='color:#A1A1A6'>%s</span><br>"
+                    "<span style='color:#F5F5F5'>Entry $%.2f · Target $%.2f · Stop $%.2f</span>"
                     "</div>" % (
                         border, border, action, selected_ticker,
                         pat_name,
@@ -4469,9 +4469,9 @@ window.addEventListener('resize', () => chart.resize(chartEl.offsetWidth, 480));
         # Legend
         st.markdown(
             "<div style='font-size:0.68rem;color:#556677;margin-top:4px'>"
-            "<span style='color:#f0c040'>- EMA 20</span> &nbsp;"
+            "<span style='color:#F6E27A'>- EMA 20</span> &nbsp;"
             "<span style='color:#9966ff'>-- VWAP</span> &nbsp;"
-            "<span style='color:#00e5aa'>● Pattern markers on chart</span>"
+            "<span style='color:#D4AF37'>● Pattern markers on chart</span>"
             "</div>",
             unsafe_allow_html=True
         )
@@ -4666,7 +4666,7 @@ with tab4:
             def _cb(idx, total, ticker):
                 prog_bar.progress(idx / total)
                 prog_text.markdown(
-                    "<div style='font-size:0.78rem;color:#8899aa'>"
+                    "<div style='font-size:0.78rem;color:#A1A1A6'>"
                     "⏳ <b>Scanning %s...</b> &nbsp;·&nbsp; %s / %s tickers</div>" % (ticker, idx, total),
                     unsafe_allow_html=True
                 )
@@ -4703,8 +4703,8 @@ with tab4:
         elapsed = int((datetime.now() - _last_run).total_seconds())
         if elapsed < 15:
             st.markdown(
-                "<div style='background:#061a10;border:1px solid #00d4aa;border-radius:8px;"
-                "padding:10px 14px;font-size:0.82rem;color:#00d4aa;margin-bottom:8px'>"
+                "<div style='background:#1A1500;border:1px solid #D4AF37;border-radius:8px;"
+                "padding:10px 14px;font-size:0.82rem;color:#D4AF37;margin-bottom:8px'>"
                 "✅ Scan complete &nbsp;·&nbsp; <b>%s GO NOW</b> &nbsp;·&nbsp; "
                 "%s WATCHING &nbsp;·&nbsp; %s ON DECK</div>" % (
                     len(go_now), len(watching), len(on_deck)),
@@ -4748,20 +4748,20 @@ with tab4:
     _open_count   = len([t for t in _all_trades if t.get("status") == "OPEN"])
 
     if _total_closed > 0:
-        _wr_color = "#00e5aa" if _win_rate >= 60 else "#f0c040" if _win_rate >= 45 else "#ff4d6d"
+        _wr_color = "#D4AF37" if _win_rate >= 60 else "#F6E27A" if _win_rate >= 45 else "#C1121F"
         st.markdown(
-            "<div style='background:#0d1421;border:1px solid %s44;border-radius:10px;"
+            "<div style='background:#1A1A1D;border:1px solid %s44;border-radius:10px;"
             "padding:12px 16px;margin-top:8px;display:flex;align-items:center;gap:16px'>"
             "<div style='text-align:center'>"
             "<div style='font-size:1.6rem;font-weight:700;color:%s'>%s%%</div>"
-            "<div style='font-size:0.65rem;color:#8899aa;letter-spacing:1px'>WIN RATE</div>"
+            "<div style='font-size:0.65rem;color:#A1A1A6;letter-spacing:1px'>WIN RATE</div>"
             "</div>"
-            "<div style='width:1px;height:36px;background:#1e2d40'></div>"
+            "<div style='width:1px;height:36px;background:#2A2A2D'></div>"
             "<div style='display:flex;gap:20px;font-size:0.78rem'>"
-            "<div><div style='color:#00e5aa;font-weight:700'>%s</div><div style='color:#8899aa;font-size:0.68rem'>WINS</div></div>"
-            "<div><div style='color:#ff4d6d;font-weight:700'>%s</div><div style='color:#8899aa;font-size:0.68rem'>LOSSES</div></div>"
-            "<div><div style='color:#f0c040;font-weight:700'>%s</div><div style='color:#8899aa;font-size:0.68rem'>OPEN</div></div>"
-            "<div><div style='color:#d0dae8;font-weight:700'>%s</div><div style='color:#8899aa;font-size:0.68rem'>TOTAL</div></div>"
+            "<div><div style='color:#D4AF37;font-weight:700'>%s</div><div style='color:#A1A1A6;font-size:0.68rem'>WINS</div></div>"
+            "<div><div style='color:#C1121F;font-weight:700'>%s</div><div style='color:#A1A1A6;font-size:0.68rem'>LOSSES</div></div>"
+            "<div><div style='color:#F6E27A;font-weight:700'>%s</div><div style='color:#A1A1A6;font-size:0.68rem'>OPEN</div></div>"
+            "<div><div style='color:#F5F5F5;font-weight:700'>%s</div><div style='color:#A1A1A6;font-size:0.68rem'>TOTAL</div></div>"
             "</div>"
             "<div style='margin-left:auto;font-size:0.68rem;color:#4a5568'>Paper trading · not financial advice</div>"
             "</div>" % (
@@ -4773,41 +4773,41 @@ with tab4:
         )
     elif _open_count > 0:
         st.markdown(
-            "<div style='background:#0d1421;border:1px solid #1e2d40;border-radius:10px;"
-            "padding:12px 16px;margin-top:8px;font-size:0.78rem;color:#8899aa'>"
-            "📊 <b style='color:#f0c040'>%s open trade%s</b> - win rate will appear when first trade closes"
+            "<div style='background:#1A1A1D;border:1px solid #2A2A2D;border-radius:10px;"
+            "padding:12px 16px;margin-top:8px;font-size:0.78rem;color:#A1A1A6'>"
+            "📊 <b style='color:#F6E27A'>%s open trade%s</b> - win rate will appear when first trade closes"
             "</div>" % (_open_count, "s" if _open_count != 1 else ""),
             unsafe_allow_html=True
         )
 
     if go_now or watching or on_deck or rejected:
-        bias_color = "#00e5aa" if mkt_bias=="bullish" else "#ff4d6d" if mkt_bias=="bearish" else "#f0c040"
+        bias_color = "#D4AF37" if mkt_bias=="bullish" else "#C1121F" if mkt_bias=="bearish" else "#F6E27A"
         bias_icon  = "📈" if mkt_bias=="bullish" else "📉" if mkt_bias=="bearish" else "↔️"
         total_found = len(go_now)+len(watching)+len(on_deck)
 
         st.markdown(f"""
         <div style='display:flex;justify-content:space-between;align-items:center;
-             background:#0d1421;border:1px solid {bias_color}33;border-radius:10px;
+             background:#1A1A1D;border:1px solid {bias_color}33;border-radius:10px;
              padding:10px 16px;margin-bottom:4px;font-size:0.72rem'>
             <div style='color:{bias_color}'>{bias_icon} MARKET: <b>{mkt_bias.upper()}</b></div>
             <div style='display:flex;gap:20px'>
-                <span style='color:#00e5aa'>● {len(go_now)} GO NOW</span>
-                <span style='color:#f0c040'>● {len(watching)} WATCHING</span>
-                <span style='color:#6699cc'>● {len(on_deck)} ON DECK</span>
+                <span style='color:#D4AF37'>● {len(go_now)} GO NOW</span>
+                <span style='color:#F6E27A'>● {len(watching)} WATCHING</span>
+                <span style='color:#A1A1A6'>● {len(on_deck)} ON DECK</span>
             </div>
-            <div style='color:#8899aa'>{total_found} total signals</div>
+            <div style='color:#A1A1A6'>{total_found} total signals</div>
         </div>
         """, unsafe_allow_html=True)
 
         # ── Mobile-first card renderer ───────────────────────────────────────
         def conf_color(c):
-            return "#00e5aa" if c>=90 else "#40d080" if c>=80 else "#f0c040" if c>=70 else "#6699aa"
+            return "#D4AF37" if c>=90 else "#40d080" if c>=80 else "#F6E27A" if c>=70 else "#6699aa"
         def conf_label(c):
             return "GO ALL IN" if c>=90 else "STRONG" if c>=80 else "WATCH IT" if c>=70 else "WAIT"
 
         def mobile_card(r, bucket, idx):
             is_bull = r.get("direction", "bullish") == "bullish"
-            dc  = "#00e5aa" if is_bull else "#ff4d6d"
+            dc  = "#D4AF37" if is_bull else "#C1121F"
             cc  = conf_color(r.get("confidence", 50))
             cl  = conf_label(r.get("confidence", 50))
             opt = r.get("opt", {})
@@ -4817,15 +4817,15 @@ with tab4:
                 action = "CALL" if is_bull else "PUT"
                 reason = r.get("_on_deck_reason", "Developing setup")
                 st.markdown(
-                    "<div style='background:#0d1421;border:1px solid #1a2535;border-radius:10px;"
+                    "<div style='background:#1A1A1D;border:1px solid #2A2A2D;border-radius:10px;"
                     "padding:12px 14px;margin-bottom:8px'>"
                     "<div style='display:flex;justify-content:space-between;align-items:center'>"
                     "<span style='font-size:1rem;font-weight:700;color:%s'>%s</span>"
                     "<span style='font-size:0.65rem;background:#ffffff11;color:%s;"
                     "padding:2px 6px;border-radius:4px;margin-left:6px'>%s</span>"
-                    "<span style='font-size:0.65rem;color:#f0c040;margin-left:auto'>📋 ON DECK</span>"
+                    "<span style='font-size:0.65rem;color:#F6E27A;margin-left:auto'>📋 ON DECK</span>"
                     "</div>"
-                    "<div style='font-size:0.72rem;color:#8899aa;margin-top:4px'>%s</div>"
+                    "<div style='font-size:0.72rem;color:#A1A1A6;margin-top:4px'>%s</div>"
                     "<div style='font-size:0.68rem;color:#4a5568;margin-top:2px'>%s · conf %s%%</div>"
                     "</div>" % (
                         dc, r.get("ticker","?"), dc, action,
@@ -4836,21 +4836,21 @@ with tab4:
                 )
                 return
 
-            gc  = "#00e5aa" if r.get("gates_passed",0)>=6 else "#f0c040" if r.get("gates_passed",0)>=5 else "#ff4d6d"
+            gc  = "#D4AF37" if r.get("gates_passed",0)>=6 else "#F6E27A" if r.get("gates_passed",0)>=5 else "#C1121F"
             exh_ok = r.get("exh_confirmed", False)
             rv     = round(r.get("rel_vol", 1.0), 1)
             block  = r.get("block_detected", False)
             si     = "⚡" if r.get("style","swing")=="quick" else "📅"
-            border = "#00e5aa44" if bucket=="go_now" else "#f0c04044" if bucket=="watching" else "#1a2535"
+            border = "#D4AF3744" if bucket=="go_now" else "#F6E27A44" if bucket=="watching" else "#2A2A2D"
 
             # Build card using % string formatting to avoid all quote conflicts
             R = 28
             circ = round(2 * 3.14159 * R, 1)
             dash = round((r["confidence"] / 100) * circ, 1)
-            act_bg  = "#00e5aa22" if is_bull else "#ff4d6d22"
+            act_bg  = "#D4AF3722" if is_bull else "#C1121F22"
             sty_bg  = "#1a0a3a"  if r["style"] == "quick" else "#0a1a2a"
-            sty_fg  = "#aa88ff"  if r["style"] == "quick" else "#6699cc"
-            blk_tag      = "<span style='font-size:0.58rem;color:#f0c040'>⚡ BLOCK</span>" if block else ""
+            sty_fg  = "#aa88ff"  if r["style"] == "quick" else "#A1A1A6"
+            blk_tag      = "<span style='font-size:0.58rem;color:#F6E27A'>⚡ BLOCK</span>" if block else ""
             against_bias = r.get("detail", {}).get("against_market_bias", False)
             bias_warn    = (
                 " &nbsp;<span style='font-size:0.58rem;color:#f0a030;background:#2a1800;"
@@ -4862,16 +4862,16 @@ with tab4:
             sq_pct   = r.get("sq_compression", 0)
             sq_tag   = (
                 " &nbsp;·&nbsp; <span style='color:#aa88ff'>⚡ SQUEEZE FIRING</span>" if sq_state == "firing" and sq_pct >= 40
-                else " &nbsp;·&nbsp; <span style='color:#6699cc'>◈ squeeze</span>" if sq_state == "squeeze" and sq_pct >= 40
+                else " &nbsp;·&nbsp; <span style='color:#A1A1A6'>◈ squeeze</span>" if sq_state == "squeeze" and sq_pct >= 40
                 else ""
             )
             action  = "CALL" if is_bull else "PUT"
             parts = [
-                "<div style='background:#0d1421;border:1px solid %s;border-radius:12px;padding:14px 16px;margin-bottom:8px'>" % border,
+                "<div style='background:#1A1A1D;border:1px solid %s;border-radius:12px;padding:14px 16px;margin-bottom:8px'>" % border,
                 "<div style='display:flex;align-items:center;gap:12px'>",
                 "<div style='position:relative;width:68px;height:68px;flex-shrink:0'>",
                 "<svg width='68' height='68' style='transform:rotate(-90deg);display:block'>",
-                "<circle cx='34' cy='34' r='%s' fill='none' stroke='#1a2535' stroke-width='5'/>" % R,
+                "<circle cx='34' cy='34' r='%s' fill='none' stroke='#2A2A2D' stroke-width='5'/>" % R,
                 "<circle cx='34' cy='34' r='%s' fill='none' stroke='%s' stroke-width='5' stroke-dasharray='%s %s' stroke-linecap='round'/>" % (R, cc, dash, circ),
                 "</svg>",
                 "<div style='position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center'>",
@@ -4885,40 +4885,40 @@ with tab4:
                 "<span style='font-size:0.58rem;background:%s;color:%s;padding:2px 6px;border-radius:4px'>%s %s</span>" % (sty_bg, sty_fg, si, r["style"].upper()),
                 blk_tag,
                 "</div>",
-                "<div style='font-size:0.69rem;color:#8899aa'>%s%s</div>" % (r["pattern"], bias_warn),
-                "<div style='font-size:0.65rem;color:#8899aa;margin-top:2px'>%sx vol &nbsp;·&nbsp; %s%s</div>" % (rv, exh_txt, sq_tag),
+                "<div style='font-size:0.69rem;color:#A1A1A6'>%s%s</div>" % (r["pattern"], bias_warn),
+                "<div style='font-size:0.65rem;color:#A1A1A6;margin-top:2px'>%sx vol &nbsp;·&nbsp; %s%s</div>" % (rv, exh_txt, sq_tag),
                 "</div>",
                 "<div style='text-align:right;flex-shrink:0'>",
                 "<div style='font-size:0.56rem;font-weight:700;color:%s;background:%s22;padding:2px 7px;border-radius:6px;letter-spacing:1px;margin-bottom:5px;display:inline-block'>%s</div>" % (cc, cc, cl),
-                "<div style='font-size:0.65rem;color:#8899aa'>Gate <span style='color:%s;font-weight:700'>%s/7</span></div>" % (gc, r["gates_passed"]),
-                "<div style='font-size:0.65rem;color:#8899aa;margin-top:3px'>Entry <span style='color:#d0dae8;font-weight:700'>$%.2f</span></div>" % r["price"],
-                "<div style='font-size:0.65rem;color:#8899aa;margin-top:2px'>Strike <span style='color:#d0dae8;font-weight:700'>$%.2f</span></div>" % opt["strike"],
+                "<div style='font-size:0.65rem;color:#A1A1A6'>Gate <span style='color:%s;font-weight:700'>%s/7</span></div>" % (gc, r["gates_passed"]),
+                "<div style='font-size:0.65rem;color:#A1A1A6;margin-top:3px'>Entry <span style='color:#F5F5F5;font-weight:700'>$%.2f</span></div>" % r["price"],
+                "<div style='font-size:0.65rem;color:#A1A1A6;margin-top:2px'>Strike <span style='color:#F5F5F5;font-weight:700'>$%.2f</span></div>" % opt["strike"],
                 "</div></div></div>",
             ]
             st.markdown("".join(parts), unsafe_allow_html=True)
 
             with st.expander(f"📊 {r['ticker']} full details"):
                 c1, c2 = st.columns(2)
-                items_l = [("TARGET", f"${opt['target']:.2f}", "#00e5aa"),
-                           ("PREMIUM", f"${opt['premium']:.2f}/sh", "#d0dae8"),
-                           ("MAX LOSS", f"${opt['max_loss']:,.0f}", "#ff4d6d"),
-                           ("IV RANK", f"{r['iv_rank']}%" if r["iv_rank"] else "N/A", "#f0c040")]
-                items_r = [("STOP OUT", f"${opt['stop']:.2f}", "#ff4d6d"),
-                           ("EST PROFIT", f"${opt['profit_at_target']:,.0f}", "#00e5aa"),
-                           ("R:R", f"{opt['rr_option']:.1f}x", "#00e5aa" if opt["rr_option"]>=2 else "#f0c040"),
-                           ("EXPIRES", opt["expiration"], "#8899aa")]
+                items_l = [("TARGET", f"${opt['target']:.2f}", "#D4AF37"),
+                           ("PREMIUM", f"${opt['premium']:.2f}/sh", "#F5F5F5"),
+                           ("MAX LOSS", f"${opt['max_loss']:,.0f}", "#C1121F"),
+                           ("IV RANK", f"{r['iv_rank']}%" if r["iv_rank"] else "N/A", "#F6E27A")]
+                items_r = [("STOP OUT", f"${opt['stop']:.2f}", "#C1121F"),
+                           ("EST PROFIT", f"${opt['profit_at_target']:,.0f}", "#D4AF37"),
+                           ("R:R", f"{opt['rr_option']:.1f}x", "#D4AF37" if opt["rr_option"]>=2 else "#F6E27A"),
+                           ("EXPIRES", opt["expiration"], "#A1A1A6")]
                 with c1:
                     for lbl, val, col in items_l:
                         st.markdown(
-                            "<div style='background:#0d1421;border-radius:8px;padding:10px;margin-bottom:6px'>"
-                            "<div style='font-size:0.58rem;color:#8899aa'>%s</div>"
+                            "<div style='background:#1A1A1D;border-radius:8px;padding:10px;margin-bottom:6px'>"
+                            "<div style='font-size:0.58rem;color:#A1A1A6'>%s</div>"
                             "<div style='font-size:0.95rem;font-weight:700;color:%s'>%s</div></div>" % (lbl, col, val),
                             unsafe_allow_html=True)
                 with c2:
                     for lbl, val, col in items_r:
                         st.markdown(
-                            "<div style='background:#0d1421;border-radius:8px;padding:10px;margin-bottom:6px'>"
-                            "<div style='font-size:0.58rem;color:#8899aa'>%s</div>"
+                            "<div style='background:#1A1A1D;border-radius:8px;padding:10px;margin-bottom:6px'>"
+                            "<div style='font-size:0.58rem;color:#A1A1A6'>%s</div>"
                             "<div style='font-size:0.95rem;font-weight:700;color:%s'>%s</div></div>" % (lbl, col, val),
                             unsafe_allow_html=True)
 
@@ -4930,19 +4930,19 @@ with tab4:
                     "Close full position at $%.2f/sh (1 contract)" % opt["exit_take_half"]
                 )
                 st.markdown(
-                    "<div style='background:#080c12;border-radius:8px;padding:10px 12px;font-size:0.72rem;color:#8899aa;margin:2px 0 8px;line-height:1.6'>"
-                    "<span style='color:#00e5aa;font-weight:700'>%s</span> &nbsp;·&nbsp;"
-                    "<span style='color:#ff4d6d;font-weight:700'>Close all</span> if %s $%.2f</div>" % (_exit_line, side, opt['stop']),
+                    "<div style='background:#0B0B0C;border-radius:8px;padding:10px 12px;font-size:0.72rem;color:#A1A1A6;margin:2px 0 8px;line-height:1.6'>"
+                    "<span style='color:#D4AF37;font-weight:700'>%s</span> &nbsp;·&nbsp;"
+                    "<span style='color:#C1121F;font-weight:700'>Close all</span> if %s $%.2f</div>" % (_exit_line, side, opt['stop']),
                     unsafe_allow_html=True)
 
                 sig_detail = r.get("signal_detail", [])
                 exh        = r.get("exh_reasons", [])
                 signals_hit = r.get("signals_hit", 0)
                 if sig_detail:
-                    st.markdown("<div style='font-size:0.58rem;color:#8899aa;letter-spacing:2px;margin-bottom:4px'>SIGNAL CHECK (%s/6)</div>" % signals_hit, unsafe_allow_html=True)
+                    st.markdown("<div style='font-size:0.58rem;color:#A1A1A6;letter-spacing:2px;margin-bottom:4px'>SIGNAL CHECK (%s/6)</div>" % signals_hit, unsafe_allow_html=True)
                     for item in sig_detail:
                         good = item.startswith("✅")
-                        tcol = "#e0e6f0" if good else "#8899aa"
+                        tcol = "#F5F5F5" if good else "#A1A1A6"
                         st.markdown("<div style='font-size:0.73rem;color:%s;padding:2px 0'>%s</div>" % (tcol, item), unsafe_allow_html=True)
 
                 # Fibonacci confluence display
@@ -4952,24 +4952,24 @@ with tab4:
                     _fib_price = _fib_detail.get("fib_level_price", 0)
                     _fib_high  = _fib_detail.get("fib_swing_high", 0)
                     _fib_low   = _fib_detail.get("fib_swing_low", 0)
-                    _fib_color = "#f0c040" if _fib_level != "61.8%" else "#00e5aa"
+                    _fib_color = "#F6E27A" if _fib_level != "61.8%" else "#D4AF37"
                     st.markdown(
-                        "<div style='background:#0d1219;border:1px solid %s;border-radius:6px;"
+                        "<div style='background:#1A1A1D;border:1px solid %s;border-radius:6px;"
                         "padding:8px 12px;margin:6px 0'>"
-                        "<div style='font-size:0.58rem;color:#8899aa;letter-spacing:2px;margin-bottom:4px'>FIBONACCI CONFLUENCE</div>"
+                        "<div style='font-size:0.58rem;color:#A1A1A6;letter-spacing:2px;margin-bottom:4px'>FIBONACCI CONFLUENCE</div>"
                         "<div style='font-size:0.82rem;font-weight:700;color:%s'>🔶 %s Retracement</div>"
-                        "<div style='font-size:0.7rem;color:#8899aa;margin-top:2px'>"
+                        "<div style='font-size:0.7rem;color:#A1A1A6;margin-top:2px'>"
                         "Level: $%.2f &nbsp;·&nbsp; Range: $%.2f — $%.2f</div>"
                         "</div>" % (_fib_color, _fib_color, _fib_level, _fib_price, _fib_low, _fib_high),
                         unsafe_allow_html=True
                     )
 
                 if exh:
-                    st.markdown("<div style='font-size:0.58rem;color:#8899aa;letter-spacing:2px;margin:6px 0 4px'>EXHAUSTION DETAIL</div>", unsafe_allow_html=True)
+                    st.markdown("<div style='font-size:0.58rem;color:#A1A1A6;letter-spacing:2px;margin:6px 0 4px'>EXHAUSTION DETAIL</div>", unsafe_allow_html=True)
                     for reason in exh:
                         good = any(x in reason for x in ["confirmed","forming","Higher low","Lower high","Climax","Capitulation","Hammer","doji","star","reclaim","holding","rising","falling"])
-                        col  = "#00e5aa" if good else "#ff4d6d"
-                        tcol = "#e0e6f0" if good else "#8899aa"
+                        col  = "#D4AF37" if good else "#C1121F"
+                        tcol = "#F5F5F5" if good else "#A1A1A6"
                         dot  = "●" if good else "○"
                         st.markdown("<div style='font-size:0.71rem;color:%s;padding:1px 0'><span style='color:%s'>%s</span> %s</div>" % (tcol, col, dot, reason), unsafe_allow_html=True)
                 # Watch button — adds to Watch Queue directly from scan card
@@ -4977,8 +4977,8 @@ with tab4:
                 _in_queue  = _wkey_scan in st.session_state.get("watch_queue", {})
                 if _in_queue:
                     st.markdown(
-                        "<div style='background:#061a10;border:1px solid #00d4aa;border-radius:6px;"
-                        "padding:8px;text-align:center;font-size:0.75rem;color:#00d4aa'>✅ In Watch Queue</div>",
+                        "<div style='background:#1A1500;border:1px solid #D4AF37;border-radius:6px;"
+                        "padding:8px;text-align:center;font-size:0.75rem;color:#D4AF37'>✅ In Watch Queue</div>",
                         unsafe_allow_html=True
                     )
                 else:
@@ -4995,8 +4995,8 @@ with tab4:
                     _tg_key = "tg_sent_%s_%s_%s" % (r["ticker"], r.get("style",""), idx)
                     if st.session_state.get(_tg_key):
                         st.markdown(
-                            "<div style='background:#061a10;border:1px solid #00d4aa;border-radius:6px;"
-                            "padding:6px;text-align:center;font-size:0.72rem;color:#00d4aa'>✅ Sent to Telegram</div>",
+                            "<div style='background:#1A1500;border:1px solid #D4AF37;border-radius:6px;"
+                            "padding:6px;text-align:center;font-size:0.72rem;color:#D4AF37'>✅ Sent to Telegram</div>",
                             unsafe_allow_html=True
                         )
                     else:
@@ -5013,26 +5013,26 @@ with tab4:
             <div style='display:flex;align-items:center;gap:10px;margin:20px 0 8px'>
                 <div style='width:3px;height:16px;background:{color};border-radius:2px;flex-shrink:0'></div>
                 <span style='font-size:0.65rem;letter-spacing:3px;color:{color};font-weight:700'>{label}</span>
-                <div style='flex:1;height:1px;background:#1a2535'></div>
-                <span style='font-size:0.62rem;color:#8899aa'>{count} signal{"s" if count!=1 else ""}</span>
+                <div style='flex:1;height:1px;background:#2A2A2D'></div>
+                <span style='font-size:0.62rem;color:#A1A1A6'>{count} signal{"s" if count!=1 else ""}</span>
             </div>""", unsafe_allow_html=True)
 
         def empty_bkt(msg):
-            st.markdown(f"<div style='padding:14px;color:#8899aa;font-size:0.78rem;background:#0d1421;border-radius:10px;text-align:center'>{msg}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding:14px;color:#A1A1A6;font-size:0.78rem;background:#1A1A1D;border-radius:10px;text-align:center'>{msg}</div>", unsafe_allow_html=True)
 
-        section_hdr("GO NOW", "#00e5aa", len(go_now))
+        section_hdr("GO NOW", "#D4AF37", len(go_now))
         if go_now:
             for i, r in enumerate(go_now[:5]):   mobile_card(r, "go_now",   i)
         else:
             empty_bkt("No GO NOW signals - exhaustion not confirmed or gates not cleared.")
 
-        section_hdr("WATCHING", "#f0c040", len(watching))
+        section_hdr("WATCHING", "#F6E27A", len(watching))
         if watching:
             for i, r in enumerate(watching[:8]): mobile_card(r, "watching", i)
         else:
             empty_bkt("No setups in confirmation phase right now.")
 
-        section_hdr("ON DECK", "#6699cc", len(on_deck))
+        section_hdr("ON DECK", "#A1A1A6", len(on_deck))
         if on_deck:
             for i, r in enumerate(on_deck[:10]): mobile_card(r, "on_deck",  i)
         else:
@@ -5040,7 +5040,7 @@ with tab4:
 
 with tab8:
     st.markdown("<div class='section-title'>WATCH QUEUE</div>", unsafe_allow_html=True)
-    st.markdown("<div style='color:#8899aa;font-size:0.82rem;margin-bottom:12px'>Signals waiting for entry confirmation. Auto-checks on every refresh.</div>", unsafe_allow_html=True)
+    st.markdown("<div style='color:#A1A1A6;font-size:0.82rem;margin-bottom:12px'>Signals waiting for entry confirmation. Auto-checks on every refresh.</div>", unsafe_allow_html=True)
 
     init_watch_queue()
     _wq = st.session_state.watch_queue
@@ -5073,30 +5073,30 @@ with tab8:
 
             candle_html = ""
             for c in item.get("candles", []):
-                if c == "green":   candle_html += "<span style='color:#00d4aa;font-size:1rem'>&#9650;</span> "
-                elif c == "red":   candle_html += "<span style='color:#ff4d6d;font-size:1rem'>&#9660;</span> "
-                else:              candle_html += "<span style='color:#8899aa;font-size:0.8rem'>&#9644;</span> "
+                if c == "green":   candle_html += "<span style='color:#D4AF37;font-size:1rem'>&#9650;</span> "
+                elif c == "red":   candle_html += "<span style='color:#C1121F;font-size:1rem'>&#9660;</span> "
+                else:              candle_html += "<span style='color:#A1A1A6;font-size:0.8rem'>&#9644;</span> "
 
             status = item["status"]
             is_bull_w  = item["direction"] == "bullish"
-            dir_color_w = "#00d4aa" if is_bull_w else "#ff4d6d"
+            dir_color_w = "#D4AF37" if is_bull_w else "#C1121F"
             action_w    = "CALL" if is_bull_w else "PUT"
 
             wq_col, dismiss_col = st.columns([6,1])
             with wq_col:
                 if status == "CONFIRMED":
                     st.markdown("""
-                    <div style='background:#061a10;border:2px solid #00d4aa;border-radius:10px;padding:14px 16px;margin:4px 0'>
-                        <div style='color:#00d4aa;font-family:monospace;font-size:0.72rem;letter-spacing:2px'>✅ ENTRY CONFIRMED - GET IN NOW</div>
+                    <div style='background:#1A1500;border:2px solid #D4AF37;border-radius:10px;padding:14px 16px;margin:4px 0'>
+                        <div style='color:#D4AF37;font-family:monospace;font-size:0.72rem;letter-spacing:2px'>✅ ENTRY CONFIRMED - GET IN NOW</div>
                         <div style='font-size:1.1rem;font-weight:700;color:{dc}'>BUY {act} - {tk}</div>
-                        <div style='color:#8899aa;font-size:0.82rem'>{pat}</div>
+                        <div style='color:#A1A1A6;font-size:0.82rem'>{pat}</div>
                         <div style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;font-size:0.85rem;margin-top:10px'>
-                            <div><div style='color:#8899aa;font-size:0.7rem'>STRIKE</div><div style='font-weight:700;color:{dc}'>${stk:.2f}</div></div>
-                            <div><div style='color:#8899aa;font-size:0.7rem'>ENTRY</div><div style='font-weight:700'>${ent:.2f}</div></div>
-                            <div><div style='color:#8899aa;font-size:0.7rem'>TARGET</div><div style='font-weight:700;color:#00d4aa'>${tgt:.2f}</div></div>
-                            <div><div style='color:#8899aa;font-size:0.7rem'>STOP</div><div style='font-weight:700;color:#ff4d6d'>${stp:.2f}</div></div>
+                            <div><div style='color:#A1A1A6;font-size:0.7rem'>STRIKE</div><div style='font-weight:700;color:{dc}'>${stk:.2f}</div></div>
+                            <div><div style='color:#A1A1A6;font-size:0.7rem'>ENTRY</div><div style='font-weight:700'>${ent:.2f}</div></div>
+                            <div><div style='color:#A1A1A6;font-size:0.7rem'>TARGET</div><div style='font-weight:700;color:#D4AF37'>${tgt:.2f}</div></div>
+                            <div><div style='color:#A1A1A6;font-size:0.7rem'>STOP</div><div style='font-weight:700;color:#C1121F'>${stp:.2f}</div></div>
                         </div>
-                        <div style='margin-top:8px;color:#e0e6f0;font-size:0.78rem'>Candles: {cnd} &nbsp; <span style='color:#f0c040'>{remain_mins}m {remain_secs}s remaining{last_chk}</span></div>
+                        <div style='margin-top:8px;color:#F5F5F5;font-size:0.78rem'>Candles: {cnd} &nbsp; <span style='color:#F6E27A'>{remain_mins}m {remain_secs}s remaining{last_chk}</span></div>
                     </div>
                     """.format(
                         dc=dir_color_w, act=action_w, tk=item["ticker"],
@@ -5106,20 +5106,20 @@ with tab8:
                         elapsed_secs=elapsed_secs, last_chk=last_chk
                     ), unsafe_allow_html=True)
                 else:
-                    border_clr = "#f0c040" if status == "WAITING" else "#ff4d6d"
+                    border_clr = "#F6E27A" if status == "WAITING" else "#C1121F"
                     icon = "👁" if status == "WAITING" else "⏳"
                     st.markdown("""
-                    <div style='background:#0d1219;border:2px solid {bc};border-radius:8px;padding:12px 16px;margin:4px 0'>
+                    <div style='background:#1A1A1D;border:2px solid {bc};border-radius:8px;padding:12px 16px;margin:4px 0'>
                         <div style='display:flex;justify-content:space-between;align-items:center'>
                             <div>
                                 <span style='font-size:1.1rem'>{ic}</span>
                                 <b style='margin-left:6px;color:{dc}'>{tk} {act}</b>
-                                <span style='color:#8899aa;font-size:0.82rem;margin-left:8px'>{pat} | Strike ${stk:.2f}</span>
+                                <span style='color:#A1A1A6;font-size:0.82rem;margin-left:8px'>{pat} | Strike ${stk:.2f}</span>
                             </div>
-                            <div style='color:#f0c040;font-size:0.75rem;font-family:monospace'>{rm}m {rs}s left{lc}</div>
+                            <div style='color:#F6E27A;font-size:0.75rem;font-family:monospace'>{rm}m {rs}s left{lc}</div>
                         </div>
                         <div style='margin-top:6px'>{cnd}</div>
-                        <div style='color:#e0e6f0;font-size:0.82rem;margin-top:4px'>{msg}</div>
+                        <div style='color:#F5F5F5;font-size:0.82rem;margin-top:4px'>{msg}</div>
                     </div>
                     """.format(
                         bc=border_clr, ic=icon, dc=dir_color_w,
@@ -5160,11 +5160,11 @@ with tab8:
 with tab7:
     st.markdown("""
 <style>
-.hiw-section { background:#080c12; border-radius:12px; padding:20px 24px;
-               margin-bottom:16px; border-left:3px solid #1e3a5f; }
-.hiw-title   { font-size:1.1rem; font-weight:700; color:#d0dae8;
+.hiw-section { background:#0B0B0C; border-radius:12px; padding:20px 24px;
+               margin-bottom:16px; border-left:3px solid #2A2A2D; }
+.hiw-title   { font-size:1.1rem; font-weight:700; color:#F5F5F5;
                margin-bottom:8px; letter-spacing:0.5px; }
-.hiw-body    { font-size:0.8rem; color:#8899aa; line-height:1.8; }
+.hiw-body    { font-size:0.8rem; color:#A1A1A6; line-height:1.8; }
 .hiw-badge   { display:inline-block; padding:2px 10px; border-radius:20px;
                font-size:0.7rem; font-weight:700; margin:2px; }
 </style>
@@ -5172,10 +5172,10 @@ with tab7:
 
     st.markdown("""
 <div style='text-align:center;padding:16px 0 24px'>
-  <div style='font-size:1.5rem;font-weight:700;color:#d0dae8;letter-spacing:2px'>
+  <div style='font-size:1.5rem;font-weight:700;color:#F5F5F5;letter-spacing:2px'>
     📡 HOW IT WORKS
   </div>
-  <div style='font-size:0.75rem;color:#8899aa;margin-top:6px'>
+  <div style='font-size:0.75rem;color:#A1A1A6;margin-top:6px'>
     PaidButPressured Options Screener
   </div>
 </div>
@@ -5193,15 +5193,15 @@ with tab7:
   </div>
 </div>
 
-<div class='hiw-section' style='border-left-color:#00e5aa'>
+<div class='hiw-section' style='border-left-color:#D4AF37'>
   <div class='hiw-title'>🚦 Signal Tiers</div>
   <div class='hiw-body'>
     Every signal is scored and placed into one of three tiers:<br><br>
-    <span class='hiw-badge' style='background:#061a10;color:#00e5aa;border:1px solid #00e5aa'>🚨 GO NOW</span>
+    <span class='hiw-badge' style='background:#1A1500;color:#D4AF37;border:1px solid #D4AF37'>🚨 GO NOW</span>
     The highest conviction setups. All confirmation criteria met. Entry is valid right now.<br><br>
-    <span class='hiw-badge' style='background:#1a150a;color:#f0c040;border:1px solid #f0c040'>👀 WATCHING</span>
+    <span class='hiw-badge' style='background:#1a150a;color:#F6E27A;border:1px solid #F6E27A'>👀 WATCHING</span>
     Strong setup, waiting on final confirmation. Worth tracking — entry is close.<br><br>
-    <span class='hiw-badge' style='background:#0d1219;color:#6699cc;border:1px solid #6699cc'>📋 ON DECK</span>
+    <span class='hiw-badge' style='background:#1A1A1D;color:#A1A1A6;border:1px solid #A1A1A6'>📋 ON DECK</span>
     Setup is developing. Not ready yet but worth knowing about.
   </div>
 </div>
@@ -5213,28 +5213,28 @@ with tab7:
     We evaluate each setup across multiple independent dimensions — momentum, structure, 
     timing, market context, and more. A signal must satisfy a minimum number of these 
     dimensions to qualify for each tier.<br><br>
-    The result is a <b style='color:#d0dae8'>Confidence Score</b> from 0–100% and a 
-    <b style='color:#d0dae8'>Gate Count</b> showing how many checks the setup passed. 
+    The result is a <b style='color:#F5F5F5'>Confidence Score</b> from 0–100% and a 
+    <b style='color:#F5F5F5'>Gate Count</b> showing how many checks the setup passed. 
     Higher confidence and more gates = stronger signal.
   </div>
 </div>
 
-<div class='hiw-section' style='border-left-color:#f0c040'>
+<div class='hiw-section' style='border-left-color:#F6E27A'>
   <div class='hiw-title'>📊 Reading a Signal Card</div>
   <div class='hiw-body'>
     Each signal card gives you everything you need to place the trade:<br><br>
-    <b style='color:#d0dae8'>Entry</b> — the stock price where the setup is valid<br>
-    <b style='color:#d0dae8'>Target</b> — our measured price objective<br>
-    <b style='color:#d0dae8'>Stop</b> — where the thesis is invalidated, exit if breached<br>
-    <b style='color:#d0dae8'>Strike</b> — the recommended options strike price<br>
-    <b style='color:#d0dae8'>Premium</b> — estimated cost per share to enter<br>
-    <b style='color:#d0dae8'>R:R</b> — risk to reward ratio on the trade<br>
-    <b style='color:#d0dae8'>Confidence %</b> — our internal conviction score<br>
-    <b style='color:#d0dae8'>Gates</b> — how many confirmation layers this signal passed
+    <b style='color:#F5F5F5'>Entry</b> — the stock price where the setup is valid<br>
+    <b style='color:#F5F5F5'>Target</b> — our measured price objective<br>
+    <b style='color:#F5F5F5'>Stop</b> — where the thesis is invalidated, exit if breached<br>
+    <b style='color:#F5F5F5'>Strike</b> — the recommended options strike price<br>
+    <b style='color:#F5F5F5'>Premium</b> — estimated cost per share to enter<br>
+    <b style='color:#F5F5F5'>R:R</b> — risk to reward ratio on the trade<br>
+    <b style='color:#F5F5F5'>Confidence %</b> — our internal conviction score<br>
+    <b style='color:#F5F5F5'>Gates</b> — how many confirmation layers this signal passed
   </div>
 </div>
 
-<div class='hiw-section' style='border-left-color:#ff4d6d'>
+<div class='hiw-section' style='border-left-color:#C1121F'>
   <div class='hiw-title'>⚠️ Risk Disclosure</div>
   <div class='hiw-body'>
     Options trading involves substantial risk of loss and is not appropriate for all investors. 
@@ -5248,14 +5248,14 @@ with tab7:
   </div>
 </div>
 
-<div class='hiw-section' style='border-left-color:#00e5aa'>
+<div class='hiw-section' style='border-left-color:#D4AF37'>
   <div class='hiw-title'>📱 Best Practices</div>
   <div class='hiw-body'>
-    <b style='color:#d0dae8'>Scan by sector</b> — run sector scans throughout the day instead of full universe every time. Focus on what's in play.<br><br>
-    <b style='color:#d0dae8'>Prioritize GO NOW</b> — these are your highest conviction setups. WATCHING signals need one more confirmation before entry.<br><br>
-    <b style='color:#d0dae8'>Use the Watch Queue</b> — add WATCHING signals to your queue and let the screener track entry confirmation for you.<br><br>
-    <b style='color:#d0dae8'>Respect your stop</b> — the stop level is calculated for a reason. Honor it every time.<br><br>
-    <b style='color:#d0dae8'>Check Telegram</b> — admin-curated GO NOW alerts are posted manually after review. These are the setups worth acting on.
+    <b style='color:#F5F5F5'>Scan by sector</b> — run sector scans throughout the day instead of full universe every time. Focus on what's in play.<br><br>
+    <b style='color:#F5F5F5'>Prioritize GO NOW</b> — these are your highest conviction setups. WATCHING signals need one more confirmation before entry.<br><br>
+    <b style='color:#F5F5F5'>Use the Watch Queue</b> — add WATCHING signals to your queue and let the screener track entry confirmation for you.<br><br>
+    <b style='color:#F5F5F5'>Respect your stop</b> — the stop level is calculated for a reason. Honor it every time.<br><br>
+    <b style='color:#F5F5F5'>Check Telegram</b> — admin-curated GO NOW alerts are posted manually after review. These are the setups worth acting on.
   </div>
 </div>
 """, unsafe_allow_html=True)
