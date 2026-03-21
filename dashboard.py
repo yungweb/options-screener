@@ -4828,7 +4828,7 @@ with tab4:
         def conf_color(c):
             return "#D4AF37" if c>=90 else "#40d080" if c>=80 else "#F6E27A" if c>=70 else "#6699aa"
         def conf_label(c):
-            return "GO ALL IN" if c>=90 else "STRONG" if c>=80 else "WATCH IT" if c>=70 else "WAIT"
+            return "HIGH CONVICTION" if c>=90 else "STRONG" if c>=80 else "WATCH IT" if c>=70 else "WAIT"
 
         def mobile_card(r, bucket, idx):
             is_bull = r.get("direction", "bullish") == "bullish"
@@ -5045,13 +5045,13 @@ with tab4:
         def empty_bkt(msg):
             st.markdown(f"<div style='padding:14px;color:#A1A1A6;font-size:0.78rem;background:#1A1A1D;border-radius:10px;text-align:center'>{msg}</div>", unsafe_allow_html=True)
 
-        section_hdr("GO NOW", "#D4AF37", len(go_now))
+        section_hdr("GO NOW", "#C1121F", len(go_now))
         if go_now:
             for i, r in enumerate(go_now[:5]):   mobile_card(r, "go_now",   i)
         else:
             empty_bkt("No GO NOW signals - exhaustion not confirmed or gates not cleared.")
 
-        section_hdr("WATCHING", "#F6E27A", len(watching))
+        section_hdr("WATCHING", "#D4AF37", len(watching))
         if watching:
             for i, r in enumerate(watching[:8]): mobile_card(r, "watching", i)
         else:
