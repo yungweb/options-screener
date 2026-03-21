@@ -4,10 +4,7 @@ pandas
 numpy
 scipy
 requests
-<<<<<<< HEAD
 yfinance
 streamlit-autorefresh
 pytz
 supabase
-=======
->>>>>>> 6ec97029 (initial upload)
