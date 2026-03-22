@@ -3848,7 +3848,7 @@ def save_paper_trades(trades):
     if not sb: return
     try:
         import json as _j
-        user_id = get_user_id()
+        user_id = st.session_state.get("user_id") or get_user_id()
         if not user_id: return
         serializable = []
         for t in trades:
@@ -3858,7 +3858,7 @@ def save_paper_trades(trades):
             except Exception:
                 pass
         sb.table("paper_trades_state").upsert({
-            "user_id":    user_id,
+            "user_id":    str(user_id),
             "trades":     _j.dumps(serializable),
             "updated_at": datetime.now(tz=pytz.UTC).isoformat(),
         }).execute()
@@ -3871,9 +3871,9 @@ def load_paper_trades():
     if not sb: return []
     try:
         import json as _j
-        user_id = get_user_id()
+        user_id = st.session_state.get("user_id") or get_user_id()
         if not user_id: return []
-        res = sb.table("paper_trades_state").select("trades").eq("user_id", user_id).execute()
+        res = sb.table("paper_trades_state").select("trades").eq("user_id", str(user_id)).execute()
         if res.data:
             return _j.loads(res.data[0].get("trades", "[]"))
     except Exception:
