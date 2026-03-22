@@ -4238,6 +4238,7 @@ def paper_check_exits():
 
         if exit_reason:
             t["status"]       = "WIN" if is_win else "LOSS"
+            t["is_win"]       = is_win  # save flag for win rate tracker
             t["exit_reason"]  = exit_reason
             t["exit_price"]   = round(cur, 2)
             t["exit_premium"] = round(cur_premium, 2)
@@ -4931,8 +4932,9 @@ with tab4:
 
     # ── Win Rate Badge ─────────────────────────────────────────────────────────
     _all_trades   = st.session_state.get("paper_trades", [])
-    _closed       = [t for t in _all_trades if t.get("status") != "OPEN"]
-    _wins         = [t for t in _closed if t.get("is_win")]
+    _closed       = [t for t in _all_trades if t.get("status") not in ["OPEN", None]]
+    _wins         = [t for t in _closed if t.get("is_win") or t.get("status") == "WIN"]
+    _losses       = [t for t in _closed if not (t.get("is_win") or t.get("status") == "WIN")]
     _total_closed = len(_closed)
     _win_rate     = round(len(_wins) / _total_closed * 100) if _total_closed > 0 else None
     _open_count   = len([t for t in _all_trades if t.get("status") == "OPEN"])
@@ -4956,7 +4958,7 @@ with tab4:
             "<div style='margin-left:auto;font-size:0.68rem;color:#4a5568'>Paper trading · not financial advice</div>"
             "</div>" % (
                 _wr_color, _wr_color, _win_rate,
-                len(_wins), _total_closed - len(_wins),
+                len(_wins), len(_losses),
                 _open_count, _total_closed
             ),
             unsafe_allow_html=True
@@ -4969,6 +4971,68 @@ with tab4:
             "</div>" % (_open_count, "s" if _open_count != 1 else ""),
             unsafe_allow_html=True
         )
+
+    # ── Paper Trade Log ────────────────────────────────────────────────────────
+    if _all_trades:
+        with st.expander("📊 Paper Trade Log (%s trades)" % len(_all_trades), expanded=False):
+            # Open trades first
+            _open_trades  = [t for t in _all_trades if t.get("status") == "OPEN"]
+            _closed_trades = sorted(
+                [t for t in _all_trades if t.get("status") != "OPEN"],
+                key=lambda x: x.get("exit_ts", ""), reverse=True
+            )
+
+            if _open_trades:
+                st.markdown("<div style='font-size:0.65rem;color:#A1A1A6;letter-spacing:2px;margin-bottom:6px'>OPEN POSITIONS</div>", unsafe_allow_html=True)
+                for t in _open_trades:
+                    _is_bull = t.get("direction") == "bullish"
+                    _cur_pnl = t.get("pnl_pct", 0)
+                    _pnl_col = "#22C55E" if _cur_pnl > 0 else "#C1121F" if _cur_pnl < 0 else "#A1A1A6"
+                    st.markdown(
+                        "<div style='background:#1A1A1D;border:1px solid #2A2A2D;border-radius:8px;"
+                        "padding:10px 14px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center'>"
+                        "<div>"
+                        "<span style='color:#F5F5F5;font-weight:700'>%s %s</span>"
+                        "<span style='color:#A1A1A6;font-size:0.75rem;margin-left:8px'>%s · $%s entry</span>"
+                        "</div>"
+                        "<div style='text-align:right'>"
+                        "<div style='color:%s;font-weight:700'>%+.1f%%</div>"
+                        "<div style='color:#A1A1A6;font-size:0.68rem'>OPEN</div>"
+                        "</div>"
+                        "</div>" % (
+                            t.get("ticker","?"), "CALL" if _is_bull else "PUT",
+                            t.get("pattern","?"), t.get("entry_price","?"),
+                            _pnl_col, _cur_pnl
+                        ),
+                        unsafe_allow_html=True
+                    )
+
+            if _closed_trades:
+                st.markdown("<div style='font-size:0.65rem;color:#A1A1A6;letter-spacing:2px;margin:10px 0 6px'>CLOSED TRADES</div>", unsafe_allow_html=True)
+                for t in _closed_trades[:20]:
+                    _is_win = t.get("is_win") or t.get("status") == "WIN"
+                    _result_col = "#22C55E" if _is_win else "#C1121F"
+                    _result_emoji = "✅" if _is_win else "❌"
+                    st.markdown(
+                        "<div style='background:#1A1A1D;border:1px solid %s33;border-radius:8px;"
+                        "padding:10px 14px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center'>"
+                        "<div>"
+                        "<span style='color:#F5F5F5;font-weight:700'>%s %s %s</span>"
+                        "<span style='color:#A1A1A6;font-size:0.75rem;margin-left:8px'>%s</span>"
+                        "</div>"
+                        "<div style='text-align:right'>"
+                        "<div style='color:%s;font-weight:700'>%+.1f%%</div>"
+                        "<div style='color:#A1A1A6;font-size:0.68rem'>%s</div>"
+                        "</div>"
+                        "</div>" % (
+                            _result_col,
+                            _result_emoji, t.get("ticker","?"), "CALL" if t.get("direction")=="bullish" else "PUT",
+                            t.get("exit_reason","?"),
+                            _result_col, t.get("pnl_pct", 0),
+                            t.get("exit_ts","?")
+                        ),
+                        unsafe_allow_html=True
+                    )
 
     if go_now or watching or on_deck or rejected:
         bias_color = "#D4AF37" if mkt_bias=="bullish" else "#C1121F" if mkt_bias=="bearish" else "#F6E27A"
@@ -5387,9 +5451,9 @@ with tab7:
   <div class='hiw-title'>🚦 Signal Tiers</div>
   <div class='hiw-body'>
     Every signal is scored and placed into one of three tiers:<br><br>
-    <span class='hiw-badge' style='background:#1A1500;color:#D4AF37;border:1px solid #D4AF37'>🚨 GO NOW</span>
+    <span class='hiw-badge' style='background:#22C55E22;color:#22C55E;border:1px solid #22C55E'>🟢 GO NOW</span>
     The highest conviction setups. All confirmation criteria met. Entry is valid right now.<br><br>
-    <span class='hiw-badge' style='background:#1a150a;color:#F6E27A;border:1px solid #F6E27A'>👀 WATCHING</span>
+    <span class='hiw-badge' style='background:#D4AF3722;color:#D4AF37;border:1px solid #D4AF37'>🟡 WATCHING</span>
     Strong setup, waiting on final confirmation. Worth tracking — entry is close.<br><br>
     <span class='hiw-badge' style='background:#1A1A1D;color:#A1A1A6;border:1px solid #A1A1A6'>📋 ON DECK</span>
     Setup is developing. Not ready yet but worth knowing about.
