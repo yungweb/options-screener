@@ -4926,24 +4926,7 @@ with tab4:
     last_run = st.session_state.get("scan_last_run") or st.session_state.get("auto_scan_last_run")
 
     # ── Temp diagnostic - shows why signals landed in ON DECK vs GO NOW ────────
-    if last_run and (go_now or watching or real_on_deck or rejected):
-        _all_results = go_now + watching + real_on_deck
-        with st.expander("🔍 Signal Breakdown (%s total)" % len(_all_results), expanded=False):
-            for _r in _all_results[:20]:
-                _opt = _r.get("opt", {})
-                _rr  = _opt.get("rr_option", 0) if _opt else 0
-                _bucket = "GO NOW" if _r in go_now else "WATCHING" if _r in watching else "ON DECK"
-                st.markdown("`%s` **%s** %s - conf:%s gates:%s rr:%.1f entry:%s exh:%s signals:%s" % (
-                    _r.get("ticker","?"), _r.get("action","?"), _bucket,
-                    _r.get("confidence",0), _r.get("gates_passed",0), _rr,
-                    _r.get("entry_status","?"),
-                    _r.get("exh_confirmed",False),
-                    _r.get("signals_hit",0)
-                ))
-            if rejected:
-                st.markdown("**Rejected (%s):**" % len(rejected))
-                for _r in rejected[:10]:
-                    st.markdown("`%s` - %s" % (_r.get("ticker","?"), _r.get("_reason","?")))
+    # Signal breakdown removed — internal data stays internal
     # ──────────────────────────────────────────────────────────────────────────
 
     # ── Win Rate Badge ─────────────────────────────────────────────────────────
