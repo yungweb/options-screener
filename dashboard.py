@@ -4242,7 +4242,7 @@ def paper_check_exits():
             t["exit_reason"]  = exit_reason
             t["exit_price"]   = round(cur, 2)
             t["exit_premium"] = round(cur_premium, 2)
-            t["exit_ts"]      = datetime.now().strftime("%%m/%%d %%I:%%M%%p")
+            t["exit_ts"]      = datetime.now().strftime("%m/%d %I:%M%p")
             t["pnl_pct"]      = round(pnl_pct, 1)
             t["pnl_dollar"]   = round(pnl_dollar, 2)
             send_telegram_exit_alert(t)
@@ -4281,7 +4281,7 @@ def paper_close_trade(trade_id, reason="MANUAL CLOSE"):
             t["exit_reason"]  = reason
             t["exit_price"]   = round(cur, 2)
             t["exit_premium"] = round(cur_premium, 2)
-            t["exit_ts"]      = datetime.now().strftime("%%m/%%d %%I:%%M%%p")
+            t["exit_ts"]      = datetime.now().strftime("%m/%d %I:%M%p")
             t["pnl_pct"]      = round(pnl_pct, 1)
             t["pnl_dollar"]   = round(pnl_dollar, 2)
             break
