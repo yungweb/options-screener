@@ -5441,6 +5441,37 @@ with tab7:
   </div>
 </div>
 
+<div class='hiw-section' style='border-left-color:#D4AF37'>
+  <div class='hiw-title'>🎯 How to Trade From the Cards</div>
+  <div class='hiw-body'>
+    Not all signals are equal. Here's how to prioritize:<br><br>
+    <b style='color:#22C55E'>Tier 1 — Highest Conviction:</b><br>
+    GO NOW + Entry CONFIRMED + Daily trend agrees + Fibonacci Confluence + Gates 5/7+<br>
+    This is your best trade of the day. Act on it.<br><br>
+    <b style='color:#D4AF37'>Tier 2 — Solid Setup:</b><br>
+    GO NOW or WATCHING + Entry CONFIRMED + 4/7 gates + Exhaustion confirmed<br>
+    Good trade. Standard size. Don't chase if price has moved past entry.<br><br>
+    <b style='color:#C1121F'>Tier 3 — Wait:</b><br>
+    Entry still WAITING, counter-trend, gates 3/7 or lower<br>
+    Add to Watch Queue. Never enter on WAITING.
+  </div>
+</div>
+
+<div class='hiw-section' style='border-left-color:#22C55E'>
+  <div class='hiw-title'>📋 The Rules</div>
+  <div class='hiw-body'>
+    <b style='color:#F5F5F5'>1. Never enter on WAITING</b> — the entry timing check exists for a reason. Wait for CONFIRMED.<br><br>
+    <b style='color:#F5F5F5'>2. Never fight the daily trend</b> — if it says "Daily trend conflicts" cut your size in half minimum.<br><br>
+    <b style='color:#F5F5F5'>3. Check the move required</b> — LIKELY is your sweet spot. AMBITIOUS is a lottery ticket.<br><br>
+    <b style='color:#F5F5F5'>4. Respect the stop</b> — when price hits your stop level, exit. No hoping, no holding.<br><br>
+    <b style='color:#F5F5F5'>5. Quick trades close same day</b> — never hold a quick trade overnight.<br><br>
+    <b style='color:#F5F5F5'>6. Fibonacci + pattern = priority</b> — when both show confirmed, that's your trade of the day.<br><br>
+    <b style='color:#D4AF37'>The one sentence rule:</b><br>
+    GO NOW + CONFIRMED entry + daily trend agrees + Fibonacci showing = enter.<br>
+    Everything else = wait or skip.
+  </div>
+</div>
+
 <div class='hiw-section' style='border-left-color:#C1121F'>
   <div class='hiw-title'>⚠️ Risk Disclosure</div>
   <div class='hiw-body'>
