@@ -1305,8 +1305,16 @@ def run_seven_point_gate(df, sig, opt, iv_rank, earnings_days, dte_used):
 
     avg_vol   = float(df["volume"].iloc[-20:].mean())
     cur_vol   = float(df["volume"].iloc[-3:].mean())
-    vol_ok    = cur_vol > avg_vol * 1.1
-    vol_label = "Volume: Confirming" if vol_ok else "Volume: Not Confirming"
+    # Block zero volume entirely — market closed or no activity on contract
+    if cur_vol == 0 or avg_vol == 0:
+        vol_ok    = False
+        vol_label = "Volume: No Activity"
+    elif cur_vol > avg_vol * 1.1:
+        vol_ok    = True
+        vol_label = "Volume: Confirming"
+    else:
+        vol_ok    = False
+        vol_label = "Volume: Not Confirming"
 
     div       = detect_rsi_divergence(df)
     div_ok    = div is not None and div["type"] == ("bullish" if is_bull else "bearish")
@@ -2939,7 +2947,14 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     if iv_rank is not None and iv_rank > 70:
         return None, "IV too high (%s%%)" % iv_rank
 
-    # Market bias penalty - don't hard block, just reduce confidence score later
+    # Block zero volume — market closed or no liquidity
+    if df_primary is not None and len(df_primary) > 0:
+        try:
+            _cur_vol = float(df_primary["volume"].iloc[-3:].mean()) if "volume" in df_primary.columns else 1
+            if _cur_vol == 0:
+                return None, "Zero volume — market closed or no liquidity"
+        except Exception:
+            pass
     # Signals going against market bias get flagged on the card instead
     _against_bias = (
         (market_bias == "bullish" and direction == "bearish") or
@@ -3096,9 +3111,9 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     score += signals_hit * 5
     score += min(exh_score * 3, 10)
 
-    # Fibonacci confluence boost — up to +15 for golden ratio
+    # Fibonacci confluence boost — up to +8 max (reduced to prevent score inflation)
     fib_boost = fib_result.get("boost", 0) if isinstance(fib_result, dict) else 0
-    score += min(fib_boost, 15)
+    score += min(fib_boost, 8)
 
     tf_agree = 0
     tf_total = 0
@@ -3132,7 +3147,7 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     if liq_ok:
         score += 3 if liq_vol >= 500 else 2 if liq_vol >= 100 else 1
 
-    final = min(100, max(50, score))
+    final = min(97, max(50, score))  # cap at 97 — reserve 100% for exceptional setups only
 
     return final, {
         "exhaustion_confirmed": exh_confirmed,
@@ -3334,6 +3349,9 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
             # Tier 1: conf>=85%, gates>=4, signals>=2
             # Tier 2: conf>=75%, gates>=5, signals>=3
             # Both: CONFIRMED + exhaustion
+            # Block GO NOW if volume is zero — market closed or no liquidity
+            _vol_detail = r.get("detail", {}) or {}
+            _has_volume = "No Activity" not in str(_vol_detail.get("signal_detail", []))
             _high_conf = conf >= 85 and gates_passed >= 4 and signals_hit >= 2
             _med_conf  = conf >= 75 and gates_passed >= 5 and signals_hit >= 3
             _go_now_ok = (_high_conf or _med_conf) and entry_status == "CONFIRMED" and exh_ok
@@ -3423,7 +3441,7 @@ with st.sidebar:
             keys_to_clear = [
                 "authenticated", "tos_agreed", "user_email", "user_id", "is_admin",
                 "watchlist_loaded", "wq_loaded", "watch_queue", "user_watchlist",
-                "onboarding_complete", "onboarding_step",
+                "onboarding_complete", "onboarding_step", "_paper_trades_loaded",
                 "_access_token", "_refresh_token", "_last_token_refresh",
                 "auto_scan_go_now", "auto_scan_watching", "auto_scan_on_deck",
             ]
@@ -3969,7 +3987,13 @@ init_user_watchlist()  # call immediately after definition
 start_bg_scan_thread()  # start background scanner daemon
 
 # Load paper trades from Supabase now that functions are defined
-if not st.session_state.paper_trades:
+# Always reload paper trades when authenticated — ensures correct user's trades load
+if st.session_state.get("authenticated") and not st.session_state.get("_paper_trades_loaded"):
+    _pt = load_paper_trades()
+    if _pt:
+        st.session_state.paper_trades = _pt
+    st.session_state._paper_trades_loaded = True
+elif not st.session_state.paper_trades:
     _pt = load_paper_trades()
     if _pt:
         st.session_state.paper_trades = _pt
@@ -5276,13 +5300,13 @@ with tab4:
 
         section_hdr("GO NOW", "#22C55E", len(go_now))
         if go_now:
-            for i, r in enumerate(go_now[:5]):   mobile_card(r, "go_now",   i)
+            for i, r in enumerate(go_now[:15]):  mobile_card(r, "go_now",   i)
         else:
             empty_bkt("No GO NOW signals - exhaustion not confirmed or gates not cleared.")
 
         section_hdr("WATCHING", "#D4AF37", len(watching))
         if watching:
-            for i, r in enumerate(watching[:8]): mobile_card(r, "watching", i)
+            for i, r in enumerate(watching[:15]): mobile_card(r, "watching", i)
         else:
             empty_bkt("No setups in confirmation phase right now.")
 
