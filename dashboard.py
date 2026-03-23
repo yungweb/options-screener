@@ -2729,6 +2729,339 @@ def get_sector_bias(sector_etf):
     except:
         return "neutral"
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MARKET REGIME DETECTION ENGINE
+# Layer 1: Breadth Calculator
+# Layer 2: Index Health Check  
+# Layer 3: Rally Authenticity
+# Layer 4: Regime Classifier
+# Layer 5: Signal Adjuster
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def calculate_breadth_score(go_now, watching, on_deck):
+    """
+    Layer 1 — Breadth Calculator
+    Analyzes directional bias across all scan results.
+    Returns score from -100 (fully bearish) to +100 (fully bullish).
+    Weighted by confidence and gate count.
+    """
+    bull_weight = 0.0
+    bear_weight = 0.0
+    
+    def weight(r):
+        conf  = r.get("confidence", 50) / 100
+        gates = r.get("gates_passed", 3) / 7
+        return conf * gates
+
+    # GO NOW signals count most
+    for r in go_now:
+        w = weight(r) * 3.0  # 3x multiplier for GO NOW
+        if r.get("direction") == "bullish":
+            bull_weight += w
+        else:
+            bear_weight += w
+
+    # WATCHING counts moderately
+    for r in watching:
+        w = weight(r) * 1.5
+        if r.get("direction") == "bullish":
+            bull_weight += w
+        else:
+            bear_weight += w
+
+    # ON DECK counts lightly
+    real_on_deck = [r for r in on_deck if not r.get("_rejected")]
+    for r in real_on_deck:
+        w = weight(r) * 0.5
+        if r.get("direction") == "bullish":
+            bull_weight += w
+        else:
+            bear_weight += w
+
+    total = bull_weight + bear_weight
+    if total == 0:
+        return 0, 0, 0  # no signals
+
+    bull_pct = bull_weight / total * 100
+    bear_pct = bear_weight / total * 100
+    score    = round(bull_pct - bear_pct)  # -100 to +100
+
+    return score, round(bull_pct), round(bear_pct)
+
+
+def check_index_health(ticker="SPY"):
+    """
+    Layer 2 — Index Health Check
+    Analyzes SPY/QQQ/IWM for trend direction, volume, and momentum.
+    Returns dict with health metrics.
+    """
+    try:
+        # Get daily data for trend analysis
+        df_daily = _fmp_download(ticker, "60d", "1d")
+        if df_daily is None or len(df_daily) < 20:
+            return {"status": "unknown", "trend_5d": "neutral", "trend_20d": "neutral",
+                    "vol_ratio": 1.0, "rsi": 50, "above_20ema": None}
+
+        close  = df_daily["close"].astype(float)
+        volume = df_daily["volume"].astype(float)
+
+        # 5-day vs 20-day trend
+        ema5  = float(close.ewm(span=5).mean().iloc[-1])
+        ema20 = float(close.ewm(span=20).mean().iloc[-1])
+        price = float(close.iloc[-1])
+
+        trend_5d  = "bullish" if price > ema5  else "bearish"
+        trend_20d = "bullish" if price > ema20 else "bearish"
+
+        # Volume — up day vol vs down day vol ratio (last 10 sessions)
+        recent = df_daily.iloc[-10:].copy()
+        recent["up"] = recent["close"] > recent["close"].shift(1)
+        up_vol   = float(recent[recent["up"] == True]["volume"].mean()) if len(recent[recent["up"] == True]) > 0 else 1
+        down_vol = float(recent[recent["up"] == False]["volume"].mean()) if len(recent[recent["up"] == False]) > 0 else 1
+        vol_ratio = round(up_vol / down_vol, 2) if down_vol > 0 else 1.0
+
+        # RSI 14
+        delta = close.diff()
+        gain  = delta.clip(lower=0).rolling(14).mean()
+        loss  = (-delta.clip(upper=0)).rolling(14).mean()
+        rs    = gain / loss.replace(0, 0.001)
+        rsi   = round(float(100 - (100 / (1 + rs.iloc[-1]))), 1)
+
+        # Distance from 52-week high
+        high_52w = float(close.rolling(252).max().iloc[-1]) if len(close) >= 252 else float(close.max())
+        pct_from_high = round((price - high_52w) / high_52w * 100, 1)
+
+        # SPY IV rank as fear proxy
+        iv_rank = None
+        try:
+            iv_rank = get_iv_rank(ticker)
+        except Exception:
+            pass
+
+        # Overall health status
+        if trend_5d == "bullish" and trend_20d == "bullish" and vol_ratio > 1.1:
+            status = "healthy"
+        elif trend_5d == "bearish" and trend_20d == "bearish":
+            status = "weak"
+        elif trend_5d != trend_20d:
+            status = "transitioning"
+        else:
+            status = "neutral"
+
+        return {
+            "status":         status,
+            "trend_5d":       trend_5d,
+            "trend_20d":      trend_20d,
+            "vol_ratio":      vol_ratio,
+            "rsi":            rsi,
+            "pct_from_high":  pct_from_high,
+            "above_20ema":    price > ema20,
+            "iv_rank":        iv_rank,
+            "price":          round(price, 2),
+        }
+    except Exception as e:
+        return {"status": "unknown", "trend_5d": "neutral", "trend_20d": "neutral",
+                "vol_ratio": 1.0, "rsi": 50, "above_20ema": None}
+
+
+def check_rally_authenticity(ticker="SPY"):
+    """
+    Layer 3 — Rally Authenticity Score
+    Detects false rallies (bull traps) by comparing:
+    - Current move volume vs prior selloff volume
+    - Fibonacci resistance proximity
+    - RSI divergence on the bounce
+    Returns: AUTHENTIC, SUSPECT, or FALSE
+    """
+    try:
+        df = _fmp_download(ticker, "14d", "1d")
+        if df is None or len(df) < 5:
+            return "unknown", {}
+
+        close  = df["close"].astype(float)
+        volume = df["volume"].astype(float)
+        price  = float(close.iloc[-1])
+
+        # Find the recent selloff — biggest down day in last 5 sessions
+        recent = df.iloc[-5:].copy()
+        recent["pct_chg"] = recent["close"].pct_change() * 100
+        worst_day_idx = recent["pct_chg"].idxmin()
+        selloff_vol   = float(recent.loc[worst_day_idx, "volume"]) if worst_day_idx is not None else 0
+        selloff_pct   = float(recent.loc[worst_day_idx, "pct_chg"]) if worst_day_idx is not None else 0
+
+        # Current bounce volume vs selloff volume
+        bounce_vol = float(volume.iloc[-1])
+        vol_ratio  = round(bounce_vol / selloff_vol, 2) if selloff_vol > 0 else 1.0
+
+        # Is price going up today?
+        today_chg  = float(close.pct_change().iloc[-1] * 100)
+        is_bouncing = today_chg > 0.3
+
+        # Fibonacci check — is price at resistance?
+        fib_result = detect_fibonacci_confluence(df, "bearish", price)
+        at_fib_resistance = fib_result.get("confirmed", False) and fib_result.get("level") in ["38.2%", "50.0%", "61.8%"]
+
+        # RSI divergence — price higher but RSI lower
+        delta = close.diff()
+        gain  = delta.clip(lower=0).rolling(14).mean()
+        loss  = (-delta.clip(upper=0)).rolling(14).mean()
+        rs    = gain / loss.replace(0, 0.001)
+        rsi_series = 100 - (100 / (1 + rs))
+        rsi_now    = float(rsi_series.iloc[-1])
+        rsi_prev   = float(rsi_series.iloc[-3])
+        price_prev = float(close.iloc[-3])
+        rsi_diverging = (price > price_prev) and (rsi_now < rsi_prev)
+
+        # Score the authenticity
+        fake_signals = 0
+        if is_bouncing and vol_ratio < 0.7:  fake_signals += 2  # low volume bounce
+        if at_fib_resistance:                 fake_signals += 2  # hitting resistance
+        if rsi_diverging:                     fake_signals += 1  # RSI not confirming
+        if selloff_pct < -2.0 and today_chg > 1.0:  fake_signals += 1  # gap up after big drop
+
+        if fake_signals >= 4:
+            authenticity = "FALSE"
+        elif fake_signals >= 2:
+            authenticity = "SUSPECT"
+        else:
+            authenticity = "AUTHENTIC"
+
+        return authenticity, {
+            "vol_ratio":       vol_ratio,
+            "at_fib_res":      at_fib_resistance,
+            "fib_level":       fib_result.get("level"),
+            "rsi_diverging":   rsi_diverging,
+            "rsi":             round(rsi_now, 1),
+            "selloff_pct":     round(selloff_pct, 1),
+            "bounce_pct":      round(today_chg, 1),
+            "fake_signals":    fake_signals,
+        }
+    except Exception:
+        return "unknown", {}
+
+
+def classify_market_regime(breadth_score, index_health, rally_auth, go_now, watching):
+    """
+    Layer 4 — Regime Classifier
+    Combines breadth, index health, and rally authenticity
+    into a single regime label.
+    """
+    trend_20d    = index_health.get("trend_20d", "neutral")
+    trend_5d     = index_health.get("trend_5d", "neutral")
+    vol_ratio    = index_health.get("vol_ratio", 1.0)
+    rsi          = index_health.get("rsi", 50)
+    iv_rank      = index_health.get("iv_rank")
+    index_status = index_health.get("status", "neutral")
+
+    # Determine regime
+    if rally_auth == "FALSE" and breadth_score < 0:
+        regime = "BULL TRAP"
+        desc   = "Rally is suspect. Volume weak, breadth bearish. Watch for reversal."
+        color  = "#C1121F"
+        bias   = "bearish"
+
+    elif trend_20d == "bearish" and breadth_score < -30:
+        regime = "BEAR CONFIRMED"
+        desc   = "Sustained downtrend with broad participation. PUT signals elevated."
+        color  = "#C1121F"
+        bias   = "bearish"
+
+    elif trend_20d == "bullish" and breadth_score > 30 and vol_ratio > 1.0:
+        regime = "BULL CONFIRMED"
+        desc   = "Broad participation, healthy volume. CALL signals elevated."
+        color  = "#22C55E"
+        bias   = "bullish"
+
+    elif trend_5d == "bearish" and trend_20d == "bullish" and breadth_score < -10:
+        regime = "DISTRIBUTION"
+        desc   = "Index healthy long-term but short-term weakness. Smart money may be selling."
+        color  = "#F6E27A"
+        bias   = "bearish"
+
+    elif trend_5d == "bullish" and trend_20d == "bearish" and breadth_score > 10:
+        regime = "BEAR TRAP"
+        desc   = "Short-term bounce in downtrend. Oversold relief rally likely."
+        color  = "#F6E27A"
+        bias   = "neutral"
+
+    elif iv_rank is not None and iv_rank > 60 and rsi < 35:
+        regime = "CAPITULATION"
+        desc   = "Extreme fear. Oversold conditions. Potential reversal zone."
+        color  = "#D4AF37"
+        bias   = "neutral"
+
+    elif rally_auth == "SUSPECT":
+        regime = "SUSPECT RALLY"
+        desc   = "Rally showing weakness signals. Proceed with extra caution."
+        color  = "#F6E27A"
+        bias   = "neutral"
+
+    elif abs(breadth_score) < 20:
+        regime = "CHOPPY"
+        desc   = "No clear directional edge. Reduce size. Wait for clarity."
+        color  = "#A1A1A6"
+        bias   = "neutral"
+
+    else:
+        regime = "NEUTRAL"
+        desc   = "Mixed signals. Standard signal criteria apply."
+        color  = "#A1A1A6"
+        bias   = "neutral"
+
+    return {
+        "regime": regime,
+        "desc":   desc,
+        "color":  color,
+        "bias":   bias,
+        "breadth_score": breadth_score,
+    }
+
+
+def apply_regime_adjustments(signals, regime_data):
+    """
+    Layer 5 — Signal Adjuster
+    Applies regime context to each signal.
+    Boosts aligned signals, flags counter-regime signals.
+    """
+    regime = regime_data.get("regime", "NEUTRAL")
+    bias   = regime_data.get("bias", "neutral")
+    adjusted = []
+
+    for r in signals:
+        r = dict(r)  # don't mutate original
+        direction = r.get("direction", "bullish")
+        conf      = r.get("confidence", 50)
+
+        # Determine alignment
+        if bias == "neutral":
+            alignment = "NEUTRAL"
+            conf_adj  = 0
+        elif (bias == "bullish" and direction == "bullish") or              (bias == "bearish" and direction == "bearish"):
+            alignment = "CONFIRMED"
+            conf_adj  = +5  # boost aligned signals
+        else:
+            alignment = "COUNTER"
+            conf_adj  = -10  # penalize counter-regime signals
+
+        # Special rules per regime
+        if regime == "BULL TRAP" and direction == "bullish":
+            alignment = "BLOCKED"
+            conf_adj  = -20  # heavily penalize calls in bull trap
+
+        if regime == "CAPITULATION" and direction == "bullish":
+            conf_adj  = +8  # bounce plays in capitulation
+
+        if regime == "CHOPPY":
+            conf_adj  = -5  # reduce confidence in choppy market
+
+        r["regime_alignment"] = alignment
+        r["confidence"]       = min(97, max(30, conf + conf_adj))
+        adjusted.append(r)
+
+    return adjusted
+
+
 def detect_fibonacci_confluence(df, direction, current_price=None):
     """
     Detects if current price is at a key Fibonacci retracement level.
@@ -4927,6 +5260,39 @@ with tab4:
                 try: save_signal_history(r)
                 except: pass
 
+            # ── REGIME DETECTION ENGINE ───────────────────────────────────────
+            try:
+                # Layer 1: Breadth
+                _breadth_score, _bull_pct, _bear_pct = calculate_breadth_score(go_now, watching, on_deck)
+
+                # Layer 2: Index health
+                _index_health = check_index_health("SPY")
+
+                # Layer 3: Rally authenticity
+                _rally_auth, _rally_detail = check_rally_authenticity("SPY")
+
+                # Layer 4: Classify regime
+                _regime_data = classify_market_regime(
+                    _breadth_score, _index_health, _rally_auth, go_now, watching
+                )
+
+                # Layer 5: Adjust signals
+                go_now   = apply_regime_adjustments(go_now, _regime_data)
+                watching = apply_regime_adjustments(watching, _regime_data)
+
+                # Store regime in session state for display
+                st.session_state.market_regime = _regime_data
+                st.session_state.breadth_score  = _breadth_score
+                st.session_state.bull_pct        = _bull_pct
+                st.session_state.bear_pct        = _bear_pct
+                st.session_state.rally_auth      = _rally_auth
+                st.session_state.rally_detail    = _rally_detail
+                st.session_state.index_health    = _index_health
+
+            except Exception as _re:
+                st.session_state.market_regime = {"regime": "UNKNOWN", "color": "#A1A1A6",
+                                                   "desc": "Regime analysis unavailable", "bias": "neutral"}
+
             save_scan_state(go_now, watching, on_deck)
 
     # ── show completion banner
@@ -4942,6 +5308,49 @@ with tab4:
                     len(go_now), len(watching), len(on_deck)),
                 unsafe_allow_html=True
             )
+
+    # ── REGIME DISPLAY BANNER ──────────────────────────────────────────────────
+    _regime = st.session_state.get("market_regime")
+    if _regime and _regime.get("regime") not in ["UNKNOWN", None]:
+        _rc     = _regime.get("color", "#A1A1A6")
+        _rname  = _regime.get("regime", "NEUTRAL")
+        _rdesc  = _regime.get("desc", "")
+        _bs     = st.session_state.get("breadth_score", 0)
+        _bpct   = st.session_state.get("bull_pct", 50)
+        _bepct  = st.session_state.get("bear_pct", 50)
+        _rauth  = st.session_state.get("rally_auth", "")
+        _ih     = st.session_state.get("index_health", {})
+        _rsi    = _ih.get("rsi", "N/A")
+        _t5     = _ih.get("trend_5d", "neutral").upper()
+        _t20    = _ih.get("trend_20d", "neutral").upper()
+
+        _rally_line = ""
+        if _rauth in ["FALSE", "SUSPECT"]:
+            _rally_line = " &nbsp;·&nbsp; <span style='color:#C1121F'>⚠️ Rally: %s</span>" % _rauth
+
+        st.markdown(
+            "<div style='background:%s18;border:1px solid %s44;border-radius:10px;"
+            "padding:12px 16px;margin-bottom:10px'>"
+            "<div style='display:flex;justify-content:space-between;align-items:center'>"
+            "<div>"
+            "<span style='color:%s;font-weight:700;font-size:0.9rem'>📡 %s</span>"
+            "<span style='color:#A1A1A6;font-size:0.75rem;margin-left:10px'>%s</span>"
+            "%s"
+            "</div>"
+            "<div style='text-align:right;font-size:0.72rem;color:#A1A1A6'>"
+            "🟢 %s%% CALLS &nbsp; 🔴 %s%% PUTS<br>"
+            "5D: <b style='color:%s'>%s</b> &nbsp; 20D: <b style='color:%s'>%s</b> &nbsp; RSI: %s"
+            "</div>"
+            "</div>"
+            "</div>" % (
+                _rc, _rc, _rc, _rname, _rdesc, _rally_line,
+                _bpct, _bepct,
+                "#22C55E" if _t5 == "BULLISH" else "#C1121F", _t5,
+                "#22C55E" if _t20 == "BULLISH" else "#C1121F", _t20,
+                _rsi
+            ),
+            unsafe_allow_html=True
+        )
 
     # ── Debug: show why tickers were rejected ──────────────────────────────────
     rejected = [r for r in on_deck if r.get("_rejected")]
@@ -5082,12 +5491,22 @@ with tab4:
             return "#D4AF37" if c>=90 else "#40d080" if c>=80 else "#F6E27A" if c>=70 else "#6699aa"
         def conf_label(c):
             return "HIGH CONVICTION" if c>=90 else "STRONG" if c>=80 else "WATCH IT" if c>=70 else "WAIT"
+        def regime_badge(r):
+            alignment = r.get("regime_alignment", "")
+            if alignment == "CONFIRMED":
+                return "<span style='background:#22C55E22;color:#22C55E;border:1px solid #22C55E33;padding:1px 6px;border-radius:4px;font-size:0.62rem;margin-left:4px'>✅ REGIME</span>"
+            elif alignment == "COUNTER":
+                return "<span style='background:#C1121F22;color:#C1121F;border:1px solid #C1121F33;padding:1px 6px;border-radius:4px;font-size:0.62rem;margin-left:4px'>⚠️ COUNTER</span>"
+            elif alignment == "BLOCKED":
+                return "<span style='background:#C1121F44;color:#C1121F;border:1px solid #C1121F;padding:1px 6px;border-radius:4px;font-size:0.62rem;margin-left:4px'>🚫 BLOCKED</span>"
+            return ""
 
         def mobile_card(r, bucket, idx):
             is_bull = r.get("direction", "bullish") == "bullish"
             dc  = "#D4AF37" if is_bull else "#C1121F"
             cc  = conf_color(r.get("confidence", 50))
             cl  = conf_label(r.get("confidence", 50))
+            rb  = regime_badge(r)  # regime alignment badge
             opt = r.get("opt", {})
 
             # ON DECK records may not have full opt - show simplified card
@@ -5167,7 +5586,7 @@ with tab4:
                 "<div style='font-size:0.65rem;color:#A1A1A6;margin-top:2px'>%sx vol &nbsp;·&nbsp; %s%s</div>" % (rv, exh_txt, sq_tag),
                 "</div>",
                 "<div style='text-align:right;flex-shrink:0'>",
-                "<div style='font-size:0.56rem;font-weight:700;color:%s;background:%s22;padding:2px 7px;border-radius:6px;letter-spacing:1px;margin-bottom:5px;display:inline-block'>%s</div>" % (cc, cc, cl),
+                "<div style='font-size:0.56rem;font-weight:700;color:%s;background:%s22;padding:2px 7px;border-radius:6px;letter-spacing:1px;margin-bottom:5px;display:inline-block'>%s</div>%s" % (cc, cc, cl, rb),
                 "<div style='font-size:0.65rem;color:#A1A1A6'>Gate <span style='color:%s;font-weight:700'>%s/7</span></div>" % (gc, r["gates_passed"]),
                 "<div style='font-size:0.65rem;color:#A1A1A6;margin-top:3px'>Entry <span style='color:#F5F5F5;font-weight:700'>$%.2f</span></div>" % r["price"],
                 "<div style='font-size:0.65rem;color:#A1A1A6;margin-top:2px'>Strike <span style='color:#F5F5F5;font-weight:700'>$%.2f</span></div>" % opt["strike"],
