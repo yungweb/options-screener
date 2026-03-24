@@ -5962,6 +5962,35 @@ with tab7:
   </div>
 </div>
 
+<div class='hiw-section' style='border-left-color:#D4AF37'>
+  <div class='hiw-title'>📡 Market Regime Engine</div>
+  <div class='hiw-body'>
+    Every scan runs a 5-layer market analysis that classifies current conditions and adjusts signal confidence accordingly.<br><br>
+    <b style='color:#F5F5F5'>The Regime Banner</b> appears after every scan showing:<br>
+    Regime label · Breadth score (% CALLS vs % PUTS) · 5-day and 20-day trend · RSI reading · Rally authenticity<br><br>
+    <b style='color:#F5F5F5'>The 8 Regime Types:</b><br><br>
+    <span style='color:#22C55E'>🟢 BULL CONFIRMED</span> — Broad participation, healthy volume. CALL signals elevated.<br><br>
+    <span style='color:#C1121F'>🔴 BEAR CONFIRMED</span> — Sustained downtrend with broad participation. PUT signals elevated.<br><br>
+    <span style='color:#C1121F'>⚠️ BULL TRAP</span> — Rally is suspect. Volume weak, breadth bearish. CALL signals blocked or penalized. Watch for reversal.<br><br>
+    <span style='color:#F6E27A'>⚡ BEAR TRAP</span> — Short-term bounce in downtrend. Oversold relief rally. Treat with caution.<br><br>
+    <span style='color:#F6E27A'>📉 DISTRIBUTION</span> — Index healthy long-term but short-term weakness. Smart money may be selling into strength.<br><br>
+    <span style='color:#D4AF37'>💀 CAPITULATION</span> — Extreme fear. Oversold conditions. Potential reversal zone — watch for CALL setups at key support.<br><br>
+    <span style='color:#F6E27A'>🔍 SUSPECT RALLY</span> — Rally showing weakness signals. Proceed with extra caution on CALL signals.<br><br>
+    <span style='color:#A1A1A6'>↔️ CHOPPY</span> — No clear directional edge. Reduce size. Wait for clarity before entering.
+  </div>
+</div>
+
+<div class='hiw-section' style='border-left-color:#22C55E'>
+  <div class='hiw-title'>🏷️ Signal Alignment Badges</div>
+  <div class='hiw-body'>
+    Every signal card shows a regime alignment badge telling you whether the signal works with or against current market conditions:<br><br>
+    <span style='background:#22C55E22;color:#22C55E;border:1px solid #22C55E44;padding:2px 8px;border-radius:4px;font-size:0.8rem'>✅ REGIME</span> &nbsp; Signal direction matches the current regime. Higher conviction — this is what you want.<br><br>
+    <span style='background:#C1121F22;color:#C1121F;border:1px solid #C1121F44;padding:2px 8px;border-radius:4px;font-size:0.8rem'>⚠️ COUNTER</span> &nbsp; Signal is fighting the regime. Confidence is reduced by 10%. Extra caution required — smaller size if you take it.<br><br>
+    <span style='background:#C1121F44;color:#C1121F;border:1px solid #C1121F;padding:2px 8px;border-radius:4px;font-size:0.8rem'>🚫 BLOCKED</span> &nbsp; Regime actively conflicts with this signal. Confidence reduced by 20%. BULL TRAP + CALL signal = blocked. Avoid these.<br><br>
+    <b style='color:#D4AF37'>The rule:</b> Always prioritize ✅ REGIME signals. Only take ⚠️ COUNTER signals if everything else is perfect — Fibonacci confirmed, 6/7+ gates, daily trend agrees. Never take 🚫 BLOCKED signals.
+  </div>
+</div>
+
 <div class='hiw-section' style='border-left-color:#C1121F'>
   <div class='hiw-title'>⚠️ Risk Disclosure</div>
   <div class='hiw-body'>
