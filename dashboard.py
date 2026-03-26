@@ -512,9 +512,9 @@ footer { visibility: hidden; }
 .conf-num-better { font-size: 2.2rem; font-weight: 700; color: #40c070; }
 .conf-num-good   { font-size: 2.2rem; font-weight: 700; color: #F6E27A; }
 .factor-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 0.82rem; }
-.dot-green  { width: 8px; height: 8px; background: #D4AF37; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-.dot-red    { width: 8px; height: 8px; background: #C1121F; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-.dot-yellow { width: 8px; height: 8px; background: #F6E27A; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot-green  { width: 8px; height: 8px; background: #00C853; border-radius: 50%; display: inline-block; flex-shrink: 0; box-shadow: 0 0 6px rgba(0,200,83,0.7); }
+.dot-red    { width: 8px; height: 8px; background: #FF1744; border-radius: 50%; display: inline-block; flex-shrink: 0; box-shadow: 0 0 6px rgba(255,23,68,0.6); }
+.dot-yellow { width: 8px; height: 8px; background: #FFD600; border-radius: 50%; display: inline-block; flex-shrink: 0; box-shadow: 0 0 6px rgba(255,214,0,0.6); }
 .trade-box  { background: #111827; border-radius: 8px; padding: 14px; margin-top: 10px; border-left: 3px solid #D4AF37; }
 .trade-box.bear { border-left-color: #C1121F; }
 .exit-rules { background: #0d1525; border: 1px solid #2A2A2D; border-radius: 8px; padding: 12px 14px; margin-top: 10px; font-size: 0.83rem; }
@@ -2379,7 +2379,7 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
             opt = calc_trade(sig["entry"],sig["stop"],sig["target"],sig["direction"],dte,account_size,risk_pct,current_price,atr=atr,trade_style=trade_style)
             gates, gates_passed, elevate = run_seven_point_gate(df,sig,opt,iv_rank,earnings_days,opt["actual_dte"])
             est_days, dte_rec = estimate_move_timeframe(sig["pattern_label"])
-            gate_color = "#D4AF37" if gates_passed>=6 else "#F6E27A" if gates_passed>=4 else "#C1121F"
+            gate_color = "#00C853" if gates_passed>=6 else "#FFD600" if gates_passed>=4 else "#FF1744"
             elev_badge = "<span style='background:#D4AF3722;color:#D4AF37;padding:2px 8px;border-radius:10px;font-size:0.72rem;margin-left:8px'>PRIME SETUP</span>" if elevate else ""
 
             # Fibonacci confluence for signals tab
@@ -5533,7 +5533,7 @@ with tab4:
                 )
                 return
 
-            gc  = "#D4AF37" if r.get("gates_passed",0)>=6 else "#F6E27A" if r.get("gates_passed",0)>=5 else "#C1121F"
+            gc  = "#00C853" if r.get("gates_passed",0)>=6 else "#FFD600" if r.get("gates_passed",0)>=5 else "#FF1744"
             exh_ok = r.get("exh_confirmed", False)
             rv     = round(r.get("rel_vol", 1.0), 1)
             block  = r.get("block_detected", False)
