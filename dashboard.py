@@ -512,9 +512,9 @@ footer { visibility: hidden; }
 .conf-num-better { font-size: 2.2rem; font-weight: 700; color: #40c070; }
 .conf-num-good   { font-size: 2.2rem; font-weight: 700; color: #F6E27A; }
 .factor-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 0.82rem; }
-.dot-green  { width: 8px; height: 8px; background: #00C853; border-radius: 50%; display: inline-block; flex-shrink: 0; box-shadow: 0 0 6px rgba(0,200,83,0.7); }
-.dot-red    { width: 8px; height: 8px; background: #FF1744; border-radius: 50%; display: inline-block; flex-shrink: 0; box-shadow: 0 0 6px rgba(255,23,68,0.6); }
-.dot-yellow { width: 8px; height: 8px; background: #FFD600; border-radius: 50%; display: inline-block; flex-shrink: 0; box-shadow: 0 0 6px rgba(255,214,0,0.6); }
+.dot-green  { width: 8px; height: 8px; background: #D4AF37; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot-red    { width: 8px; height: 8px; background: #C1121F; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot-yellow { width: 8px; height: 8px; background: #F6E27A; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .trade-box  { background: #111827; border-radius: 8px; padding: 14px; margin-top: 10px; border-left: 3px solid #D4AF37; }
 .trade-box.bear { border-left-color: #C1121F; }
 .exit-rules { background: #0d1525; border: 1px solid #2A2A2D; border-radius: 8px; padding: 12px 14px; margin-top: 10px; font-size: 0.83rem; }
@@ -1121,16 +1121,33 @@ def estimate_delta(price, strike, dte, iv=0.45, is_call=True):
     except:
         return 0.5
 
+# US market holidays — options expiring on these days shift to prior trading day
+_MARKET_HOLIDAYS = {
+    date(2026, 1,  1),  # New Year's Day
+    date(2026, 1, 19),  # MLK Day
+    date(2026, 2, 16),  # Presidents' Day
+    date(2026, 4,  3),  # Good Friday 2026 ← this was causing April 3 vs April 2 bug
+    date(2026, 5, 25),  # Memorial Day
+    date(2026, 7,  3),  # Independence Day (observed)
+    date(2026, 9,  7),  # Labor Day
+    date(2026, 11, 26), # Thanksgiving
+    date(2026, 12, 25), # Christmas
+    date(2027, 1,  1),  # New Year's Day 2027
+    date(2027, 4, 18),  # Good Friday 2027
+}
+
 def get_expiration_date(dte_target):
     today   = date.today()
     d       = today
     fridays = []
     while len(fridays) < 16:
         d += timedelta(days=1)
-        if d.weekday() == 4:
-            fridays.append(d)
-    valid = [f for f in fridays if (f-today).days >= 5]
-    return min(valid, key=lambda f: abs((f-(today+timedelta(days=dte_target))).days))
+        if d.weekday() == 4:  # Friday
+            # If this Friday is a market holiday, options expire Thursday instead
+            exp = d - timedelta(days=1) if d in _MARKET_HOLIDAYS else d
+            fridays.append(exp)
+    valid = [f for f in fridays if (f - today).days >= 5]
+    return min(valid, key=lambda f: abs((f - (today + timedelta(days=dte_target))).days))
 
 def estimate_move_timeframe(pattern_label):
     if "Double" in pattern_label:  est_days = 21
@@ -1138,7 +1155,62 @@ def estimate_move_timeframe(pattern_label):
     else:                          est_days = 10
     return est_days, int(est_days * 1.5)
 
-def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, current_price, iv=0.45, atr=None, trade_style="swing"):
+@_thread_cache(ttl=600)
+def fetch_real_strikes(ticker, expiration_str):
+    """
+    Fetch actually listed strikes from FMP options chain for a given expiration.
+    Returns sorted list of floats, or None if unavailable.
+    expiration_str format: 'YYYY-MM-DD'
+    """
+    if not FMP_API_KEY or not ticker:
+        return None
+    try:
+        import requests as _req
+        url = (
+            "https://financialmodelingprep.com/api/v3/options/%s"
+            "?apikey=%s" % (ticker.upper(), FMP_API_KEY)
+        )
+        r = _req.get(url, timeout=6)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        if not data or not isinstance(data, list):
+            return None
+        strikes = sorted(set(
+            float(item["strike"])
+            for item in data
+            if item.get("expiration") == expiration_str and item.get("strike")
+        ))
+        return strikes if len(strikes) >= 3 else None
+    except Exception:
+        return None
+
+def snap_to_chain(price, raw, real_strikes=None):
+    """
+    Snap raw strike to nearest actually listed strike.
+    Uses real FMP chain if available, falls back to exchange increment logic.
+    """
+    if real_strikes:
+        return min(real_strikes, key=lambda s: abs(s - raw))
+    # Fallback increment logic — conservative (wider increments = safer)
+    if price < 25:
+        increment = 0.50
+    elif price < 50:
+        increment = 1.0
+    elif price < 100:
+        increment = 1.0
+    elif price < 150:
+        # Check if raw snaps cleanly to $5 — if so use $1, else use $5 for safety
+        snap5 = round(round(raw / 5.0) * 5.0, 2)
+        snap1 = round(round(raw / 1.0) * 1.0, 2)
+        increment = 1.0 if snap1 == snap5 else 5.0
+    elif price < 500:
+        increment = 5.0
+    else:
+        increment = 10.0
+    return round(round(raw / increment) * increment, 2)
+
+def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, current_price, iv=0.45, atr=None, trade_style="swing", ticker=""):
     import math as _math
     # Guard against NaN/None prices (market closed, no data)
     def _clean(v, fallback=0.0):
@@ -1163,26 +1235,10 @@ def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, c
     else:
         raw_strike = current_price * 1.02 if is_call else current_price * 0.98
 
-    # Snap to real options chain increments based on stock price
-    # Matches actual Robinhood/TDA/Fidelity chain strikes
-    def snap_to_chain(price, raw):
-        if price < 5:
-            increment = 0.50
-        elif price < 25:
-            increment = 0.50
-        elif price < 50:
-            increment = 0.50
-        elif price < 100:
-            increment = 1.0
-        elif price < 200:
-            increment = 1.0   # most stocks: 1-wide or 2.5-wide
-        elif price < 500:
-            increment = 2.5   # SPY, QQQ range
-        else:
-            increment = 5.0   # high price stocks like AMZN, GOOGL
-        return round(round(raw / increment) * increment, 2)
-
-    strike = snap_to_chain(current_price, raw_strike)
+    # Snap to real available strike — fetch actual chain from FMP first
+    exp_str     = exp_date.strftime("%Y-%m-%d")
+    real_strikes = fetch_real_strikes(ticker, exp_str) if FMP_API_KEY else None
+    strike = snap_to_chain(current_price, raw_strike, real_strikes)
 
     # IV adjustment: quick trades use higher IV estimate (short-dated premiums are inflated)
     iv_adj  = min(iv * 1.3, 0.80) if actual_dte <= 7 else iv
@@ -2376,10 +2432,10 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
         """, unsafe_allow_html=True)
 
         if sig["confidence"] >= 60:
-            opt = calc_trade(sig["entry"],sig["stop"],sig["target"],sig["direction"],dte,account_size,risk_pct,current_price,atr=atr,trade_style=trade_style)
+            opt = calc_trade(sig["entry"],sig["stop"],sig["target"],sig["direction"],dte,account_size,risk_pct,current_price,atr=atr,trade_style=trade_style,ticker=ticker)
             gates, gates_passed, elevate = run_seven_point_gate(df,sig,opt,iv_rank,earnings_days,opt["actual_dte"])
             est_days, dte_rec = estimate_move_timeframe(sig["pattern_label"])
-            gate_color = "#00C853" if gates_passed>=6 else "#FFD600" if gates_passed>=4 else "#FF1744"
+            gate_color = "#D4AF37" if gates_passed>=6 else "#F6E27A" if gates_passed>=4 else "#C1121F"
             elev_badge = "<span style='background:#D4AF3722;color:#D4AF37;padding:2px 8px;border-radius:10px;font-size:0.72rem;margin-left:8px'>PRIME SETUP</span>" if elevate else ""
 
             # Fibonacci confluence for signals tab
@@ -3562,7 +3618,7 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
 
             opt = calc_trade(best["entry"], best["stop"], best["target"],
                               direction, dte, account_size, risk_pct,
-                              cur_price, atr=atr, trade_style=style)
+                              cur_price, atr=atr, trade_style=style, ticker=ticker)
             if opt["premium"] > max_premium:
                 results.append({"ticker": ticker, "_rejected": True,
                     "_reason": "[%s %s] premium $%.2f > max $%.2f" % (
@@ -5533,7 +5589,7 @@ with tab4:
                 )
                 return
 
-            gc  = "#00C853" if r.get("gates_passed",0)>=6 else "#FFD600" if r.get("gates_passed",0)>=5 else "#FF1744"
+            gc  = "#D4AF37" if r.get("gates_passed",0)>=6 else "#F6E27A" if r.get("gates_passed",0)>=5 else "#C1121F"
             exh_ok = r.get("exh_confirmed", False)
             rv     = round(r.get("rel_vol", 1.0), 1)
             block  = r.get("block_detected", False)
