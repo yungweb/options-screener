@@ -1289,7 +1289,7 @@ def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, c
         target_realistic = "Unknown"
 
     # Move pct for display
-    move_pct = round((move_needed / current_price) * 100, 1)
+    move_pct = round((move_needed / current_price) * 100, 1) if current_price > 0 else 0.0
 
     delta     = estimate_delta(current_price, strike, actual_dte, iv, is_call)
     abs_delta = abs(delta)
@@ -3858,10 +3858,11 @@ with st.sidebar:
                 st.session_state.pop(key, None)
             st.rerun()
     st.markdown("---")
-    selected_ticker = st.selectbox("TICKER", WATCHLIST)
+    _ticker_options = ["— Select a ticker —"] + list(st.session_state.user_watchlist or DEFAULT_WATCHLIST)
+    _ticker_choice  = st.selectbox("TICKER", _ticker_options, index=0)
+    selected_ticker = None if _ticker_choice.startswith("—") else _ticker_choice
     custom = st.text_input("Or type ticker symbol", "", placeholder="e.g. NVDA").upper().strip()
     if custom:
-        # Validate - tickers are 1-5 uppercase letters only, no spaces or full names
         import re as _re
         if _re.match(r'^[A-Z]{1,5}$', custom):
             selected_ticker = custom
@@ -3915,12 +3916,57 @@ if AUTOREFRESH_AVAILABLE and not _bg_running_now:
         st_autorefresh(interval=ms, key="manual_autorefresh")
 
 tf_mult,tf_span,tf_days = TIMEFRAMES[selected_tf]
-df            = fetch_ohlcv(selected_ticker, tf_mult, tf_span, tf_days)
-current_price = fetch_current_price(selected_ticker) or float(df["close"].iloc[-1])
-prev_close    = float(df["close"].iloc[-2]) if len(df)>1 else current_price
-pct_change    = ((current_price-prev_close)/prev_close)*100
-iv_rank, hv   = fetch_iv_rank(selected_ticker)
-earnings_days = check_earnings(selected_ticker)
+
+# ── Blank state — show logo instead of price card when no ticker selected ─────
+if not selected_ticker:
+    st.markdown("""
+    <div style='display:flex;flex-direction:column;align-items:center;justify-content:center;
+                padding:40px 20px 20px;text-align:center'>
+        <svg width="220" height="80" viewBox="0 0 300 100" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="goldG" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#F6E27A"/>
+              <stop offset="50%" stop-color="#D4AF37"/>
+              <stop offset="100%" stop-color="#9A7D1E"/>
+            </linearGradient>
+          </defs>
+          <text x="50%" y="72%" text-anchor="middle"
+                font-family="Barlow Condensed, Arial Black, sans-serif"
+                font-size="78" font-weight="900" fill="url(#goldG)"
+                letter-spacing="2">PBP</text>
+        </svg>
+        <div style='color:#A1A1A6;font-size:0.85rem;margin-top:8px;letter-spacing:2px'>PAIDBUTPRESSURED</div>
+        <div style='color:#4a5568;font-size:0.75rem;margin-top:8px'>Select a ticker from the sidebar to view signals · Or run a scan below</div>
+    </div>
+    """, unsafe_allow_html=True)
+    # Use demo data so tabs don't crash — nothing will auto-fire without a real ticker
+    selected_ticker = "SPY"
+    df            = fetch_ohlcv(selected_ticker, tf_mult, tf_span, tf_days)
+    current_price = 0.0
+    prev_close    = 0.0
+    pct_change    = 0.0
+    iv_rank       = None
+    hv            = None
+    earnings_days = None
+    atr           = None
+    htf_trend     = None
+    htf_rsi       = None
+    htf_ema       = None
+    liq_ok        = True
+    liq_vol       = 0
+    liq_oi        = 0
+    liq_msg       = ""
+    _blank_state  = True
+else:
+    _blank_state  = False
+    df            = fetch_ohlcv(selected_ticker, tf_mult, tf_span, tf_days)
+
+if not _blank_state:
+    current_price = fetch_current_price(selected_ticker) or float(df["close"].iloc[-1])
+    prev_close    = float(df["close"].iloc[-2]) if len(df)>1 else current_price
+    pct_change    = ((current_price-prev_close)/prev_close)*100
+    iv_rank, hv   = fetch_iv_rank(selected_ticker)
+    earnings_days = check_earnings(selected_ticker)
 
 # ── ATR calculation (14-period) ───────────────────────────────────────────────
 def calc_atr(df, period=14):
@@ -3935,10 +3981,7 @@ def calc_atr(df, period=14):
     ], axis=1).max(axis=1)
     return round(float(tr.rolling(period).mean().iloc[-1]), 2)
 
-atr = calc_atr(df)
-
 # ── Higher timeframe confluence ───────────────────────────────────────────────
-# Pull daily bars to check if the higher timeframe trend agrees with the signal
 @st.cache_data(ttl=300)
 def fetch_htf_trend(ticker):
     """Fetch daily data and return trend + RSI for confluence check."""
@@ -3958,10 +4001,12 @@ def fetch_htf_trend(ticker):
     except:
         return None, None, None
 
-htf_trend, htf_rsi, htf_ema = fetch_htf_trend(selected_ticker)
-
-# Liquidity check (cached, runs silently in background)
-liq_ok, liq_vol, liq_oi, liq_msg = check_liquidity(selected_ticker)
+if not _blank_state:
+    atr = calc_atr(df)
+    htf_trend, htf_rsi, htf_ema = fetch_htf_trend(selected_ticker)
+    liq_ok, liq_vol, liq_oi, liq_msg = check_liquidity(selected_ticker)
+else:
+    atr = None
 
 # ── Background watch loop ────────────────────────────────────────────────────
 # Watch queue rendering moved to WATCH QUEUE tab - no more top-of-page reruns
@@ -4764,68 +4809,72 @@ for ng in _new_go_now:
 # auto_scan_poll removed - background thread runs independently,
 # no page refresh needed to trigger it.
 
-if earnings_days is not None:
-    if earnings_days <= 1:   st.error(f"EARNINGS {'TODAY' if earnings_days==0 else 'TOMORROW'} on {selected_ticker} - Avoid new options positions.")
-    elif earnings_days <= 7: st.error(f"EARNINGS IN {earnings_days} DAYS on {selected_ticker} - 7-point gate will block.")
-    else:                    st.warning(f"Earnings in {earnings_days} days on {selected_ticker} - premiums may be inflated.")
+if not _blank_state:
+    if earnings_days is not None:
+        if earnings_days <= 1:   st.error(f"EARNINGS {'TODAY' if earnings_days==0 else 'TOMORROW'} on {selected_ticker} - Avoid new options positions.")
+        elif earnings_days <= 7: st.error(f"EARNINGS IN {earnings_days} DAYS on {selected_ticker} - 7-point gate will block.")
+        else:                    st.warning(f"Earnings in {earnings_days} days on {selected_ticker} - premiums may be inflated.")
 
-c1,c2,c3,c4 = st.columns([2,1,1,1])
-with c1:
-    color   = "#D4AF37" if pct_change>=0 else "#C1121F"
-    arrow   = "UP" if pct_change>=0 else "DN"
-    prepost = "" if mstatus=="open" else " <span style='color:#F6E27A;font-size:0.72rem'>(delayed)</span>"
-    st.markdown(f"<div class='metric-card'><div style='color:#A1A1A6;font-size:0.8rem'>{selected_ticker} . {selected_tf}</div><div class='big-price'>${current_price:,.2f}{prepost}</div><div style='color:{color}'>{arrow} {pct_change:+.2f}%</div></div>", unsafe_allow_html=True)
-with c2:
-    ema20v = float(df["close"].ewm(span=20).mean().iloc[-1])
-    above  = current_price > ema20v
-    st.markdown(f"<div class='metric-card'><div style='color:#A1A1A6;font-size:0.75rem'>TREND</div><div style='font-weight:700;color:{'#D4AF37' if above else '#C1121F'}'>{'BULL' if above else 'BEAR'}</div></div>", unsafe_allow_html=True)
-with c3:
-    vol = float(df["volume"].iloc[-1])
-    st.markdown(f"<div class='metric-card'><div style='color:#A1A1A6;font-size:0.75rem'>VOLUME</div><div style='font-weight:700'>{vol/1e6:.1f}M</div></div>", unsafe_allow_html=True)
-with c4:
-    iv_color = "#D4AF37" if iv_rank is not None and iv_rank<50 else "#F6E27A" if iv_rank is not None and iv_rank<70 else "#C1121F"
-    iv_text  = f"{iv_rank}%" if iv_rank is not None else "N/A"
-    st.markdown(f"<div class='metric-card'><div style='color:#A1A1A6;font-size:0.75rem'>IV RANK</div><div style='font-weight:700;color:{iv_color}'>{iv_text}</div></div>", unsafe_allow_html=True)
+    c1,c2,c3,c4 = st.columns([2,1,1,1])
+    with c1:
+        color   = "#D4AF37" if pct_change>=0 else "#C1121F"
+        arrow   = "UP" if pct_change>=0 else "DN"
+        prepost = "" if mstatus=="open" else " <span style='color:#F6E27A;font-size:0.72rem'>(delayed)</span>"
+        st.markdown(f"<div class='metric-card'><div style='color:#A1A1A6;font-size:0.8rem'>{selected_ticker} . {selected_tf}</div><div class='big-price'>${current_price:,.2f}{prepost}</div><div style='color:{color}'>{arrow} {pct_change:+.2f}%</div></div>", unsafe_allow_html=True)
+    with c2:
+        ema20v = float(df["close"].ewm(span=20).mean().iloc[-1])
+        above  = current_price > ema20v
+        st.markdown(f"<div class='metric-card'><div style='color:#A1A1A6;font-size:0.75rem'>TREND</div><div style='font-weight:700;color:{'#D4AF37' if above else '#C1121F'}'>{'BULL' if above else 'BEAR'}</div></div>", unsafe_allow_html=True)
+    with c3:
+        vol = float(df["volume"].iloc[-1])
+        st.markdown(f"<div class='metric-card'><div style='color:#A1A1A6;font-size:0.75rem'>VOLUME</div><div style='font-weight:700'>{vol/1e6:.1f}M</div></div>", unsafe_allow_html=True)
+    with c4:
+        iv_color = "#D4AF37" if iv_rank is not None and iv_rank<50 else "#F6E27A" if iv_rank is not None and iv_rank<70 else "#C1121F"
+        iv_text  = f"{iv_rank}%" if iv_rank is not None else "N/A"
+        st.markdown(f"<div class='metric-card'><div style='color:#A1A1A6;font-size:0.75rem'>IV RANK</div><div style='font-weight:700;color:{iv_color}'>{iv_text}</div></div>", unsafe_allow_html=True)
 
-div = detect_rsi_divergence(df)
-if div:
-    css = f"divergence-{'bull' if div['type']=='bullish' else 'bear'}"
-    st.markdown(f"<div class='{css}'><b>{div['label']}</b><br>{div['detail']}</div>", unsafe_allow_html=True)
+    div = detect_rsi_divergence(df)
+    if div:
+        css = f"divergence-{'bull' if div['type']=='bullish' else 'bear'}"
+        st.markdown(f"<div class='{css}'><b>{div['label']}</b><br>{div['detail']}</div>", unsafe_allow_html=True)
 
 tab4,tab1,tab2,tab8,tab7 = st.tabs(["SCAN","SIGNALS","CHART","WATCH QUEUE","HOW IT WORKS"])
 
 with tab1:
-    cands_quick, tfs_quick = build_multi_tf_candidates(selected_ticker, toggles, account_size, risk_pct, dte_quick, "quick", atr=atr)
-    cands_swing, tfs_swing = build_multi_tf_candidates(selected_ticker, toggles, account_size, risk_pct, dte_swing, "swing", atr=atr)
-
-    no_quick = len(cands_quick) == 0
-    no_swing = len(cands_swing) == 0
-
-    if no_quick and no_swing:
-        st.markdown("""<div style='background:#111827;border:2px solid #2A2A2D;border-radius:12px;padding:24px;text-align:center;color:#A1A1A6'>
-            <div style='font-size:1rem;font-weight:700;margin:8px 0'>NO SIGNALS FOUND</div>
-            <div style='font-size:0.85rem'>Try Daily or 4 Hour timeframe, enable more patterns, or check a different ticker.</div>
-        </div>""", unsafe_allow_html=True)
+    if _blank_state:
+        st.markdown("<div style='text-align:center;color:#4a5568;padding:40px;font-size:0.85rem'>Select a ticker from the sidebar to view signals.</div>", unsafe_allow_html=True)
     else:
-        # Use first candidate list that has signals for shared logic below
-        candidates = cands_quick if not no_quick else cands_swing
-        # Side-by-side columns: Quick (purple) | Swing (blue)
-        col_q, col_s = st.columns(2)
-        with col_q:
-            st.markdown(f"<div style='background:#1a0a3a;border-radius:6px;padding:6px 12px;text-align:center;color:#aa88ff;font-family:monospace;font-size:0.75rem;letter-spacing:1px'>⚡ QUICK &nbsp;|&nbsp; {dte_quick}DTE</div>", unsafe_allow_html=True)
-        with col_s:
-            st.markdown(f"<div style='background:#0a1a2a;border-radius:6px;padding:6px 12px;text-align:center;color:#A1A1A6;font-family:monospace;font-size:0.75rem;letter-spacing:1px'>📅 SWING &nbsp;|&nbsp; {dte_swing}DTE</div>", unsafe_allow_html=True)
+        cands_quick, tfs_quick = build_multi_tf_candidates(selected_ticker, toggles, account_size, risk_pct, dte_quick, "quick", atr=atr)
+        cands_swing, tfs_swing = build_multi_tf_candidates(selected_ticker, toggles, account_size, risk_pct, dte_swing, "swing", atr=atr)
 
-        with col_q:
-            render_signal_cards(cands_quick, selected_ticker, dte_quick, "quick", "q",
-                                df, current_price, atr, iv_rank, earnings_days,
-                                mstatus, mtext, account_size, risk_pct,
-                                htf_trend, htf_rsi, htf_ema, liq_ok)
-        with col_s:
-            render_signal_cards(cands_swing, selected_ticker, dte_swing, "swing", "s",
-                                df, current_price, atr, iv_rank, earnings_days,
-                                mstatus, mtext, account_size, risk_pct,
-                                htf_trend, htf_rsi, htf_ema, liq_ok)
+        no_quick = len(cands_quick) == 0
+        no_swing = len(cands_swing) == 0
+
+        if no_quick and no_swing:
+            st.markdown("""<div style='background:#111827;border:2px solid #2A2A2D;border-radius:12px;padding:24px;text-align:center;color:#A1A1A6'>
+                <div style='font-size:1rem;font-weight:700;margin:8px 0'>NO SIGNALS FOUND</div>
+                <div style='font-size:0.85rem'>Try Daily or 4 Hour timeframe, enable more patterns, or check a different ticker.</div>
+            </div>""", unsafe_allow_html=True)
+        else:
+            # Use first candidate list that has signals for shared logic below
+            candidates = cands_quick if not no_quick else cands_swing
+            # Side-by-side columns: Quick (purple) | Swing (blue)
+            col_q, col_s = st.columns(2)
+            with col_q:
+                st.markdown(f"<div style='background:#1a0a3a;border-radius:6px;padding:6px 12px;text-align:center;color:#aa88ff;font-family:monospace;font-size:0.75rem;letter-spacing:1px'>⚡ QUICK &nbsp;|&nbsp; {dte_quick}DTE</div>", unsafe_allow_html=True)
+            with col_s:
+                st.markdown(f"<div style='background:#0a1a2a;border-radius:6px;padding:6px 12px;text-align:center;color:#A1A1A6;font-family:monospace;font-size:0.75rem;letter-spacing:1px'>📅 SWING &nbsp;|&nbsp; {dte_swing}DTE</div>", unsafe_allow_html=True)
+
+            with col_q:
+                render_signal_cards(cands_quick, selected_ticker, dte_quick, "quick", "q",
+                                    df, current_price, atr, iv_rank, earnings_days,
+                                    mstatus, mtext, account_size, risk_pct,
+                                    htf_trend, htf_rsi, htf_ema, liq_ok)
+            with col_s:
+                render_signal_cards(cands_swing, selected_ticker, dte_swing, "swing", "s",
+                                    df, current_price, atr, iv_rank, earnings_days,
+                                    mstatus, mtext, account_size, risk_pct,
+                                    htf_trend, htf_rsi, htf_ema, liq_ok)
 
 with tab2:
     # ── Detect patterns for annotation ────────────────────────────────────────
@@ -5498,13 +5547,17 @@ with tab4:
                         unsafe_allow_html=True
                     )
 
-                # Clear open positions button — keeps closed trades intact
-                if st.button("🗑 Clear Open Positions", key="clear_open_trades", use_container_width=True):
-                    closed_only = [t for t in st.session_state.paper_trades if t.get("status") != "OPEN"]
-                    st.session_state.paper_trades = closed_only
-                    save_paper_trades(closed_only)
-                    st.success("Open positions cleared. Closed trade history preserved.")
-                    st.rerun()
+                # Clear open positions — admin only
+                _is_admin_pt = (
+                    st.session_state.get("user_email", "").strip().lower() == ADMIN_EMAIL.strip().lower()
+                )
+                if _is_admin_pt:
+                    if st.button("🗑 Clear Open Positions", key="clear_open_trades", use_container_width=True):
+                        closed_only = [t for t in st.session_state.paper_trades if t.get("status") != "OPEN"]
+                        st.session_state.paper_trades = closed_only
+                        save_paper_trades(closed_only)
+                        st.success("Open positions cleared. Closed trade history preserved.")
+                        st.rerun()
 
             if _closed_trades:
                 st.markdown("<div style='font-size:0.65rem;color:#A1A1A6;letter-spacing:2px;margin:10px 0 6px'>CLOSED TRADES</div>", unsafe_allow_html=True)
