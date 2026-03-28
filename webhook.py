@@ -42,7 +42,8 @@ STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 STRIPE_EBOOK_PRICE_ID = os.environ.get("STRIPE_EBOOK_PRICE_ID", "")
 SUPABASE_URL          = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY          = os.environ.get("SUPABASE_KEY", "")
-MAKE_WEBHOOK_URL      = os.environ.get("MAKE_WEBHOOK_URL", "")
+MAKE_WEBHOOK_URL         = os.environ.get("MAKE_WEBHOOK_URL", "")
+MAKE_EBOOK_MEMBER_URL    = os.environ.get("MAKE_EBOOK_MEMBER_URL", "")
 EBOOK_DOWNLOAD_URL    = os.environ.get("EBOOK_DOWNLOAD_URL", "")
 
 TRIAL_DAYS  = 7
@@ -196,16 +197,17 @@ def upgrade_to_subscription(sb, email, tier, name=""):
 
 # ── Make.com webhook ──────────────────────────────────────────────────────────
 
-def fire_make_webhook(payload: dict):
+def fire_make_webhook(payload: dict, url: str = ""):
     """Send data to Make.com for email automation."""
-    if not MAKE_WEBHOOK_URL:
-        log.warning("No MAKE_WEBHOOK_URL set — skipping webhook")
+    target_url = url if url else MAKE_WEBHOOK_URL
+    if not target_url:
+        log.warning("No Make.com URL set — skipping webhook")
         return
     try:
         import urllib.request
         data = json.dumps(payload).encode("utf-8")
         req  = urllib.request.Request(
-            MAKE_WEBHOOK_URL,
+            target_url,
             data=data,
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -268,7 +270,7 @@ def handle_checkout_completed(session: dict):
                 "name":          name,
                 "ebook_url":     EBOOK_DOWNLOAD_URL,
                 "message":       "You already have full app access. Here's your ebook!",
-            })
+            }, url=MAKE_EBOOK_MEMBER_URL)
         else:
             # New buyer — create 7-day trial + deliver ebook
             success, temp_password = create_trial_account(sb, email, name)
