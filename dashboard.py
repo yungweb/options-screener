@@ -11,7 +11,12 @@ import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading as _threading
 
-from pattern_detection import detect_double_bottom, detect_double_top, detect_break_and_retest
+from pattern_detection import (
+    detect_double_bottom, detect_double_top, detect_break_and_retest,
+    detect_vwap_reclaim, detect_bull_bear_flag,
+    detect_opening_range_breakout, detect_momentum_continuation,
+    detect_ascending_descending_triangle, detect_head_and_shoulders,
+)
 from backtester import run_backtest
 
 st.set_page_config(page_title="PaidButPressured", page_icon="📡", layout="centered", initial_sidebar_state="expanded")
@@ -2113,9 +2118,21 @@ def build_candidates(df, ticker, toggles, account, risk_pct, dte, trade_style="s
     regime_bonus = 5 if regime == "trending" else -5
     candidates = []
     raw = []
-    if toggles["db"]: raw += [s for s in detect_double_bottom(df,ticker,rr_min=2.0) if s.confirmed]
-    if toggles["dt"]: raw += [s for s in detect_double_top(df,ticker,rr_min=2.0)    if s.confirmed]
-    if toggles["br"]: raw += [s for s in detect_break_and_retest(df,ticker,rr_min=2.0) if s.confirmed]
+    if is_quick:
+        # ── QUICK PATTERNS (intraday only) ────────────────────────────────
+        if toggles.get("br"):   raw += [s for s in detect_break_and_retest(df, ticker, rr_min=1.5) if s.confirmed]
+        if toggles.get("vwap"): raw += [s for s in detect_vwap_reclaim(df, ticker, rr_min=1.5) if s.confirmed]
+        if toggles.get("flag"): raw += [s for s in detect_bull_bear_flag(df, ticker, rr_min=1.5, trade_style="quick") if s.confirmed]
+        if toggles.get("orb"):  raw += [s for s in detect_opening_range_breakout(df, ticker, rr_min=1.5) if s.confirmed]
+        if toggles.get("mom"):  raw += [s for s in detect_momentum_continuation(df, ticker, rr_min=1.5) if s.confirmed]
+    else:
+        # ── SWING PATTERNS (multi-day only) ───────────────────────────────
+        if toggles.get("db"):   raw += [s for s in detect_double_bottom(df, ticker, rr_min=2.0) if s.confirmed]
+        if toggles.get("dt"):   raw += [s for s in detect_double_top(df, ticker, rr_min=2.0) if s.confirmed]
+        if toggles.get("br"):   raw += [s for s in detect_break_and_retest(df, ticker, rr_min=2.0) if s.confirmed]
+        if toggles.get("flag"): raw += [s for s in detect_bull_bear_flag(df, ticker, rr_min=2.0, trade_style="swing") if s.confirmed]
+        if toggles.get("tri"):  raw += [s for s in detect_ascending_descending_triangle(df, ticker, rr_min=2.0) if s.confirmed]
+        if toggles.get("hs"):   raw += [s for s in detect_head_and_shoulders(df, ticker, rr_min=2.0) if s.confirmed]
 
     for setup in raw:
         if abs(setup.entry_price - price) / price > 0.05: continue
@@ -3850,12 +3867,7 @@ with st.sidebar:
     selected_tf = st.selectbox("CHART TIMEFRAME", list(TIMEFRAMES.keys()), index=2)
     st.caption("Signals use automatic timeframes per mode.")
     st.markdown("---")
-    st.markdown("**PATTERNS TO SCAN**")
-    tog_db    = st.toggle("Double Bottom (calls)", value=True)
-    tog_br_up = st.toggle("Break & Retest Up (calls)", value=True)
-    tog_dt    = st.toggle("Double Top (puts)",    value=True)
-    tog_br_dn = st.toggle("Break & Retest Down (puts)", value=True)
-    toggles   = {"db":tog_db, "dt":tog_dt, "br":tog_br_up or tog_br_dn}
+    toggles = {"db": True, "dt": True, "br": True, "vwap": True, "flag": True, "orb": True, "mom": True, "tri": True, "hs": True}
     st.markdown("---")
     st.markdown("**ACCOUNT SETTINGS**")
     account_size = st.number_input("Account Size ($)", value=10000, step=1000)
