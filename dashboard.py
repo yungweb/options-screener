@@ -2629,7 +2629,10 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                         # Only fire Telegram from scan tab where gates/exh are verified
                         # Signals tab just logs history and enters paper trade
                         save_signal_history(_signal_r)
-                        if st.session_state.get("paper_auto_enabled", True):
+                        # Only auto-enter paper trade if signal meets conviction threshold
+                        _auto_conf  = sig.get("confidence", 0) >= 92
+                        _auto_gates = gates_passed >= 5
+                        if st.session_state.get("paper_auto_enabled", True) and _auto_conf and _auto_gates:
                             paper_enter_trade(_signal_r)
                 elif "WAITING" in conf_status:
                     conf_bg = "#1A1A1D"; conf_border = "#F6E27A"; conf_color = "#F6E27A"; conf_icon = "👁"
@@ -3892,19 +3895,6 @@ with st.sidebar:
     else:                 st.info("AI Brief: add ANTHROPIC_API_KEY to enable")
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         st.success("📲 TELEGRAM CONNECTED")
-        if st.button("Send Test Alert", key="tg_test"):
-            import requests as _req
-            _msg = (
-                "📡 *PaidButPressured Test Alert*\n"
-                "✅ Telegram is connected and working!\n"
-                "GO NOW signals will fire here automatically."
-            )
-            _req.post(
-                "https://api.telegram.org/bot%s/sendMessage" % TELEGRAM_BOT_TOKEN,
-                json={"chat_id": TELEGRAM_CHAT_ID, "text": _msg, "parse_mode": "Markdown"},
-                timeout=5
-            )
-            st.success("Test sent! Check Telegram.")
     else:
         st.info("📲 Add TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in Railway to enable alerts")
 
@@ -5508,6 +5498,14 @@ with tab4:
                         unsafe_allow_html=True
                     )
 
+                # Clear open positions button — keeps closed trades intact
+                if st.button("🗑 Clear Open Positions", key="clear_open_trades", use_container_width=True):
+                    closed_only = [t for t in st.session_state.paper_trades if t.get("status") != "OPEN"]
+                    st.session_state.paper_trades = closed_only
+                    save_paper_trades(closed_only)
+                    st.success("Open positions cleared. Closed trade history preserved.")
+                    st.rerun()
+
             if _closed_trades:
                 st.markdown("<div style='font-size:0.65rem;color:#A1A1A6;letter-spacing:2px;margin:10px 0 6px'>CLOSED TRADES</div>", unsafe_allow_html=True)
                 for t in _closed_trades[:20]:
@@ -5764,15 +5762,24 @@ with tab4:
                             "padding:6px;text-align:center;font-size:0.72rem;color:#D4AF37'>✅ Sent to Telegram</div>",
                             unsafe_allow_html=True
                         )
-                    else:
-                        if st.button("📣 Send to Telegram", key="tg_%s_%s_%s" % (bucket, r["ticker"], idx), use_container_width=True):
+                        # Only show Telegram button if signal meets high conviction threshold
+                        _tg_conf_ok  = r.get("confidence", 0) >= 92
+                        _tg_gates_ok = r.get("gates_passed", 0) >= 5
+                        _tg_entry_ok = r.get("entry_status", "") == "CONFIRMED"
+                        if not (_tg_conf_ok and _tg_gates_ok and _tg_entry_ok):
+                            st.markdown(
+                                "<div style='background:#1A1A1D;border:1px solid #2A2A2D;border-radius:6px;"
+                                "padding:6px;text-align:center;font-size:0.68rem;color:#4a5568'>"
+                                "Signal below alert threshold (need 92%+ · 5/7 gates · CONFIRMED)</div>",
+                                unsafe_allow_html=True
+                            )
+                        elif st.button("📣 Send to Telegram", key="tg_%s_%s_%s" % (bucket, r["ticker"], idx), use_container_width=True):
                             try:
                                 send_telegram_alert(r, alert_type="GO NOW")
                                 st.session_state[_tg_key] = True
                                 st.success("✅ Alert sent!")
                             except Exception as _te:
                                 st.error("Telegram error: %s" % str(_te)[:60])
-
         def section_hdr(label, color, count):
             st.markdown(f"""
             <div style='display:flex;align-items:center;gap:10px;margin:20px 0 8px'>
