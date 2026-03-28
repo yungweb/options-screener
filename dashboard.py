@@ -517,9 +517,9 @@ footer { visibility: hidden; }
 .conf-num-better { font-size: 2.2rem; font-weight: 700; color: #40c070; }
 .conf-num-good   { font-size: 2.2rem; font-weight: 700; color: #F6E27A; }
 .factor-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 0.82rem; }
-.dot-green  { width: 8px; height: 8px; background: #D4AF37; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-.dot-red    { width: 8px; height: 8px; background: #C1121F; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-.dot-yellow { width: 8px; height: 8px; background: #F6E27A; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot-green  { width: 8px; height: 8px; background: #00C853; border-radius: 50%; display: inline-block; flex-shrink: 0; box-shadow: 0 0 6px rgba(0,200,83,0.7); }
+.dot-red    { width: 8px; height: 8px; background: #FF1744; border-radius: 50%; display: inline-block; flex-shrink: 0; box-shadow: 0 0 6px rgba(255,23,68,0.6); }
+.dot-yellow { width: 8px; height: 8px; background: #FFD600; border-radius: 50%; display: inline-block; flex-shrink: 0; box-shadow: 0 0 6px rgba(255,214,0,0.6); }
 .trade-box  { background: #111827; border-radius: 8px; padding: 14px; margin-top: 10px; border-left: 3px solid #D4AF37; }
 .trade-box.bear { border-left-color: #C1121F; }
 .exit-rules { background: #0d1525; border: 1px solid #2A2A2D; border-radius: 8px; padding: 12px 14px; margin-top: 10px; font-size: 0.83rem; }
