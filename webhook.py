@@ -226,8 +226,8 @@ def verify_stripe_signature(payload: bytes, sig_header: str, secret: str) -> boo
         parts     = {k: v for k, v in (p.split("=", 1) for p in sig_header.split(","))}
         timestamp = parts.get("t", "")
         signature = parts.get("v1", "")
-        signed    = f"{timestamp}.".encode() + payload
-        expected  = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
+        signed    = ("%s.%s" % (timestamp, payload.decode("utf-8"))).encode("utf-8")
+        expected  = hmac.new(secret.encode("utf-8"), signed, hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected, signature)
     except Exception:
         return False
