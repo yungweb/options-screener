@@ -1308,13 +1308,9 @@ def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, c
     stop_loss_pct     = 0.20
     rr_option         = round(profit_target_pct / stop_loss_pct, 2)
 
-    # Dollar profit estimate based on premium % target
-    option_gain_per_share = premium * profit_target_pct
-    profit_per   = round(option_gain_per_share * 100, 2)
-    total_profit = round(profit_per * contracts, 2)
-
-    # Also compute dollar-based profit estimate for display
-    option_gain_per_share = premium * profit_target_pct
+    # Profit at target — based on 100% gain (2x premium) which matches exit_take_half
+    # This aligns the "Est Profit" display with what the exit rules actually say
+    option_gain_per_share = premium * 1.0  # 100% gain = 2x premium
     profit_per   = round(option_gain_per_share * 100, 2)
     total_profit = round(profit_per * contracts, 2)
 
@@ -1370,12 +1366,12 @@ def run_seven_point_gate(df, sig, opt, iv_rank, earnings_days, dte_used):
     if cur_vol == 0 or avg_vol == 0:
         vol_ok    = False
         vol_label = "Volume: No Activity"
-    elif cur_vol > avg_vol * 1.1:
+    elif cur_vol > avg_vol * 1.2:
         vol_ok    = True
-        vol_label = "Volume: Confirming"
+        vol_label = "Volume: Confirming (%.1fx avg)" % (cur_vol / avg_vol if avg_vol > 0 else 0)
     else:
         vol_ok    = False
-        vol_label = "Volume: Not Confirming"
+        vol_label = "Volume: Insufficient (%.1fx avg — need 1.2x+)" % (cur_vol / avg_vol if avg_vol > 0 else 0)
 
     div       = detect_rsi_divergence(df)
     div_ok    = div is not None and div["type"] == ("bullish" if is_bull else "bearish")
@@ -2630,7 +2626,7 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                         # Signals tab just logs history and enters paper trade
                         save_signal_history(_signal_r)
                         # Only auto-enter paper trade if signal meets conviction threshold
-                        _auto_conf  = sig.get("confidence", 0) >= 92
+                        _auto_conf  = sig.get("confidence", 0) >= 88
                         _auto_gates = gates_passed >= 5
                         if st.session_state.get("paper_auto_enabled", True) and _auto_conf and _auto_gates:
                             paper_enter_trade(_signal_r)
@@ -3338,6 +3334,117 @@ def detect_exhaustion(df, direction):
     return confirmed, score, reasons
 
 
+
+# ── ACCURACY LAYER: Sector, Relative Strength, Momentum, Commodity ────────────
+
+# Commodity ETF map for energy/materials names
+_COMMODITY_MAP = {
+    "XOM": "USO", "CVX": "USO", "OXY": "USO", "SLB": "USO", "HAL": "USO",
+    "MPC": "USO", "PSX": "USO", "COP": "USO", "EOG": "USO", "DVN": "USO",
+    "GLD": "GLD", "SLV": "SLV", "FCX": "CPER", "NEM": "GLD",
+    "VST": "XLE", "CEG": "XLE", "GEV": "XLE",
+}
+
+@_thread_cache(ttl=300)
+def check_sector_etf_trend(sector_etf):
+    """
+    Sector ETF must be above its 20 EMA for bullish signals,
+    below for bearish signals to be valid.
+    Returns: (bullish_ok, bearish_ok, detail)
+    """
+    try:
+        df = _fmp_download(sector_etf, "30d", "1d")
+        if df is None or len(df) < 22:
+            return True, True, "Sector data unavailable"
+        close = df["close"].astype(float)
+        ema20 = float(close.ewm(span=20).mean().iloc[-1])
+        price = float(close.iloc[-1])
+        above = price > ema20
+        pct   = round((price - ema20) / ema20 * 100, 1)
+        if above:
+            detail = "%s above 20 EMA by %.1f%% — sector bullish" % (sector_etf, pct)
+        else:
+            detail = "%s below 20 EMA by %.1f%% — sector bearish" % (sector_etf, abs(pct))
+        return above, not above, detail
+    except Exception:
+        return True, True, "Sector check unavailable"
+
+@_thread_cache(ttl=300)
+def check_relative_strength(ticker, sector_etf, days=10):
+    """
+    Stock must outperform its sector ETF over the last N days for bullish signals.
+    For bearish: stock must underperform sector.
+    Returns: (bull_rs_ok, bear_rs_ok, detail)
+    """
+    try:
+        tk_df  = _fmp_download(ticker,     "20d", "1d")
+        sec_df = _fmp_download(sector_etf, "20d", "1d")
+        if tk_df is None or sec_df is None or len(tk_df) < days + 1 or len(sec_df) < days + 1:
+            return True, True, "RS data unavailable"
+        tk_ret  = (float(tk_df["close"].iloc[-1])  - float(tk_df["close"].iloc[-days]))  / float(tk_df["close"].iloc[-days])  * 100
+        sec_ret = (float(sec_df["close"].iloc[-1]) - float(sec_df["close"].iloc[-days])) / float(sec_df["close"].iloc[-days]) * 100
+        outperforms = tk_ret > sec_ret
+        diff = round(tk_ret - sec_ret, 1)
+        detail = "%s %s%s%% vs %s %s%s%% (%s by %.1f%%)" % (
+            ticker, "+" if tk_ret >= 0 else "", round(tk_ret, 1),
+            sector_etf, "+" if sec_ret >= 0 else "", round(sec_ret, 1),
+            "outperforming" if outperforms else "underperforming", abs(diff)
+        )
+        return outperforms, not outperforms, detail
+    except Exception:
+        return True, True, "RS check unavailable"
+
+@_thread_cache(ttl=300)
+def check_momentum_filter(ticker, days_short=5, days_long=10):
+    """
+    Bullish signals require positive 5-day AND 10-day returns.
+    Bearish signals require negative 5-day AND 10-day returns.
+    Returns: (bull_ok, bear_ok, detail)
+    """
+    try:
+        df = _fmp_download(ticker, "20d", "1d")
+        if df is None or len(df) < days_long + 1:
+            return True, True, "Momentum data unavailable"
+        close    = df["close"].astype(float)
+        ret_5d   = round((float(close.iloc[-1]) - float(close.iloc[-days_short]))  / float(close.iloc[-days_short])  * 100, 1)
+        ret_10d  = round((float(close.iloc[-1]) - float(close.iloc[-days_long]))   / float(close.iloc[-days_long])   * 100, 1)
+        bull_ok  = ret_5d > 0 and ret_10d > 0
+        bear_ok  = ret_5d < 0 and ret_10d < 0
+        detail   = "5D: %s%.1f%% | 10D: %s%.1f%%" % (
+            "+" if ret_5d >= 0 else "", ret_5d,
+            "+" if ret_10d >= 0 else "", ret_10d
+        )
+        return bull_ok, bear_ok, detail
+    except Exception:
+        return True, True, "Momentum check unavailable"
+
+@_thread_cache(ttl=600)
+def check_commodity_trend(ticker, direction):
+    """
+    For energy/materials names — commodity ETF must align with signal direction.
+    If no commodity mapping exists, returns True (pass).
+    """
+    commodity_etf = _COMMODITY_MAP.get(ticker.upper())
+    if not commodity_etf:
+        return True, "No commodity dependency"
+    try:
+        df = _fmp_download(commodity_etf, "20d", "1d")
+        if df is None or len(df) < 22:
+            return True, "Commodity data unavailable"
+        close = df["close"].astype(float)
+        ema20 = float(close.ewm(span=20).mean().iloc[-1])
+        price = float(close.iloc[-1])
+        above = price > ema20
+        aligned = (direction == "bullish" and above) or (direction == "bearish" and not above)
+        trend   = "bullish" if above else "bearish"
+        detail  = "%s (%s) is %s — %s for %s signal" % (
+            commodity_etf, ticker, trend,
+            "aligned" if aligned else "OPPOSING", direction
+        )
+        return aligned, detail
+    except Exception:
+        return True, "Commodity check unavailable"
+
 def precision_score(ticker, direction, df_primary, df_confirm,
                     iv_rank, earnings_days, market_bias,
                     sector_bias, atr, dte, account_size, risk_pct,
@@ -3396,7 +3503,54 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     except Exception:
         pass
 
-    # Sector momentum hard stop
+    # ── SECTOR ETF TREND GATE (Fix 4) ───────────────────────────────────────
+    # Sector ETF must be above 20 EMA for bullish, below for bearish
+    try:
+        sector_etf = SECTOR_ETF.get(ticker, "SPY")
+        if sector_etf and sector_etf != ticker:
+            _bull_sector, _bear_sector, _sector_detail = check_sector_etf_trend(sector_etf)
+            if direction == "bullish" and not _bull_sector:
+                return None, "Sector %s in downtrend — CALL signal blocked. %s" % (sector_etf, _sector_detail)
+            if direction == "bearish" and not _bear_sector:
+                return None, "Sector %s in uptrend — PUT signal blocked. %s" % (sector_etf, _sector_detail)
+    except Exception:
+        pass
+
+    # ── RELATIVE STRENGTH GATE (Fix 5) ───────────────────────────────────────
+    # Stock must outperform its sector ETF over 10 days for bullish
+    try:
+        sector_etf = SECTOR_ETF.get(ticker, "SPY")
+        if sector_etf and sector_etf != ticker:
+            _bull_rs, _bear_rs, _rs_detail = check_relative_strength(ticker, sector_etf, days=10)
+            if direction == "bullish" and not _bull_rs:
+                return None, "Relative strength weak — %s underperforming %s. %s" % (ticker, sector_etf, _rs_detail)
+            if direction == "bearish" and not _bear_rs:
+                return None, "Relative strength strong — %s outperforming %s (bad for PUT). %s" % (ticker, sector_etf, _rs_detail)
+    except Exception:
+        pass
+
+    # ── MOMENTUM FILTER (Fix 8) ───────────────────────────────────────────────
+    # Positive 5-day AND 10-day returns required for bullish
+    # Negative 5-day AND 10-day returns required for bearish
+    try:
+        _bull_mom, _bear_mom, _mom_detail = check_momentum_filter(ticker)
+        if direction == "bullish" and not _bull_mom:
+            return None, "Momentum negative — %s needs positive 5D & 10D returns for CALL. %s" % (ticker, _mom_detail)
+        if direction == "bearish" and not _bear_mom:
+            return None, "Momentum positive — %s needs negative 5D & 10D returns for PUT. %s" % (ticker, _mom_detail)
+    except Exception:
+        pass
+
+    # ── COMMODITY CORRELATION (Fix 7) ────────────────────────────────────────
+    # Energy/materials names must have commodity trend aligned
+    try:
+        _comm_ok, _comm_detail = check_commodity_trend(ticker, direction)
+        if not _comm_ok:
+            return None, "Commodity trend opposing signal — %s" % _comm_detail
+    except Exception:
+        pass
+
+    # ── LEGACY SECTOR MOVE CHECK (kept for intraday gaps) ────────────────────
     try:
         sector_etf = SECTOR_ETF.get(ticker, "SPY")
         if sector_etf and sector_etf != ticker:
@@ -3409,9 +3563,9 @@ def precision_score(ticker, direction, df_primary, df_confirm,
                 if sec_prev > 0 and sec_curr > 0:
                     sec_move = (sec_curr - sec_prev) / sec_prev * 100
                     if direction == "bearish" and sec_move > 2.0:
-                        return None, "Sector %s up %.1f%% - fighting PUT signal" % (sector_etf, sec_move)
+                        return None, "Sector %s up %.1f%% today - fighting PUT signal" % (sector_etf, sec_move)
                     if direction == "bullish" and sec_move < -2.0:
-                        return None, "Sector %s down %.1f%% - fighting CALL signal" % (sector_etf, sec_move)
+                        return None, "Sector %s down %.1f%% today - fighting CALL signal" % (sector_etf, sec_move)
     except Exception:
         pass
 
@@ -3761,8 +3915,17 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
             # Block GO NOW if volume is zero — market closed or no liquidity
             _vol_detail = r.get("detail", {}) or {}
             _has_volume = "No Activity" not in str(_vol_detail.get("signal_detail", []))
-            _high_conf = conf >= 85 and gates_passed >= 4 and signals_hit >= 2
-            _med_conf  = conf >= 75 and gates_passed >= 5 and signals_hit >= 3
+            # Signal/Gate alignment check — they must agree within 2 points
+            # Gate score out of 7, signal check out of 6 — normalize both to percentage
+            _gate_pct   = (gates_passed / 7) * 100
+            _signal_pct = (signals_hit / 6) * 100
+            _divergence = abs(_gate_pct - _signal_pct)
+            _aligned    = _divergence <= 28  # ~2 gates worth of divergence allowed
+
+            # HIGH CONVICTION: conf>=85, gates>=5, signals>=5, aligned
+            _high_conf = conf >= 85 and gates_passed >= 5 and signals_hit >= 5 and _aligned
+            # STRONG: conf>=75, gates>=5, signals>=3, aligned
+            _med_conf  = conf >= 75 and gates_passed >= 5 and signals_hit >= 3 and _aligned
             _go_now_ok = (_high_conf or _med_conf) and entry_status == "CONFIRMED" and exh_ok
 
             if _go_now_ok:
@@ -4802,9 +4965,10 @@ for ng in _new_go_now:
         });
     } catch(e){}
     </script>""", height=0)
-    # Auto-enter paper trade for new GO NOW
+    # Auto-enter paper trade for new GO NOW — 88%+ confidence, 5/7 gates minimum
     if st.session_state.get("paper_auto_enabled", True):
-        paper_enter_trade(ng)
+        if ng.get("confidence", 0) >= 88 and ng.get("gates_passed", 0) >= 5:
+            paper_enter_trade(ng)
 
 # auto_scan_poll removed - background thread runs independently,
 # no page refresh needed to trigger it.
