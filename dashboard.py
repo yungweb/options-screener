@@ -1409,53 +1409,81 @@ def run_seven_point_gate(df, sig, opt, iv_rank, earnings_days, dte_used):
 def check_entry_confirmation(df, direction):
     """
     Checks last candles to see if price is moving in signal direction.
-    Calls: need 2 consecutive green candles, each close higher than previous.
-    Puts:  need 2 consecutive red candles, each close lower than previous.
+    CONFIRMED: Last candle closes in signal direction with meaningful body (not doji)
+    WATCHING:  Last candle is neutral/mixed but no strong move against
+    AGAINST:   Price clearly moving opposite to signal direction
     Returns status: CONFIRMED / WAITING / AGAINST
     """
     if len(df) < 4:
         return {"confirmed": False, "status": "WAITING", "candles": [], "message": "Not enough data"}
 
-    recent = df.tail(5)
+    recent  = df.tail(5)
     is_bull = direction == "bullish"
 
     candle_dirs = []
     for _, row in recent.iterrows():
-        if float(row["close"]) > float(row["open"]):   candle_dirs.append("green")
-        elif float(row["close"]) < float(row["open"]): candle_dirs.append("red")
-        else:                                            candle_dirs.append("doji")
+        o, c = float(row["open"]), float(row["close"])
+        body  = abs(c - o)
+        rng   = float(row.get("high", c)) - float(row.get("low", o))
+        # Only count as directional if body is at least 30% of the range
+        if rng > 0 and body / rng >= 0.3:
+            candle_dirs.append("green" if c > o else "red")
+        else:
+            candle_dirs.append("doji")
 
     c1 = recent.iloc[-2]
     c2 = recent.iloc[-1]
+    c1_close, c1_open = float(c1["close"]), float(c1["open"])
+    c2_close, c2_open = float(c2["close"]), float(c2["open"])
+
+    last_dir   = candle_dirs[-1]
+    second_dir = candle_dirs[-2]
 
     if is_bull:
-        both_green    = float(c1["close"]) > float(c1["open"]) and float(c2["close"]) > float(c2["open"])
-        higher_closes = float(c2["close"]) > float(c1["close"])
-        confirmed     = both_green and higher_closes
-        last_green    = candle_dirs[-1] == "green"
-        if confirmed:
+        # Strong confirm: last 2 both green
+        strong  = last_dir == "green" and second_dir == "green" and c2_close > c1_close
+        # Soft confirm: last candle green with meaningful close above prior close
+        soft    = last_dir == "green" and c2_close > c1_close
+        # Against: last candle clearly red closing below prior close
+        against = last_dir == "red" and c2_close < c1_close
+
+        if strong:
             status  = "CONFIRMED"
-            message = f"2 bullish candles confirmed - buyers in control. Entry window open near ${float(c2['close']):.2f}"
-        elif last_green:
-            status  = "WAITING"
-            message = "1 of 2 bullish candles printed. Need 1 more green candle closing higher."
-        else:
+            message = "2 bullish candles confirmed — buyers in control. Entry window open near $%.2f" % c2_close
+            confirmed = True
+        elif soft:
+            status  = "CONFIRMED"
+            message = "Bullish candle confirmed — price closing higher. Entry near $%.2f" % c2_close
+            confirmed = True
+        elif against:
             status  = "AGAINST"
-            message = "Price still dropping. Signal valid but entry is early - wait for 2 consecutive green candles."
+            message  = "Price dropping. Signal valid but wait for a green close before entering."
+            confirmed = False
+        else:
+            status  = "WAITING"
+            message  = "Neutral candle. Watching for directional close in your favor."
+            confirmed = False
     else:
-        both_red     = float(c1["close"]) < float(c1["open"]) and float(c2["close"]) < float(c2["open"])
-        lower_closes = float(c2["close"]) < float(c1["close"])
-        confirmed    = both_red and lower_closes
-        last_red     = candle_dirs[-1] == "red"
-        if confirmed:
+        strong  = last_dir == "red" and second_dir == "red" and c2_close < c1_close
+        soft    = last_dir == "red" and c2_close < c1_close
+        against = last_dir == "green" and c2_close > c1_close
+
+        if strong:
             status  = "CONFIRMED"
-            message = f"2 bearish candles confirmed - sellers in control. Entry window open near ${float(c2['close']):.2f}"
-        elif last_red:
-            status  = "WAITING"
-            message = "1 of 2 bearish candles printed. Need 1 more red candle closing lower."
-        else:
+            message = "2 bearish candles confirmed — sellers in control. Entry window open near $%.2f" % c2_close
+            confirmed = True
+        elif soft:
+            status  = "CONFIRMED"
+            message = "Bearish candle confirmed — price closing lower. Entry near $%.2f" % c2_close
+            confirmed = True
+        elif against:
             status  = "AGAINST"
-            message = "Price still climbing. Signal valid but entry is early - wait for 2 consecutive red candles."
+            message  = "Price climbing. Signal valid but wait for a red close before entering."
+            confirmed = False
+        else:
+            status  = "WAITING"
+            message  = "Neutral candle. Watching for directional close in your favor."
+            confirmed = False
 
     return {"confirmed": confirmed, "status": status, "candles": candle_dirs, "message": message}
 
@@ -1562,7 +1590,10 @@ def run_background_watch_checks(tf_mult, tf_span, tf_days):
             style = item.get("style", "swing")
             interval, period = ("5m", "2d") if style == "quick" else ("1h", "14d")
 
-            raw = _yf_download(item["ticker"], period=period, interval=interval)
+            raw = _fmp_download(item["ticker"], period, interval)
+            if raw is None or (hasattr(raw, 'empty') and raw.empty):
+                # Fall back to yfinance if FMP returns nothing
+                raw = _yf_download(item["ticker"], period=period, interval=interval)
             if raw is None or (hasattr(raw, 'empty') and raw.empty):
                 item["message"] = "Data unavailable - retrying..."
                 continue
@@ -1585,8 +1616,11 @@ def run_background_watch_checks(tf_mult, tf_span, tf_days):
             if conf["confirmed"] and not was_confirmed_before and not item["alerted"]:
                 item["alerted"]   = True
                 any_new_confirm   = True
-        except Exception:
-            item["message"] = "Data fetch failed - retrying..."
+        except Exception as e:
+            import traceback
+            err_msg = str(e)[:80]
+            item["message"] = "Check error: %s" % err_msg
+            print("[WATCH QUEUE ERROR] %s: %s" % (item.get("ticker", "?"), traceback.format_exc()))
 
     for key in to_remove:
         del queue[key]
@@ -1655,7 +1689,6 @@ def detect_market_regime(df):
         strength = consistency_score
     return regime, strength
 
-@_thread_cache(ttl=300)
 @_thread_cache(ttl=300)
 def check_liquidity(ticker):
     """
@@ -1729,13 +1762,13 @@ def score_setup(df, setup):
         (is_bull and rsi_div.get("type") == "bullish") or
         (not is_bull and rsi_div.get("type") == "bearish")
     )
-    vol_expanding = cur_vol > avg_vol * 1.3
-    vol_present   = cur_vol > avg_vol * 1.1
+    vol_expanding = cur_vol > avg_vol * 1.2  # consistent 1.2x threshold
+    vol_present   = cur_vol > avg_vol * 1.0  # below 1.2x = not confirmed
 
     factors = {
         "Pattern":{"pass":True,          "label":"Pattern confirmed"},
         "RSI Div":{"pass":rsi_div_match, "label":"Price Divergence: Confirmed" if rsi_div_match else "Price Divergence: Not Detected"},
-        "Volume": {"pass":vol_expanding, "label":"Volume: Confirmed" if vol_expanding else ("Volume: Present" if vol_present else "Volume: Insufficient")},
+        "Volume": {"pass":vol_expanding, "label":"Volume: Confirming (1.2x+ required)" if vol_expanding else "Volume: Insufficient (below 1.2x avg)"},
         "EMA":    {"pass":(price>ema20 if is_bull else price<ema20),"label":"Trend Filter: Aligned" if (price>ema20 if is_bull else price<ema20) else "Trend Filter: Against"},
         "VWAP":   {"pass":(price>vwap  if is_bull else price<vwap), "label":"Intraday Bias: Aligned" if (price>vwap if is_bull else price<vwap) else "Intraday Bias: Against"},
     }
@@ -1912,28 +1945,6 @@ def check_vwap_confluence(df_5min, direction):
     vwap  = vwap_num / vwap_den if vwap_den > 0 else float(close.iloc[-1])
     price = float(close.iloc[-1])
     prev  = float(close.iloc[-2])
-    is_bull = direction == "bullish"
-    if is_bull:
-        reclaim = prev < vwap and price > vwap
-        holding = prev > vwap and price > vwap
-        passes  = reclaim or holding
-        if reclaim:
-            label = "5min Intraday: Strong Reclaim ✅"
-        elif holding:
-            label = "5min Intraday: Holding Bullish"
-        else:
-            label = "5min Intraday: Waiting for Reclaim"
-    else:
-        rejection = prev > vwap and price < vwap
-        holding   = prev < vwap and price < vwap
-        passes    = rejection or holding
-        if rejection:
-            label = "5min Intraday: Strong Rejection ✅"
-        elif holding:
-            label = "5min Intraday: Holding Bearish"
-        else:
-            label = "5min Intraday: Waiting for Rejection"
-    return passes, label
     is_bull = direction == "bullish"
     if is_bull:
         # Actual reclaim: prev closed below, current closed above
@@ -2377,6 +2388,39 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
         dir_color = "#D4AF37" if is_bull else "#C1121F"
         dir_label = "BUY CALL" if is_bull else "BUY PUT"
 
+        # ── Pre-render alignment check ─────────────────────────────────────────
+        # SIGNALS tab candidates come from build_candidates (score_setup, 5-factor system)
+        # SCAN tab candidates come from full_scan (precision_score, 6-signal system)
+        # Use whichever system has data — never assume signals_hit is populated
+        _pre_signals_hit = sig.get("signals_hit", sig.get("detail", {}).get("signals_hit", None))
+
+        if _pre_signals_hit is not None:
+            # precision_score 6-signal system available (scan tab path)
+            _pre_signals  = _pre_signals_hit
+            _pre_sig_pct  = (_pre_signals / 6 * 100)
+            _min_signals  = 5
+        else:
+            # Fall back to score_setup 5-factor system (signals tab path)
+            _pre_signals  = sum(1 for f in sig.get("factors", {}).values() if isinstance(f, dict) and f.get("pass"))
+            _pre_sig_pct  = (_pre_signals / 5 * 100)
+            _min_signals  = 4
+
+        _pre_gates    = sig.get("gates_passed", 0)
+        _pre_gate_pct = (_pre_gates / 7 * 100) if _pre_gates else 0
+        _pre_div      = abs(_pre_gate_pct - _pre_sig_pct)
+        _misaligned   = _pre_signals < _min_signals or _pre_div > 28
+
+        # Compute display label and confidence BEFORE first card render
+        if _misaligned:
+            _display_label = "WAIT"
+            _adjusted_conf = min(sig["confidence"], 64)  # cap below WATCH threshold
+        else:
+            _adjusted_conf = sig["confidence"]
+            _display_label = ("GO" if _adjusted_conf >= 90 else
+                              "STRONG" if _adjusted_conf >= 80 else
+                              "WATCH" if _adjusted_conf >= 70 else
+                              "WEAK" if _adjusted_conf >= 60 else "WAIT")
+
         # Trade style badge
         sig_style = trade_style  # passed as parameter
         if sig_style == "quick":
@@ -2436,8 +2480,8 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                     <div style='color:#A1A1A6;font-size:0.82rem;margin-top:2px'>{sig['pattern_label']} &nbsp;<span style='font-size:0.75rem'>{regime_icon} {regime_label}</span></div>
                 </div>
                 <div style='text-align:right'>
-                    <div class='{cc}'>{sig['confidence']}%</div>
-                    <div style='font-size:0.7rem;font-family:monospace;margin-top:2px;color:#A1A1A6'>{"GO" if sig['confidence']>=90 else "STRONG" if sig['confidence']>=80 else "WATCH" if sig['confidence']>=70 else "WEAK" if sig['confidence']>=60 else "WAIT"}</div>
+                    <div class='{cc}'>{_adjusted_conf}%</div>
+                    <div style='font-size:0.7rem;font-family:monospace;margin-top:2px;color:#A1A1A6'>{_display_label}</div>
                 </div>
             </div>
             <div style='margin-top:10px'>{dots_html}{tf_html}</div>
@@ -2448,7 +2492,21 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
             opt = calc_trade(sig["entry"],sig["stop"],sig["target"],sig["direction"],dte,account_size,risk_pct,current_price,atr=atr,trade_style=trade_style,ticker=ticker)
             gates, gates_passed, elevate = run_seven_point_gate(df,sig,opt,iv_rank,earnings_days,opt["actual_dte"])
             est_days, dte_rec = estimate_move_timeframe(sig["pattern_label"])
-            gate_color = "#D4AF37" if gates_passed>=6 else "#F6E27A" if gates_passed>=4 else "#C1121F"
+
+            # ── Signal/Gate alignment enforcement for SIGNALS tab ─────────────
+            # Use precision_score signals_hit (6-signal system) — same as card display
+            _tab_signals     = sig.get("signals_hit", sig.get("detail", {}).get("signals_hit", 0))
+            _tab_gate_pct    = (gates_passed / 7) * 100
+            _tab_signal_pct  = (_tab_signals / 6) * 100
+            _tab_divergence  = abs(_tab_gate_pct - _tab_signal_pct)
+            _tab_aligned     = _tab_divergence <= 28 and _tab_signals >= 5
+            # If not aligned — suppress PRIME SETUP and force gate color to yellow
+            if not _tab_aligned:
+                elevate    = False
+                gate_color = "#FFD600"  # yellow = misaligned
+            else:
+                gate_color = "#00C853" if gates_passed>=6 else "#FFD600" if gates_passed>=4 else "#FF1744"
+
             elev_badge = "<span style='background:#D4AF3722;color:#D4AF37;padding:2px 8px;border-radius:10px;font-size:0.72rem;margin-left:8px'>PRIME SETUP</span>" if elevate else ""
 
             # Fibonacci confluence for signals tab
@@ -2786,7 +2844,6 @@ def get_market_internals():
     except:
         return "neutral", 50
 
-@_thread_cache(ttl=300)
 @_thread_cache(ttl=300)
 def get_sector_bias(sector_etf):
     """Returns trend direction of a sector ETF."""
@@ -3924,8 +3981,8 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
 
             # HIGH CONVICTION: conf>=85, gates>=5, signals>=5, aligned
             _high_conf = conf >= 85 and gates_passed >= 5 and signals_hit >= 5 and _aligned
-            # STRONG: conf>=75, gates>=5, signals>=3, aligned
-            _med_conf  = conf >= 75 and gates_passed >= 5 and signals_hit >= 3 and _aligned
+            # STRONG: conf>=75, gates>=5, signals>=5, aligned — same signal minimum, no exceptions
+            _med_conf  = conf >= 75 and gates_passed >= 5 and signals_hit >= 5 and _aligned
             _go_now_ok = (_high_conf or _med_conf) and entry_status == "CONFIRMED" and exh_ok
 
             if _go_now_ok:
@@ -4465,7 +4522,7 @@ def save_paper_trades(trades):
     if not sb: return
     try:
         import json as _j
-        user_id = st.session_state.get("user_id") or get_user_id()
+        user_id = st.session_state.get("user_id")
         if not user_id: return
         serializable = []
         for t in trades:
@@ -4488,7 +4545,7 @@ def load_paper_trades():
     if not sb: return []
     try:
         import json as _j
-        user_id = st.session_state.get("user_id") or get_user_id()
+        user_id = st.session_state.get("user_id")
         if not user_id: return []
         res = sb.table("paper_trades_state").select("trades").eq("user_id", str(user_id)).execute()
         if res.data:
@@ -4545,7 +4602,7 @@ def init_user_watchlist():
     Watch queue always reads fresh from Supabase.
     Watchlist only loads once per session to avoid overwriting user changes.
     """
-    user_id = st.session_state.get("user_id") or get_user_id()
+    user_id = st.session_state.get("user_id")
     st.session_state.user_id = user_id
 
     # Load all user data in one call
