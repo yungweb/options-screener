@@ -2448,9 +2448,19 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
             quick_warn_html = "<div style='background:#1a150a;border:1px solid #F6E27A;border-radius:6px;padding:8px 12px;margin-bottom:6px;color:#F6E27A;font-size:0.8rem'>⚡ %s - Quick trade levels based on latest price. Use for planning only.</div>" % session_name
 
         dots_html = ""
-        for f in sig["factors"].values():
-            dot = "dot-green" if f["pass"] else "dot-red"
-            dots_html += f"<div class='factor-row'><span class='{dot}'></span><span style='color:{'#F5F5F5' if f['pass'] else '#A1A1A6'}'>{f['label']}</span></div>"
+        _sig_detail = sig.get("signal_detail") or sig.get("detail", {}).get("signal_detail", [])
+        if _sig_detail:
+            # precision_score 6-signal system — use this when available
+            for sd in _sig_detail:
+                dot = "dot-green" if sd.startswith("✅") else "dot-red"
+                label = sd.replace("✅ ", "").replace("❌ ", "")
+                color = "#F5F5F5" if sd.startswith("✅") else "#A1A1A6"
+                dots_html += f"<div class='factor-row'><span class='{dot}'></span><span style='color:{color}'>{label}</span></div>"
+        else:
+            # Fall back to score_setup 5-factor system
+            for f in sig["factors"].values():
+                dot = "dot-green" if f["pass"] else "dot-red"
+                dots_html += f"<div class='factor-row'><span class='{dot}'></span><span style='color:{'#F5F5F5' if f['pass'] else '#A1A1A6'}'>{f['label']}</span></div>"
 
         # Multi-TF confluence rows
         tf_details = sig.get("tf_details", [])
@@ -2538,6 +2548,19 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                 "</div>"
             )
             st.markdown(gate_html, unsafe_allow_html=True)
+
+            # ── News Sentiment (Integration Point 4) ──────────────────────
+            try:
+                _, _, _sig_news, _sig_adj, _sig_flip, _sig_flip_reason = run_news_check(ticker, sig["direction"])
+                st.markdown(render_news_sentiment_html(
+                    _sig_news, ticker,
+                    signal_direction=sig["direction"],
+                    flip_signal=_sig_flip,
+                    flip_reason=_sig_flip_reason,
+                    conf_adj=_sig_adj,
+                ), unsafe_allow_html=True)
+            except Exception:
+                pass
 
             # ── HTF Confluence ────────────────────────────────────────────
             if htf_trend is not None:
@@ -2964,7 +2987,7 @@ def check_index_health(ticker="SPY"):
         # SPY IV rank as fear proxy
         iv_rank = None
         try:
-            iv_rank = get_iv_rank(ticker)
+            iv_rank, _ = fetch_iv_rank(ticker)
         except Exception:
             pass
 
@@ -3502,6 +3525,425 @@ def check_commodity_trend(ticker, direction):
     except Exception:
         return True, "Commodity check unavailable"
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PBP NEWS SENTIMENT ENGINE v2
+# Philosophy: News is directional data, not a blocker.
+# Only trading halt and delisted hard-block — everything else is PUT/CALL intel.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_BEAR_KEYWORDS = {
+    "fraud": 3, "sec investigation": 3, "criminal": 3, "bankruptcy": 3,
+    "defaulted": 3, "fda rejection": 3, "recall": 3,
+    "class action": 3, "indicted": 3, "arrested": 3,
+    "accounting irregularity": 3, "restatement": 3,
+    "going concern": 3, "ceo resigned": 3, "ceo fired": 3,
+    "downgrade": 2, "guidance cut": 2, "layoffs": 2, "job cuts": 2,
+    "revenue decline": 2, "loss widens": 2, "margin compression": 2,
+    "tariff": 2, "sanction": 2, "probe": 2, "investigation": 2,
+    "lawsuit": 2, "subpoena": 2, "ousted": 2,
+    "lower guidance": 2, "below expectations": 2, "disappoints": 2,
+    "concern": 1, "warning": 1, "headwind": 1, "pressure": 1,
+    "decline": 1, "fell": 1, "dropped": 1, "slumped": 1,
+    "missed": 1, "weak": 1, "disappointing": 1,
+}
+
+_BULL_KEYWORDS = {
+    "fda approval": 3, "fda approved": 3, "buyout": 3, "acquisition": 3,
+    "takeover bid": 3, "merger agreement": 3, "record revenue": 3,
+    "record earnings": 3, "blowout quarter": 3,
+    "major contract": 3, "government contract": 3,
+    "upgrade": 2, "raised guidance": 2, "guidance raised": 2,
+    "above expectations": 2, "strong demand": 2, "revenue growth": 2,
+    "margin expansion": 2, "new product launch": 2, "partnership": 2,
+    "buyback": 2, "dividend increase": 2, "special dividend": 2,
+    "earnings beat": 2, "exceeds estimates": 2,
+    "growth": 1, "surged": 1, "jumped": 1, "soared": 1,
+    "strong": 1, "solid results": 1, "momentum": 1,
+    "expansion": 1, "increased": 1,
+}
+
+_UNTRADEABLE_KEYWORDS = [
+    "trading halt", "trading halted", "halt trading",
+    "delisted", "delisting", "exchange delisted",
+    "suspended from trading", "trading suspended",
+]
+
+_MACRO_BEAR_TRIGGERS = [
+    "tariff", "trade war", "sanctions", "rate hike",
+    "recession", "inflation surge", "banking crisis",
+    "market crash", "circuit breaker",
+]
+
+_MACRO_BULL_TRIGGERS = [
+    "rate cut", "fed pivot", "stimulus", "trade deal",
+    "ceasefire", "peace deal", "deregulation", "tax cut",
+]
+
+
+
+_SOURCE_WEIGHT = {
+    "reuters.com": 3.0, "bloomberg.com": 3.0, "wsj.com": 3.0,
+    "ft.com": 3.0, "cnbc.com": 2.5, "apnews.com": 2.5,
+    "marketwatch.com": 2.0, "barrons.com": 2.0,
+    "businesswire.com": 2.0, "prnewswire.com": 2.0, "sec.gov": 3.0,
+    "fool.com": 1.5, "thestreet.com": 1.5, "investors.com": 1.5,
+    "benzinga.com": 1.0, "zacks.com": 1.0,
+    "seekingalpha.com": 0.8,
+}
+
+def get_source_weight(site):
+    site = (site or "").lower().strip()
+    for domain, weight in _SOURCE_WEIGHT.items():
+        if domain in site:
+            return weight
+    return 1.0
+
+def calculate_news_velocity(articles, window_minutes=30):
+    cutoff = datetime.now() - timedelta(minutes=window_minutes)
+    recent = 0
+    for article in articles:
+        pub = article.get("publishedDate", "")
+        try:
+            dt = datetime.strptime(pub[:19], "%Y-%m-%d %H:%M:%S")
+            if dt >= cutoff:
+                recent += 1
+        except Exception:
+            pass
+    is_breaking    = recent >= 3
+    velocity_score = min(100, recent * 25)
+    return velocity_score, is_breaking, recent
+
+@_thread_cache(ttl=120)
+def fetch_ticker_news(ticker, hours=4, limit=10):
+    if not FMP_API_KEY:
+        return []
+    try:
+        import requests as _req
+        cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y-%m-%d")
+        url = (
+            "https://financialmodelingprep.com/api/v3/stock_news"
+            "?tickers=%s&limit=%s&from=%s&apikey=%s"
+            % (ticker.upper(), limit, cutoff, FMP_API_KEY)
+        )
+        r = _req.get(url, timeout=5)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+@_thread_cache(ttl=180)
+def fetch_market_news(hours=2, limit=20):
+    if not FMP_API_KEY:
+        return []
+    try:
+        import requests as _req
+        url = (
+            "https://financialmodelingprep.com/api/v3/fmp/articles"
+            "?page=0&size=%s&apikey=%s" % (limit, FMP_API_KEY)
+        )
+        r = _req.get(url, timeout=5)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        articles = data.get("content", data) if isinstance(data, dict) else data
+        return articles if isinstance(articles, list) else []
+    except Exception:
+        return []
+
+
+def score_news_sentiment(articles, ticker=""):
+    if not articles:
+        return {
+            "sentiment": "neutral", "score": 0,
+            "bear_score": 0, "bull_score": 0,
+            "suggested_action": "EITHER",
+            "untradeable": False, "untradeable_reason": "",
+            "flags": [], "headlines": [], "article_count": 0,
+        }
+
+    total_bear = 0
+    total_bull = 0
+    flags      = []
+    headlines  = []
+    untradeable        = False
+    untradeable_reason = ""
+
+    for article in articles[:10]:
+        title    = (article.get("title",   "") or "").lower()
+        text     = (article.get("text",    "") or
+                    article.get("content", "") or
+                    article.get("summary", "") or "").lower()
+        combined = title + " " + text
+
+        if article.get("title"):
+            headlines.append({
+                "title": article["title"],
+                "url":   article.get("url", ""),
+                "date":  article.get("publishedDate", ""),
+                "site":  article.get("site", ""),
+            })
+
+        for word in _UNTRADEABLE_KEYWORDS:
+            if word in combined:
+                untradeable        = True
+                untradeable_reason = "Trading halt or delisting — options market unavailable"
+                flags.append("🚫 %s" % word.upper())
+
+        src_wt = get_source_weight(article.get("site", ""))
+        for kw, weight in _BEAR_KEYWORDS.items():
+            if kw in combined:
+                total_bear += weight * src_wt
+                if weight >= 2:
+                    flags.append("🔴 %s" % kw)
+
+        for kw, weight in _BULL_KEYWORDS.items():
+            if kw in combined:
+                total_bull += weight * src_wt
+                if weight >= 2:
+                    flags.append("🟢 %s" % kw)
+
+    total = total_bear + total_bull
+    norm_score = 0 if total == 0 else int(((total_bull - total_bear) / total) * 100)
+
+    if norm_score >= 25:
+        sentiment        = "bullish"
+        suggested_action = "CALL"
+    elif norm_score <= -25:
+        sentiment        = "bearish"
+        suggested_action = "PUT"
+    else:
+        sentiment        = "neutral"
+        suggested_action = "EITHER"
+
+    seen, deduped = set(), []
+    for f in flags:
+        k = f.lower().strip()
+        if k not in seen:
+            seen.add(k)
+            deduped.append(f)
+
+    velocity_score, is_breaking, recent_count = calculate_news_velocity(articles)
+
+    return {
+        "sentiment":          sentiment,
+        "score":              norm_score,
+        "bear_score":         total_bear,
+        "bull_score":         total_bull,
+        "suggested_action":   suggested_action,
+        "untradeable":        untradeable,
+        "untradeable_reason": untradeable_reason,
+        "flags":              deduped[:8],
+        "headlines":          headlines[:5],
+        "article_count":      len(articles),
+        "velocity_score":     velocity_score,
+        "is_breaking":        is_breaking,
+        "recent_count":       recent_count,
+    }
+
+
+def check_macro_sentiment():
+    articles   = fetch_market_news(hours=2, limit=20)
+    macro_bear = False
+    macro_bull = False
+    triggers   = []
+
+    for article in articles:
+        title    = (article.get("title",   "") or "").lower()
+        text     = (article.get("text",    "") or article.get("content", "") or "").lower()
+        combined = title + " " + text
+        for t in _MACRO_BEAR_TRIGGERS:
+            if t in combined:
+                macro_bear = True
+                triggers.append("⚠️ %s" % t)
+        for t in _MACRO_BULL_TRIGGERS:
+            if t in combined:
+                macro_bull = True
+                triggers.append("✅ %s" % t)
+
+    seen, deduped = set(), []
+    for t in triggers:
+        k = t.lower().strip()
+        if k not in seen:
+            seen.add(k)
+            deduped.append(t)
+
+    return macro_bear, macro_bull, deduped[:6]
+
+
+def run_news_check(ticker, direction):
+    """
+    Returns: (block, reason, news_data, conf_adj, flip_signal, flip_reason)
+    block:       True ONLY for halt/delisted — everything else is tradeable
+    conf_adj:    -12 to +8 added to precision_score Tier 3
+    flip_signal: True when news strongly suggests opposite direction (score >= 50)
+    flip_reason: Shown on card as 💡 NEWS SUGGESTS PUT/CALL
+    """
+    try:
+        articles = fetch_ticker_news(ticker, hours=4, limit=10)
+        news     = score_news_sentiment(articles, ticker)
+
+        if news["untradeable"]:
+            return True, news["untradeable_reason"], news, 0, False, ""
+
+        score     = news["score"]
+        sentiment = news["sentiment"]
+
+        if direction == "bullish":
+            if sentiment == "bullish":   conf_adj = +8
+            elif sentiment == "bearish": conf_adj = -12
+            else:                        conf_adj = 0
+        else:
+            if sentiment == "bearish":   conf_adj = +8
+            elif sentiment == "bullish": conf_adj = -12
+            else:                        conf_adj = 0
+
+        flip_signal = False
+        flip_reason = ""
+
+        if direction == "bullish" and score <= -50:
+            flip_signal = True
+            flip_reason = (
+                "News strongly BEARISH (score %s) — "
+                "consider PUT to ride the news catalyst." % score
+            )
+        elif direction == "bearish" and score >= 50:
+            flip_signal = True
+            flip_reason = (
+                "News strongly BULLISH (score %s) — "
+                "consider CALL to ride the news catalyst." % score
+            )
+
+        return False, "", news, conf_adj, flip_signal, flip_reason
+
+    except Exception:
+        empty = {
+            "sentiment": "neutral", "score": 0, "bear_score": 0, "bull_score": 0,
+            "suggested_action": "EITHER", "untradeable": False,
+            "untradeable_reason": "", "flags": [], "headlines": [], "article_count": 0,
+        }
+        return False, "", empty, 0, False, ""
+
+
+def render_news_sentiment_html(news_data, ticker, signal_direction=None,
+                                flip_signal=False, flip_reason="", conf_adj=0):
+    if not news_data or not news_data.get("article_count"):
+        return (
+            "<div style='background:#1A1A1D;border:1px solid #2A2A2D;"
+            "border-radius:8px;padding:10px 14px;margin-top:8px'>"
+            "<div style='color:#A1A1A6;font-family:monospace;font-size:0.68rem;"
+            "letter-spacing:1px;margin-bottom:4px'>NEWS SENTIMENT</div>"
+            "<div style='color:#4a5568;font-size:0.75rem'>"
+            "No recent news — trade on technicals only</div>"
+            "</div>"
+        )
+
+    sentiment    = news_data.get("sentiment", "neutral")
+    score        = news_data.get("score", 0)
+    flags        = news_data.get("flags", [])
+    headlines    = news_data.get("headlines", [])
+    count        = news_data.get("article_count", 0)
+    untradeable  = news_data.get("untradeable", False)
+    is_breaking  = news_data.get("is_breaking", False)
+    recent_count = news_data.get("recent_count", 0)
+
+    if untradeable:
+        border = "#C1121F"; label_color = "#C1121F"
+        label  = "🚫 UNTRADEABLE — HALT/DELISTED"; bg = "#1a0505"
+    elif sentiment == "bullish":
+        border = "#D4AF37"; label_color = "#D4AF37"
+        label  = "📈 BULLISH NEWS · CALL EDGE"; bg = "#1A1500"
+    elif sentiment == "bearish":
+        border = "#C1121F"; label_color = "#C1121F"
+        label  = "📉 BEARISH NEWS · PUT EDGE"; bg = "#1a0a0a"
+    else:
+        border = "#2A2A2D"; label_color = "#A1A1A6"
+        label  = "↔️ NEUTRAL NEWS"; bg = "#1A1A1D"
+
+    breaking_badge = ""
+    if is_breaking:
+        breaking_badge = (
+            "<span style='background:#C1121F;color:#F5F5F5;font-size:0.6rem;"
+            "font-weight:700;padding:1px 7px;border-radius:4px;margin-left:6px'>"
+            "🔴 BREAKING · %s articles/15min</span>" % recent_count
+        )
+
+    adj_html = ""
+    if conf_adj > 0:
+        adj_html = ("<span style='background:#D4AF3722;color:#D4AF37;font-size:0.62rem;"
+                    "padding:1px 7px;border-radius:4px;margin-left:6px'>+%s conf</span>" % conf_adj)
+    elif conf_adj < 0:
+        adj_html = ("<span style='background:#C1121F22;color:#C1121F;font-size:0.62rem;"
+                    "padding:1px 7px;border-radius:4px;margin-left:6px'>%s conf</span>" % conf_adj)
+
+    bar_pct   = min(100, abs(score))
+    bar_color = "#D4AF37" if score > 0 else "#C1121F" if score < 0 else "#A1A1A6"
+    score_str = "%s%s" % ("+" if score > 0 else "", score)
+
+    flags_html = ""
+    for f in flags[:5]:
+        fc = "#C1121F" if (f.startswith("🔴") or f.startswith("🚫")) else "#D4AF37"
+        flags_html += (
+            "<span style='background:%s22;color:%s;border:1px solid %s44;"
+            "padding:1px 6px;border-radius:4px;font-size:0.6rem;"
+            "margin:2px 2px;display:inline-block'>%s</span>" % (fc, fc, fc, f)
+        )
+
+    headlines_html = ""
+    for h in headlines[:3]:
+        site  = h.get("site", "")
+        title = h.get("title", "")
+        title = title[:75] + "…" if len(title) > 75 else title
+        headlines_html += (
+            "<div style='margin:3px 0;font-size:0.69rem;line-height:1.4'>"
+            "<span style='color:#4a5568;font-size:0.62rem'>%s</span> "
+            "<span style='color:#A1A1A6'>%s</span></div>" % (site, title)
+        )
+
+    flip_html = ""
+    if flip_signal and flip_reason:
+        flip_action = "PUT" if signal_direction == "bullish" else "CALL"
+        flip_color  = "#C1121F" if flip_action == "PUT" else "#D4AF37"
+        flip_html = (
+            "<div style='background:%s22;border:1px solid %s;border-radius:6px;"
+            "padding:8px 12px;margin-top:8px'>"
+            "<div style='color:%s;font-weight:700;font-size:0.75rem;margin-bottom:3px'>"
+            "💡 NEWS SUGGESTS %s</div>"
+            "<div style='color:#A1A1A6;font-size:0.72rem'>%s</div>"
+            "</div>" % (flip_color, flip_color, flip_color, flip_action, flip_reason)
+        )
+
+    return (
+        "<div style='background:%s;border:1px solid %s;border-radius:8px;"
+        "padding:10px 14px;margin-top:8px'>"
+        "<div style='display:flex;justify-content:space-between;"
+        "align-items:center;margin-bottom:6px'>"
+        "<span style='color:#A1A1A6;font-family:monospace;font-size:0.68rem;"
+        "letter-spacing:1px'>NEWS SENTIMENT</span>"
+        "<div><span style='color:%s;font-weight:700;font-size:0.75rem'>%s</span>%s%s</div>"
+        "</div>"
+        "<div style='background:#2A2A2D;border-radius:4px;height:4px;margin-bottom:8px'>"
+        "<div style='background:%s;height:4px;border-radius:4px;width:%s%%'></div>"
+        "</div>"
+        "<div style='font-size:0.69rem;color:#A1A1A6;margin-bottom:6px'>"
+        "%s articles · Score <b style='color:%s'>%s</b></div>"
+        "<div style='margin-bottom:6px'>%s</div>"
+        "<div style='padding-top:6px;border-top:1px solid #2A2A2D'>%s</div>"
+        "%s"
+        "</div>"
+    ) % (
+        bg, border,
+        label_color, label, adj_html, breaking_badge,
+        bar_color, bar_pct,
+        count, bar_color, score_str,
+        flags_html or "<span style='color:#4a5568;font-size:0.69rem'>No strong keyword signals</span>",
+        headlines_html or "<span style='color:#4a5568;font-size:0.69rem'>No headlines available</span>",
+        flip_html,
+    )
+
 def precision_score(ticker, direction, df_primary, df_confirm,
                     iv_rank, earnings_days, market_bias,
                     sector_bias, atr, dte, account_size, risk_pct,
@@ -3643,6 +4085,14 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     except Exception:
         pass
 
+    # ── NEWS CHECK (Integration Point 1) ────────────────────────────────────
+    # Only hard blocks: trading halt and delisted. Everything else is intel.
+    _news_block, _news_reason, _news_data, _news_conf_adj, _flip, _flip_reason = (
+        run_news_check(ticker, direction)
+    )
+    if _news_block:
+        return None, _news_reason
+
     # ── TIER 2: Quality signals - need 4 of 5 ────────────────────────────────
     signals_hit   = 0
     signal_detail = []
@@ -3763,6 +4213,9 @@ def precision_score(ticker, direction, df_primary, df_confirm,
         if 20 <= iv_rank <= 50:   score += 5
         elif 15 <= iv_rank <= 65: score += 2
 
+    # News sentiment adjustment — aligning news boosts, opposing news penalizes
+    score += _news_conf_adj
+
     liq_ok, liq_vol, liq_oi, _ = check_liquidity(ticker)
     if liq_ok:
         score += 3 if liq_vol >= 500 else 2 if liq_vol >= 100 else 1
@@ -3775,6 +4228,12 @@ def precision_score(ticker, direction, df_primary, df_confirm,
         "exhaustion_reasons":   exh_reasons,
         "signals_hit":          signals_hit,
         "signal_detail":        signal_detail,
+        "news_data":            _news_data,
+        "news_sentiment":       _news_data.get("sentiment", "neutral"),
+        "news_score":           _news_data.get("score", 0),
+        "news_conf_adj":        _news_conf_adj,
+        "flip_signal":          _flip,
+        "flip_reason":          _flip_reason,
         "tf_agree":             tf_agree,
         "tf_total":             tf_total,
         "market_bias":          market_bias,
@@ -3919,6 +4378,10 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                 "exh_reasons":   detail.get("exhaustion_reasons", []),
                 "signal_detail": detail.get("signal_detail", []),
                 "signals_hit":   detail.get("signals_hit", 0),
+                "news_data":     detail.get("news_data", {}),
+                "news_sentiment":detail.get("news_sentiment", "neutral"),
+                "flip_signal":   detail.get("flip_signal", False),
+                "flip_reason":   detail.get("flip_reason", ""),
                 "rel_vol":        rel_vol,
                 "vol_spike":      vol_spike,
                 "block_detected": block_detected,
@@ -4002,6 +4465,12 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
                     else "Building (%s%%)" % conf
                 )
                 on_deck.append(r)
+    # ── Macro news context (Integration Point 5) ─────────────────────────────
+    try:
+        _macro_bear, _macro_bull, _macro_triggers = check_macro_sentiment()
+    except Exception:
+        _macro_bear, _macro_bull, _macro_triggers = False, False, []
+
     # Submit all futures first
     with ThreadPoolExecutor(max_workers=4) as executor:  # 4 workers — FMP Premium handles 750 calls/min
         futures = {
@@ -4056,7 +4525,15 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
     watching.sort(key=lambda x: (x.get("vol_spike", False), x.get("confidence", 0)), reverse=True)
     on_deck.sort( key=lambda x: x.get("confidence", 0), reverse=True)
 
-    return go_now, watching, on_deck, market_bias
+    # Store macro triggers in BG_RESULTS for regime banner display
+    try:
+        with _BG_LOCK:
+            _BG_RESULTS["macro_triggers"] = _macro_triggers
+            _BG_RESULTS["macro_bear"]     = _macro_bear
+            _BG_RESULTS["macro_bull"]     = _macro_bull
+    except Exception:
+        pass
+    return go_now, watching, on_deck, market_bias, _macro_triggers
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -4276,6 +4753,75 @@ _BG_RESULTS = {
 }
 _BG_THREAD_STARTED = False
 
+
+def send_telegram_text(msg):
+    """Generic Telegram text sender — not signal-specific."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    import urllib.request, json as _j
+    payload = _j.dumps({
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": msg, "parse_mode": "HTML"
+    }).encode("utf-8")
+    try:
+        req = urllib.request.Request(
+            "https://api.telegram.org/bot%s/sendMessage" % TELEGRAM_BOT_TOKEN,
+            data=payload, headers={"Content-Type": "application/json"}, method="POST"
+        )
+        urllib.request.urlopen(req, timeout=8)
+    except Exception:
+        pass
+
+
+_news_seen_articles = {}  # module-level — persists across bg loop iterations
+
+def _check_watchlist_news_alerts(watchlist):
+    """
+    Called from _bg_scan_loop every cycle.
+    Fires Telegram when breaking news hits a watchlist ticker.
+    """
+    global _news_seen_articles
+    for ticker in watchlist:
+        try:
+            articles = fetch_ticker_news(ticker, hours=1, limit=5)
+            if not articles:
+                continue
+            velocity_score, is_breaking, recent_count = calculate_news_velocity(
+                articles, window_minutes=15
+            )
+            if not is_breaking:
+                continue
+            seen = _news_seen_articles.get(ticker, set())
+            new_articles = [a for a in articles if a.get("url", "") not in seen]
+            if not new_articles:
+                continue
+            news = score_news_sentiment(new_articles, ticker)
+            if news["sentiment"] == "neutral":
+                continue
+            direction_emoji = "📈" if news["sentiment"] == "bullish" else "📉"
+            action          = "CALL" if news["sentiment"] == "bullish" else "PUT"
+            top_headline    = new_articles[0].get("title", "")[:100]
+            source          = new_articles[0].get("site", "")
+            msg = (
+                "📰 <b>NEWS ALERT — %s</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "%s Sentiment: <b>%s</b> · Score: <b>%s</b>\n"
+                "💡 Consider: <b>%s</b>\n"
+                "📊 %s articles in last 15 min\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "<i>%s</i>\n"
+                "<i>Source: %s</i>"
+            ) % (
+                ticker, direction_emoji, news["sentiment"].upper(),
+                news["score"], action, recent_count, top_headline, source,
+            )
+            send_telegram_text(msg)
+            _news_seen_articles[ticker] = seen | {
+                a.get("url", "") for a in new_articles
+            }
+        except Exception:
+            pass
+
 def _bg_scan_loop():
     """
     Daemon thread - runs forever, sleeps between scans.
@@ -4289,6 +4835,12 @@ def _bg_scan_loop():
         # Wait for trigger or 5-minute auto interval
         triggered = _BG_TRIGGER.wait(timeout=300)
         _BG_TRIGGER.clear()
+        # ── Proactive news alerts — runs every loop cycle regardless of scan ──
+        try:
+            _wl_for_news = _BG_RESULTS.get("scan_list", ["SPY", "QQQ", "IWM"])
+            _check_watchlist_news_alerts(_wl_for_news)
+        except Exception:
+            pass
 
         # Read settings from shared results dict (written by Streamlit on settings change)
         with _BG_LOCK:
@@ -4321,7 +4873,7 @@ def _bg_scan_loop():
                     _BG_RESULTS["progress_idx"]   = idx + 1
                     _BG_RESULTS["progress_total"] = total
 
-            go, watching, deck, mkt = full_scan(
+            go, watching, deck, mkt, _macro_triggers = full_scan(
                 scan_list, toggles, account_size, risk_pct,
                 dte_quick, dte_swing, max_premium, style,
                 progress_cb=_progress_cb
@@ -5059,6 +5611,26 @@ if not _blank_state:
         css = f"divergence-{'bull' if div['type']=='bullish' else 'bear'}"
         st.markdown(f"<div class='{css}'><b>{div['label']}</b><br>{div['detail']}</div>", unsafe_allow_html=True)
 
+# ── Macro News Triggers ────────────────────────────────────────────────────
+_mt = st.session_state.get("macro_triggers", [])
+if _mt:
+    _mt_chips = ""
+    for t in _mt:
+        _tc = "#C1121F" if t.startswith("⚠️") else "#D4AF37"
+        _mt_chips += (
+            "<span style='background:%s22;color:%s;border:1px solid %s44;"
+            "padding:2px 8px;border-radius:4px;font-size:0.65rem;margin:2px'>%s</span>"
+            % (_tc, _tc, _tc, t)
+        )
+    st.markdown(
+        "<div style='background:#1A1A1D;border:1px solid #2A2A2D;border-radius:8px;"
+        "padding:8px 14px;margin-bottom:8px'>"
+        "<span style='color:#A1A1A6;font-family:monospace;font-size:0.65rem;"
+        "letter-spacing:1px'>📰 MACRO TRIGGERS &nbsp;</span>" + _mt_chips +
+        "</div>",
+        unsafe_allow_html=True
+    )
+
 tab4,tab1,tab2,tab8,tab7 = st.tabs(["SCAN","SIGNALS","CHART","WATCH QUEUE","HOW IT WORKS"])
 
 with tab1:
@@ -5067,6 +5639,42 @@ with tab1:
     else:
         cands_quick, tfs_quick = build_multi_tf_candidates(selected_ticker, toggles, account_size, risk_pct, dte_quick, "quick", atr=atr)
         cands_swing, tfs_swing = build_multi_tf_candidates(selected_ticker, toggles, account_size, risk_pct, dte_swing, "swing", atr=atr)
+
+        # ── Run precision_score on SIGNALS tab candidates ─────────────────────
+        # Replaces score_setup's 5-factor system with the full 6-signal engine.
+        # Data is already fetched — just pipe through precision_score once per candidate.
+        # Use neutral market/sector bias — single ticker view, don't penalize vs broad market.
+        def _enrich_with_precision(cands, tfs, style, dte_used):
+            pri_key = "15min" if style == "quick" else "1hr"  # quick primary = 15min
+            con_key = "5min" if style == "quick" else ("4hr" if "4hr" in tfs else "daily")
+            _pri = tfs.get(pri_key)
+            _con = tfs.get(con_key)
+            if _pri is None:
+                return cands
+            enriched = []
+            for c in cands:
+                try:
+                    _ps_conf, _ps_detail = precision_score(
+                        selected_ticker, c["direction"], _pri, _con,
+                        iv_rank, earnings_days,
+                        "neutral",      # market_bias — neutral for single ticker view
+                        "neutral",      # sector_bias — same reason
+                        atr, dte_used, account_size, risk_pct, style,
+                        current_price=current_price
+                    )
+                    if _ps_conf is not None and _ps_detail is not None:
+                        c["confidence"]    = _ps_conf
+                        c["detail"]        = _ps_detail
+                        c["signals_hit"]   = _ps_detail.get("signals_hit", 0)
+                        c["signal_detail"] = _ps_detail.get("signal_detail", [])
+                except Exception:
+                    pass
+                enriched.append(c)
+            return enriched
+
+        if not _blank_state and current_price > 0:
+            cands_quick = _enrich_with_precision(cands_quick, tfs_quick, "quick", dte_quick)
+            cands_swing = _enrich_with_precision(cands_swing, tfs_swing, "swing", dte_swing)
 
         no_quick = len(cands_quick) == 0
         no_swing = len(cands_swing) == 0
@@ -5467,7 +6075,7 @@ with tab4:
         mkt_bias = st.session_state.auto_scan_mkt
         if st.button("🔄 Scan Now", use_container_width=True):
             with st.spinner("Scanning..."):
-                go_now, watching, on_deck, mkt_bias = full_scan(
+                go_now, watching, on_deck, mkt_bias, _macro_triggers = full_scan(
                     scan_list, toggles, account_size, risk_pct,
                     dte_quick, dte_swing, max_premium, scan_style_key
                 )
@@ -5476,6 +6084,7 @@ with tab4:
                 st.session_state.auto_scan_on_deck  = on_deck
                 st.session_state.auto_scan_mkt      = mkt_bias
                 st.session_state.auto_scan_last_run = datetime.now()
+                st.session_state.macro_triggers     = _macro_triggers
                 st.rerun()
     else:
         st.caption(f"Scanning {len(scan_list)} tickers through full precision stack")
@@ -5564,7 +6173,7 @@ with tab4:
                     unsafe_allow_html=True
                 )
 
-            go_now, watching, on_deck, mkt_bias = full_scan(
+            go_now, watching, on_deck, mkt_bias, _macro_triggers = full_scan(
                 scan_list, toggles, account_size, risk_pct,
                 dte_quick, dte_swing, max_premium, scan_style_key,
                 progress_cb=_cb
@@ -5577,6 +6186,7 @@ with tab4:
             st.session_state.scan_on_deck  = on_deck
             st.session_state.scan_mkt      = mkt_bias
             st.session_state.scan_last_run = datetime.now()
+            st.session_state.macro_triggers = _macro_triggers
 
             paper_check_exits()
 
@@ -5935,6 +6545,14 @@ with tab4:
             st.markdown("".join(parts), unsafe_allow_html=True)
 
             with st.expander(f"📊 {r['ticker']} full details"):
+                # News sentiment block
+                st.markdown(render_news_sentiment_html(
+                    r.get("news_data", {}), r["ticker"],
+                    signal_direction=r.get("direction"),
+                    flip_signal=r.get("flip_signal", False),
+                    flip_reason=r.get("flip_reason", ""),
+                    conf_adj=r.get("detail", {}).get("news_conf_adj", 0),
+                ), unsafe_allow_html=True)
                 c1, c2 = st.columns(2)
                 items_l = [("TARGET", f"${opt['target']:.2f}", "#D4AF37"),
                            ("PREMIUM", f"${opt['premium']:.2f}/sh", "#F5F5F5"),
