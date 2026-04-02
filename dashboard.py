@@ -3194,7 +3194,7 @@ def apply_regime_adjustments(signals, regime_data):
             conf_adj  = +5  # boost aligned signals
         else:
             alignment = "COUNTER"
-            conf_adj  = -10  # penalize counter-regime signals
+            conf_adj  = 0  # flag shown on card — user decides, no score penalty
 
         # Special rules per regime
         if regime == "BULL TRAP" and direction == "bullish":
@@ -3620,11 +3620,10 @@ def fetch_ticker_news(ticker, hours=4, limit=10):
         return []
     try:
         import requests as _req
-        cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y-%m-%d")
         url = (
-            "https://financialmodelingprep.com/api/v3/stock_news"
-            "?tickers=%s&limit=%s&from=%s&apikey=%s"
-            % (ticker.upper(), limit, cutoff, FMP_API_KEY)
+            "https://financialmodelingprep.com/stable/news/stock"
+            "?symbols=%s&limit=%s&apikey=%s"
+            % (ticker.upper(), limit, FMP_API_KEY)
         )
         r = _req.get(url, timeout=5)
         if r.status_code != 200:
@@ -3642,15 +3641,14 @@ def fetch_market_news(hours=2, limit=20):
     try:
         import requests as _req
         url = (
-            "https://financialmodelingprep.com/api/v3/fmp/articles"
-            "?page=0&size=%s&apikey=%s" % (limit, FMP_API_KEY)
+            "https://financialmodelingprep.com/stable/news/general"
+            "?limit=%s&apikey=%s" % (limit, FMP_API_KEY)
         )
         r = _req.get(url, timeout=5)
         if r.status_code != 200:
             return []
         data = r.json()
-        articles = data.get("content", data) if isinstance(data, dict) else data
-        return articles if isinstance(articles, list) else []
+        return data if isinstance(data, list) else []
     except Exception:
         return []
 
@@ -3947,27 +3945,32 @@ def render_news_sentiment_html(news_data, ticker, signal_direction=None,
 def precision_score(ticker, direction, df_primary, df_confirm,
                     iv_rank, earnings_days, market_bias,
                     sector_bias, atr, dte, account_size, risk_pct,
-                    trade_style, current_price=None):
+                    trade_style, current_price=None, signals_only=False):
     """
     Elite scoring framework v6.1
     TIER 1: Hard stops. TIER 2: 4/5 quality signals. TIER 3: scoring.
+    signals_only=True: skip all hard stops, return signal detail only (SIGNALS tab enrichment)
     """
     import pytz
     from datetime import datetime as _dt
 
     # ── TIER 1: Hard stops ────────────────────────────────────────────────────
-    if earnings_days is not None and earnings_days <= 5:
-        return None, "Earnings within 5 days"
+    # signals_only=True skips all hard stops — SIGNALS tab enrichment path.
+    # The pattern already surfaced; we just want 6-signal scoring, not re-gating.
+    if not signals_only:
+        if earnings_days is not None and earnings_days <= 5:
+            return None, "Earnings within 5 days"
 
-    if iv_rank is not None and iv_rank > 70:
-        return None, "IV too high (%s%%)" % iv_rank
+        if iv_rank is not None and iv_rank > 70:
+            return None, "IV too high (%s%%)" % iv_rank
 
     # Block zero volume — market closed or no liquidity
     if df_primary is not None and len(df_primary) > 0:
         try:
             _cur_vol = float(df_primary["volume"].iloc[-3:].mean()) if "volume" in df_primary.columns else 1
             if _cur_vol == 0:
-                return None, "Zero volume — market closed or no liquidity"
+                if not signals_only:
+                    return None, "Zero volume — market closed or no liquidity"
         except Exception:
             pass
     # Signals going against market bias get flagged on the card instead
@@ -3981,7 +3984,8 @@ def precision_score(ticker, direction, df_primary, df_confirm,
         import math as _m
         _cp = float(current_price) if current_price is not None else 999
         if not _m.isnan(_cp) and _cp < 15:
-            return None, "Stock under $15 - options liquidity too thin (%.2f)" % _cp
+            if not signals_only:
+                return None, "Stock under $15 - options liquidity too thin (%.2f)" % _cp
     except Exception:
         pass
 
@@ -3996,9 +4000,11 @@ def precision_score(ticker, direction, df_primary, df_confirm,
             if prev_close > 0 and curr_price > 0:
                 gap_pct = (curr_price - prev_close) / prev_close * 100
                 if direction == "bearish" and gap_pct > 3.0:
-                    return None, "Gapped up %.1f%% against PUT signal - invalidated" % gap_pct
+                    if not signals_only:
+                        return None, "Gapped up %.1f%% against PUT signal - invalidated" % gap_pct
                 if direction == "bullish" and gap_pct < -3.0:
-                    return None, "Gapped down %.1f%% against CALL signal - invalidated" % gap_pct
+                    if not signals_only:
+                        return None, "Gapped down %.1f%% against CALL signal - invalidated" % gap_pct
     except Exception:
         pass
 
@@ -4009,9 +4015,11 @@ def precision_score(ticker, direction, df_primary, df_confirm,
         if sector_etf and sector_etf != ticker:
             _bull_sector, _bear_sector, _sector_detail = check_sector_etf_trend(sector_etf)
             if direction == "bullish" and not _bull_sector:
-                return None, "Sector %s in downtrend — CALL signal blocked. %s" % (sector_etf, _sector_detail)
+                if not signals_only:
+                    return None, "Sector %s in downtrend — CALL signal blocked. %s" % (sector_etf, _sector_detail)
             if direction == "bearish" and not _bear_sector:
-                return None, "Sector %s in uptrend — PUT signal blocked. %s" % (sector_etf, _sector_detail)
+                if not signals_only:
+                    return None, "Sector %s in uptrend — PUT signal blocked. %s" % (sector_etf, _sector_detail)
     except Exception:
         pass
 
@@ -4022,9 +4030,11 @@ def precision_score(ticker, direction, df_primary, df_confirm,
         if sector_etf and sector_etf != ticker:
             _bull_rs, _bear_rs, _rs_detail = check_relative_strength(ticker, sector_etf, days=10)
             if direction == "bullish" and not _bull_rs:
-                return None, "Relative strength weak — %s underperforming %s. %s" % (ticker, sector_etf, _rs_detail)
+                if not signals_only:
+                    return None, "Relative strength weak — %s underperforming %s. %s" % (ticker, sector_etf, _rs_detail)
             if direction == "bearish" and not _bear_rs:
-                return None, "Relative strength strong — %s outperforming %s (bad for PUT). %s" % (ticker, sector_etf, _rs_detail)
+                if not signals_only:
+                    return None, "Relative strength strong — %s outperforming %s (bad for PUT). %s" % (ticker, sector_etf, _rs_detail)
     except Exception:
         pass
 
@@ -4034,9 +4044,11 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     try:
         _bull_mom, _bear_mom, _mom_detail = check_momentum_filter(ticker)
         if direction == "bullish" and not _bull_mom:
-            return None, "Momentum negative — %s needs positive 5D & 10D returns for CALL. %s" % (ticker, _mom_detail)
+            if not signals_only:
+                return None, "Momentum negative — %s needs positive 5D & 10D returns for CALL. %s" % (ticker, _mom_detail)
         if direction == "bearish" and not _bear_mom:
-            return None, "Momentum positive — %s needs negative 5D & 10D returns for PUT. %s" % (ticker, _mom_detail)
+            if not signals_only:
+                return None, "Momentum positive — %s needs negative 5D & 10D returns for PUT. %s" % (ticker, _mom_detail)
     except Exception:
         pass
 
@@ -4045,7 +4057,8 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     try:
         _comm_ok, _comm_detail = check_commodity_trend(ticker, direction)
         if not _comm_ok:
-            return None, "Commodity trend opposing signal — %s" % _comm_detail
+            if not signals_only:
+                return None, "Commodity trend opposing signal — %s" % _comm_detail
     except Exception:
         pass
 
@@ -4062,9 +4075,11 @@ def precision_score(ticker, direction, df_primary, df_confirm,
                 if sec_prev > 0 and sec_curr > 0:
                     sec_move = (sec_curr - sec_prev) / sec_prev * 100
                     if direction == "bearish" and sec_move > 2.0:
-                        return None, "Sector %s up %.1f%% today - fighting PUT signal" % (sector_etf, sec_move)
+                        if not signals_only:
+                            return None, "Sector %s up %.1f%% today - fighting PUT signal" % (sector_etf, sec_move)
                     if direction == "bullish" and sec_move < -2.0:
-                        return None, "Sector %s down %.1f%% today - fighting CALL signal" % (sector_etf, sec_move)
+                        if not signals_only:
+                            return None, "Sector %s down %.1f%% today - fighting CALL signal" % (sector_etf, sec_move)
     except Exception:
         pass
 
@@ -4076,12 +4091,14 @@ def precision_score(ticker, direction, df_primary, df_confirm,
                 recent_high = float(df_primary["high"].iloc[-10:].max())
                 drop = recent_high - entry_price
                 if drop > atr * 1.5:
-                    return None, "Price dropped %.2f (%.1fx ATR) from recent high - CALL invalidated" % (drop, drop/atr)
+                    if not signals_only:
+                        return None, "Price dropped %.2f (%.1fx ATR) from recent high - CALL invalidated" % (drop, drop/atr)
             else:
                 recent_low = float(df_primary["low"].iloc[-10:].min())
                 rip = entry_price - recent_low
                 if rip > atr * 1.5:
-                    return None, "Price ripped %.2f (%.1fx ATR) from recent low - PUT invalidated" % (rip, rip/atr)
+                    if not signals_only:
+                        return None, "Price ripped %.2f (%.1fx ATR) from recent low - PUT invalidated" % (rip, rip/atr)
     except Exception:
         pass
 
@@ -4172,14 +4189,14 @@ def precision_score(ticker, direction, df_primary, df_confirm,
 
     # 4/5 required for GO NOW - but still score 3/5 for WATCHING/ON DECK
     # Bucket assignment in full_scan uses signals_hit to separate tiers
-    if signals_hit < 2:
+    if signals_hit < 2 and not signals_only:
         return None, "Only %s/5 quality signals aligned (need 2+ minimum)" % signals_hit
     # 2/5 signals: low confidence, will land in ON DECK only
 
     # ── TIER 3: Execution quality scoring ────────────────────────────────────
     score = 50
     score += signals_hit * 5
-    score += min(exh_score * 3, 10)
+    score += min(exh_score * 5, 18)  # exhaustion quality multiplier — raised weight
 
     # Fibonacci confluence boost — up to +8 max (reduced to prevent score inflation)
     fib_boost = fib_result.get("boost", 0) if isinstance(fib_result, dict) else 0
@@ -4221,6 +4238,13 @@ def precision_score(ticker, direction, df_primary, df_confirm,
         score += 3 if liq_vol >= 500 else 2 if liq_vol >= 100 else 1
 
     final = min(97, max(50, score))  # cap at 97 — reserve 100% for exceptional setups only
+
+    # Exhaustion confirmed = minimum 72% floor
+    # Exhaustion missing = cap at 84% — strong but not HIGH CONVICTION
+    if exh_confirmed:
+        final = max(final, 72)
+    else:
+        final = min(final, 84)
 
     return final, {
         "exhaustion_confirmed": exh_confirmed,
@@ -4443,10 +4467,16 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
             _aligned    = _divergence <= 28  # ~2 gates worth of divergence allowed
 
             # HIGH CONVICTION: conf>=85, gates>=5, signals>=5, aligned
-            _high_conf = conf >= 85 and gates_passed >= 5 and signals_hit >= 5 and _aligned
+            _high_conf = conf >= 85 and gates_passed >= 5 and signals_hit >= 4 and _aligned
             # STRONG: conf>=75, gates>=5, signals>=5, aligned — same signal minimum, no exceptions
-            _med_conf  = conf >= 75 and gates_passed >= 5 and signals_hit >= 5 and _aligned
-            _go_now_ok = (_high_conf or _med_conf) and entry_status == "CONFIRMED" and exh_ok
+            _med_conf  = conf >= 75 and gates_passed >= 5 and signals_hit >= 4 and _aligned
+
+            # Exhaustion confirmed = lower bar to GO NOW (74% conf, 4 gates)
+            # Exhaustion missing   = higher bar required (80% conf, 5 gates)
+            if exh_ok:
+                _go_now_ok = (_high_conf or _med_conf or conf >= 74) and entry_status == "CONFIRMED"
+            else:
+                _go_now_ok = (conf >= 80 and gates_passed >= 5 and signals_hit >= 4 and _aligned) and entry_status == "CONFIRMED"
 
             if _go_now_ok:
                 go_now.append(r)
@@ -5293,39 +5323,53 @@ def send_telegram_alert(r, alert_type="GO NOW"):
 
 
 def send_telegram_exit_alert(t):
-    """Sends a paper trade exit notification."""
+    """Sends a paper trade exit notification with full context."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
     import urllib.request, json
 
-    is_win   = t["status"] == "WIN"
-    emoji    = "✅" if is_win else "❌"
-    pnl_sign = "+" if t["pnl_pct"] >= 0 else ""
+    is_win     = t["status"] == "WIN"
+    emoji      = "✅" if is_win else "❌"
+    pnl_sign   = "+" if t["pnl_pct"] >= 0 else ""
+    action     = t.get("action", "CALL")
+    ticker     = t.get("ticker", "?")
+    pattern    = t.get("pattern", "Signal")
+    style      = t.get("style", "swing").upper()
+    confidence = t.get("confidence", 0)
+    gates      = t.get("gates_passed", 0)
+    signals    = t.get("signals_hit", 0)
+    sig_detail = t.get("signal_detail", [])
+    sig_lines  = "\n".join(["  " + s for s in sig_detail]) if sig_detail else "  Signal detail unavailable"
 
     msg = (
-        "%s *PAPER TRADE CLOSED - %s %s*\n"
+        "%s <b>PAPER TRADE CLOSED — %s %s</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "Result:  `%s`\n"
-        "Reason:  `%s`\n"
-        "P&L:     `%s%.1f%%  ($%+.0f)`\n"
-        "Peak:    `+%.1f%%`\n"
-        "Held:    `%s scan cycles`\n"
+        "📊 Pattern: <b>%s</b> (%s)\n"
+        "🧠 Confidence: <b>%s%%</b> | Gates: <b>%s/7</b> | Signals: <b>%s/6</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "_Entry $%.2f → Exit $%.2f_"
+        "Result:  <b>%s</b>\n"
+        "Reason:  <b>%s</b>\n"
+        "P&L:     <b>%s%.1f%%  ($%+.0f)</b>\n"
+        "Peak:    <b>+%.1f%%</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "<i>Entry $%.2f → Exit $%.2f</i>\n"
+        "Signals at entry:\n%s"
     ) % (
-        emoji, t["ticker"], t["action"],
+        emoji, ticker, action,
+        pattern, style,
+        confidence, gates, signals,
         t["status"],
         t.get("exit_reason", ""),
         pnl_sign, t["pnl_pct"], t["pnl_dollar"],
         t["peak_pnl_pct"],
-        t["cycles_open"],
         t["entry_price"], t.get("exit_price", 0),
+        sig_lines,
     )
 
     payload = json.dumps({
         "chat_id":    TELEGRAM_CHAT_ID,
         "text":       msg,
-        "parse_mode": "Markdown",
+        "parse_mode": "HTML",
     }).encode("utf-8")
 
     try:
@@ -5350,7 +5394,7 @@ def paper_enter_trade(r):
     key = (r["ticker"], r["style"], r["direction"])
     # Don't double-enter same ticker/direction
     for t in trades:
-        if t["status"] == "OPEN" and (t["ticker"], t["style"], t["direction"]) == key:
+        if t["status"] == "OPEN" and t["ticker"] == r["ticker"] and t["direction"] == r["direction"]:
             return
     opt = r["opt"]
     trade = {
@@ -5383,9 +5427,47 @@ def paper_enter_trade(r):
         "pnl_dollar":    0.0,
         "peak_pnl_pct":  0.0,
         "cycles_open":   0,
+        "signal_detail": r.get("signal_detail", []),
     }
     st.session_state.paper_trades.append(trade)
     save_paper_trades(st.session_state.paper_trades)
+
+    # Fire Telegram entry alert
+    try:
+        if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+            _sig_lines = "\n".join(["  " + s for s in r.get("signal_detail", [])]) or "  Signal data unavailable"
+            _entry_msg = (
+                "🚨 <b>PAPER TRADE ENTERED — %s %s</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "📊 Pattern: <b>%s</b>\n"
+                "🎯 Style: <b>%s</b>\n"
+                "🧠 Confidence: <b>%s%%</b> | Gates: <b>%s/7</b>\n"
+                "📶 Signals: <b>%s/6</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "💰 Entry:  <b>$%.2f</b>\n"
+                "🛑 Stop:   <b>$%.2f</b>\n"
+                "🎯 Target: <b>$%.2f</b>\n"
+                "💵 Premium: <b>$%.2f/sh</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "%s\n"
+                "<i>Paper trade only — not financial advice</i>"
+            ) % (
+                r.get("ticker", "?"),
+                "CALL" if r.get("direction") == "bullish" else "PUT",
+                r.get("pattern", "Signal"),
+                r.get("style", "swing").upper(),
+                r.get("confidence", 0),
+                r.get("gates_passed", 0),
+                r.get("signals_hit", 0),
+                r.get("price", 0),
+                opt.get("stop", 0),
+                opt.get("target", 0),
+                opt.get("premium", 0),
+                _sig_lines,
+            )
+            send_telegram_text(_entry_msg)
+    except Exception:
+        pass
 
 # Profit-taking thresholds by trade style
 PAPER_PROFIT_TARGET = {
@@ -5592,7 +5674,7 @@ if not _blank_state:
     with c1:
         color   = "#D4AF37" if pct_change>=0 else "#C1121F"
         arrow   = "UP" if pct_change>=0 else "DN"
-        prepost = "" if mstatus=="open" else " <span style='color:#F6E27A;font-size:0.72rem'>(delayed)</span>"
+        prepost = "" if mstatus=="open" else (" <span style='color:#F6E27A;font-size:0.72rem'>PRE-MARKET</span>" if mstatus=="pre" else " <span style='color:#F6E27A;font-size:0.72rem'>AFTER-HOURS</span>" if mstatus=="after" else "")
         st.markdown(f"<div class='metric-card'><div style='color:#A1A1A6;font-size:0.8rem'>{selected_ticker} . {selected_tf}</div><div class='big-price'>${current_price:,.2f}{prepost}</div><div style='color:{color}'>{arrow} {pct_change:+.2f}%</div></div>", unsafe_allow_html=True)
     with c2:
         ema20v = float(df["close"].ewm(span=20).mean().iloc[-1])
@@ -5660,10 +5742,11 @@ with tab1:
                         "neutral",      # market_bias — neutral for single ticker view
                         "neutral",      # sector_bias — same reason
                         atr, dte_used, account_size, risk_pct, style,
-                        current_price=current_price
+                        current_price=current_price,
+                        signals_only=True  # skip hard stops — pattern already surfaced
                     )
-                    if _ps_conf is not None and _ps_detail is not None:
-                        c["confidence"]    = _ps_conf
+                    if isinstance(_ps_detail, dict):
+                        c["confidence"]    = _ps_conf if _ps_conf is not None else c["confidence"]
                         c["detail"]        = _ps_detail
                         c["signals_hit"]   = _ps_detail.get("signals_hit", 0)
                         c["signal_detail"] = _ps_detail.get("signal_detail", [])
@@ -6232,6 +6315,15 @@ with tab4:
                                                    "desc": "Regime analysis unavailable", "bias": "neutral"}
 
             save_scan_state(go_now, watching, on_deck)
+
+            # ── Inline news alerts — same process as page render ──────────
+            # Background thread alerts fail on Railway multi-worker (different worker)
+            # This inline call reliably reaches Telegram on the same worker.
+            try:
+                _news_wl = scan_list[:20]
+                _check_watchlist_news_alerts(_news_wl)
+            except Exception:
+                pass
 
     # ── show completion banner
     _last_run = st.session_state.get("scan_last_run")
