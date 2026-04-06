@@ -2447,6 +2447,35 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
             session_name = {"pre": "Pre-Market", "after": "After-Hours", "closed": "Market Closed"}.get(mstatus, "Extended Hours")
             quick_warn_html = "<div style='background:#1a150a;border:1px solid #F6E27A;border-radius:6px;padding:8px 12px;margin-bottom:6px;color:#F6E27A;font-size:0.8rem'>⚡ %s - Quick trade levels based on latest price. Use for planning only.</div>" % session_name
 
+        # ── SNIPER STRIP COMPUTATION ───────────────────────────────────────────
+        _sniper_html = ""
+        try:
+            _df1m = fetch_1min(ticker)
+            _trig_type, _trig_active, _entry_win, _trig_detail = detect_micro_trigger(_df1m, sig["direction"])
+            _vol_1m_ok = False
+            if _df1m is not None and len(_df1m) > 5:
+                _v1m_avg = float(_df1m["volume"].iloc[-10:].mean())
+                _v1m_cur = float(_df1m["volume"].iloc[-1])
+                _vol_1m_ok = _v1m_cur > _v1m_avg * 1.2
+            _exec_score = calc_execution_score(
+                _trig_type, _trig_active, _vol_1m_ok,
+                sig.get("entry_timing", {}).get("status", "WAITING"),
+                sig["direction"], _df1m, current_price, atr
+            )
+            _zone_low, _zone_high, _entry_type, _exec_script, _missed = build_entry_zone(
+                sig["entry"], sig["direction"], sig["pattern_label"], atr, _trig_type
+            )
+            _e_status, _e_color, _e_emoji = get_sniper_entry_status(
+                _trig_type, _trig_active, current_price, _zone_low, _zone_high, _exec_score
+            )
+            _sniper_html = render_sniper_strip_html(
+                ticker, sig["direction"], _trig_type, _trig_active,
+                _entry_win, _trig_detail, _e_status, _e_color, _e_emoji,
+                _exec_score, _zone_low, _zone_high, _entry_type, _exec_script, _missed
+            )
+        except Exception:
+            _sniper_html = ""
+
         dots_html = ""
         _sig_detail = sig.get("signal_detail") or sig.get("detail", {}).get("signal_detail", [])
         if _sig_detail:
@@ -2482,6 +2511,7 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
         st.markdown(f"""
         {conflict_html}
         {quick_warn_html}
+        {_sniper_html}
         <div class='{rc}'>
             <div style='display:flex;justify-content:space-between;align-items:flex-start'>
                 <div>
@@ -3613,6 +3643,358 @@ def calculate_news_velocity(articles, window_minutes=30):
     is_breaking    = recent >= 3
     velocity_score = min(100, recent * 25)
     return velocity_score, is_breaking, recent
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PBP SNIPER ENGINE
+# 1-minute candle analysis → micro trigger → execution score → entry zone
+# Transforms setup intelligence into execution intelligence
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@_thread_cache(ttl=60)
+def fetch_1min(ticker, bars=30):
+    """
+    Fetch last N 1-minute candles from FMP.
+    Cached 60s — fresh enough for trigger detection, not spamming the API.
+    """
+    if not FMP_API_KEY:
+        return None
+    try:
+        import requests as _req
+        url = (
+            "https://financialmodelingprep.com/stable/historical-chart/1min"
+            "?symbol=%s&apikey=%s" % (ticker.upper(), FMP_API_KEY)
+        )
+        r = _req.get(url, timeout=5)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        if not data or not isinstance(data, list):
+            return None
+        df = pd.DataFrame(data[:bars])  # most recent bars first
+        df.columns = [c.lower() for c in df.columns]
+        if "date" in df.columns:
+            df = df.rename(columns={"date": "datetime"})
+        df["datetime"] = pd.to_datetime(df["datetime"])
+        df = df.sort_values("datetime").reset_index(drop=True)  # oldest first
+        required = ["datetime", "open", "high", "low", "close", "volume"]
+        if not all(c in df.columns for c in required):
+            return None
+        return df[required].dropna().reset_index(drop=True)
+    except Exception:
+        return None
+
+
+def detect_micro_trigger(df_1min, direction):
+    """
+    Analyze last 5 1-minute candles for actionable trigger.
+    Returns: (trigger_type, trigger_active, entry_window, detail)
+
+    Trigger types:
+    - VWAP RECLAIM    — price crossed above VWAP (bull) or below (bear) on 1min
+    - PULLBACK HOLD   — price pulled back to VWAP/EMA and held (reversal candidate)
+    - MOMENTUM BREAK  — breakout of recent 1min high/low with volume
+    - REJECTION WICK  — long wick rejection at key level (contra trigger)
+    - NO TRIGGER      — nothing actionable right now
+    """
+    if df_1min is None or len(df_1min) < 5:
+        return "NO TRIGGER", False, "not active", "Insufficient 1min data"
+
+    try:
+        close  = df_1min["close"].astype(float)
+        high   = df_1min["high"].astype(float)
+        low    = df_1min["low"].astype(float)
+        vol    = df_1min["volume"].astype(float)
+        op     = df_1min["open"].astype(float)
+
+        # VWAP on 1min bars
+        tp       = (high + low + close) / 3
+        vwap_1m  = float((tp * vol).cumsum().iloc[-1] / vol.cumsum().iloc[-1]) if vol.sum() > 0 else float(close.iloc[-1])
+
+        c1 = float(close.iloc[-1])   # current
+        c2 = float(close.iloc[-2])   # 1 bar ago
+        c3 = float(close.iloc[-3])   # 2 bars ago
+        h1 = float(high.iloc[-1])
+        l1 = float(low.iloc[-1])
+        o1 = float(op.iloc[-1])
+        v1 = float(vol.iloc[-1])
+        v_avg = float(vol.iloc[-10:].mean()) if len(vol) >= 10 else float(vol.mean())
+
+        body_1    = abs(c1 - o1)
+        range_1   = h1 - l1
+        body_pct  = body_1 / range_1 if range_1 > 0 else 0
+        vol_spike = v1 > v_avg * 1.3
+
+        # Recent high/low for breakout detection
+        recent_high = float(high.iloc[-6:-1].max()) if len(high) >= 6 else float(high.iloc[:-1].max())
+        recent_low  = float(low.iloc[-6:-1].min())  if len(low)  >= 6 else float(low.iloc[:-1].min())
+
+        is_bull = direction == "bullish"
+
+        # ── VWAP RECLAIM (highest conviction 1min trigger) ────────────────────
+        if is_bull:
+            just_reclaimed = c2 < vwap_1m and c1 > vwap_1m
+            if just_reclaimed:
+                active = vol_spike or body_pct > 0.5
+                window = "1–2 candles" if active else "closing"
+                return "VWAP RECLAIM", active, window, "Price crossed above 1min VWAP — buyers taking control"
+        else:
+            just_rejected = c2 > vwap_1m and c1 < vwap_1m
+            if just_rejected:
+                active = vol_spike or body_pct > 0.5
+                window = "1–2 candles" if active else "closing"
+                return "VWAP RECLAIM", active, window, "Price crossed below 1min VWAP — sellers taking control"
+
+        # ── PULLBACK HOLD (second best — price retested and held) ─────────────
+        if is_bull:
+            near_vwap  = abs(c1 - vwap_1m) / vwap_1m < 0.003  # within 0.3%
+            holding_up = c1 > c2 and c1 > vwap_1m
+            if near_vwap and holding_up:
+                return "PULLBACK HOLD", True, "1–2 candles", "Price pulled back to VWAP and holding — buyers stepping in"
+            # EMA8 hold
+            ema8 = float(close.ewm(span=8).mean().iloc[-1])
+            if abs(c1 - ema8) / ema8 < 0.003 and c1 > ema8 and c2 > c3:
+                return "PULLBACK HOLD", True, "1–2 candles", "Price holding EMA8 on 1min — momentum intact"
+        else:
+            near_vwap  = abs(c1 - vwap_1m) / vwap_1m < 0.003
+            holding_dn = c1 < c2 and c1 < vwap_1m
+            if near_vwap and holding_dn:
+                return "PULLBACK HOLD", True, "1–2 candles", "Price pulled back to VWAP and rejecting — sellers in control"
+
+        # ── MOMENTUM BREAK (breakout of recent range) ─────────────────────────
+        if is_bull:
+            breakout = c1 > recent_high and vol_spike and body_pct > 0.4
+            if breakout:
+                return "MOMENTUM BREAK", True, "1–2 candles", "Breaking recent 1min high with volume — momentum entry"
+        else:
+            breakdown = c1 < recent_low and vol_spike and body_pct > 0.4
+            if breakdown:
+                return "MOMENTUM BREAK", True, "1–2 candles", "Breaking recent 1min low with volume — momentum entry"
+
+        # ── REJECTION WICK (contra signal — warning) ─────────────────────────
+        upper_wick = h1 - max(c1, o1)
+        lower_wick = min(c1, o1) - l1
+        if is_bull and upper_wick > body_1 * 2 and upper_wick > range_1 * 0.4:
+            return "REJECTION WICK", False, "not active", "Long upper wick on 1min — sellers rejecting higher prices"
+        if not is_bull and lower_wick > body_1 * 2 and lower_wick > range_1 * 0.4:
+            return "REJECTION WICK", False, "not active", "Long lower wick on 1min — buyers rejecting lower prices"
+
+        # ── NO TRIGGER ────────────────────────────────────────────────────────
+        # Check if trigger expired (price has moved far from VWAP)
+        extension = abs(c1 - vwap_1m) / vwap_1m
+        if extension > 0.008:  # more than 0.8% from VWAP
+            if (is_bull and c1 > vwap_1m) or (not is_bull and c1 < vwap_1m):
+                return "EXTENDED", False, "expired", "Price extended from VWAP — wait for pullback before entering"
+
+        return "NO TRIGGER", False, "not active", "No clear 1min entry trigger — monitor for setup development"
+
+    except Exception as e:
+        return "NO TRIGGER", False, "not active", "Trigger detection error"
+
+
+def calc_execution_score(trigger_type, trigger_active, vol_confirmed,
+                          entry_status, direction, df_1min, current_price, atr):
+    """
+    Execution Score 0-100: measures TIMING quality, separate from setup quality.
+    Setup Score (confidence) = how good is the pattern
+    Execution Score          = how good is the ENTRY RIGHT NOW
+    """
+    score = 0
+
+    # Trigger present and active (+30)
+    if trigger_active:
+        score += 30
+    elif trigger_type not in ("NO TRIGGER", "EXTENDED", "REJECTION WICK"):
+        score += 10  # trigger exists but not fully active yet
+
+    # Volume on current 1min bar (+20)
+    if vol_confirmed:
+        score += 20
+
+    # Not extended — price in entry zone (+20)
+    if trigger_type != "EXTENDED" and entry_status != "LATE — DO NOT CHASE":
+        score += 20
+
+    # Momentum on 1min — last 3 closes in signal direction (+15)
+    try:
+        if df_1min is not None and len(df_1min) >= 3:
+            closes = df_1min["close"].astype(float).iloc[-3:].tolist()
+            if direction == "bullish":
+                if closes[-1] > closes[-2] > closes[-3]:
+                    score += 15
+                elif closes[-1] > closes[-2]:
+                    score += 8
+            else:
+                if closes[-1] < closes[-2] < closes[-3]:
+                    score += 15
+                elif closes[-1] < closes[-2]:
+                    score += 8
+    except Exception:
+        pass
+
+    # Trigger type quality (+15)
+    trigger_quality = {
+        "VWAP RECLAIM":   15,
+        "PULLBACK HOLD":  12,
+        "MOMENTUM BREAK": 10,
+        "REJECTION WICK":  0,
+        "EXTENDED":        0,
+        "NO TRIGGER":      0,
+    }
+    score += trigger_quality.get(trigger_type, 0)
+
+    return min(100, max(0, score))
+
+
+def build_entry_zone(entry_price, direction, pattern_label, atr, trigger_type):
+    """
+    Replace single entry price with an entry zone based on ATR and pattern type.
+    Returns: (zone_low, zone_high, entry_type, execution_script, missed_plan)
+    """
+    if atr is None or atr <= 0:
+        atr = entry_price * 0.01  # fallback: 1% of price
+
+    # Entry type from pattern
+    breakout_patterns = ["Break & Retest", "Opening Range Breakout", "Bull Flag", "Bear Flag", "Momentum Continuation"]
+    pullback_patterns = ["VWAP Reclaim", "VWAP Rejection", "Double Bottom", "Double Top"]
+    retest_patterns   = ["Break & Retest", "Head & Shoulders", "Inverse H&S", "Ascending Triangle", "Descending Triangle"]
+
+    if pattern_label in breakout_patterns or trigger_type == "MOMENTUM BREAK":
+        entry_type = "BREAKOUT"
+        zone_low   = round(entry_price, 2)
+        zone_high  = round(entry_price + (0.15 * atr), 2)
+    elif pattern_label in pullback_patterns or trigger_type == "PULLBACK HOLD":
+        entry_type = "PULLBACK"
+        zone_low   = round(entry_price - (0.1 * atr), 2)
+        zone_high  = round(entry_price + (0.2 * atr), 2)
+    elif trigger_type == "VWAP RECLAIM":
+        entry_type = "RECLAIM"
+        zone_low   = round(entry_price - (0.05 * atr), 2)
+        zone_high  = round(entry_price + (0.15 * atr), 2)
+    else:
+        entry_type = "RETEST"
+        zone_low   = round(entry_price - (0.1 * atr), 2)
+        zone_high  = round(entry_price + (0.1 * atr), 2)
+
+    # Execution script
+    if direction == "bullish":
+        script = (
+            "Enter between $%.2f – $%.2f on push\n"
+            "If price breaks above $%.2f → wait for pullback\n"
+            "If price loses $%.2f → setup invalid"
+        ) % (zone_low, zone_high, zone_high, zone_low)
+        missed = "Wait for pullback to $%.2f – $%.2f" % (zone_low, round(zone_low + (zone_high - zone_low) * 0.5, 2))
+    else:
+        script = (
+            "Enter between $%.2f – $%.2f on rejection\n"
+            "If price drops below $%.2f → momentum entry allowed\n"
+            "If price breaks above $%.2f → setup invalid"
+        ) % (zone_low, zone_high, zone_low, zone_high)
+        missed = "Wait for bounce to $%.2f – $%.2f" % (round(zone_low + (zone_high - zone_low) * 0.5, 2), zone_high)
+
+    return zone_low, zone_high, entry_type, script, missed
+
+
+def get_sniper_entry_status(trigger_type, trigger_active, current_price,
+                             zone_low, zone_high, execution_score):
+    """
+    Determines the top-line entry status for the sniper strip.
+    Returns: (status, color, emoji)
+    """
+    if trigger_type == "EXTENDED":
+        return "EXTENDED — DO NOT CHASE", "#FF1744", "🔴"
+    if trigger_type == "REJECTION WICK":
+        return "WAIT — COUNTER SIGNAL", "#FFD600", "⚠️"
+    if trigger_active and zone_low <= current_price <= zone_high:
+        return "ENTER NOW", "#00C853", "🟢"
+    if trigger_active and execution_score >= 60:
+        return "ENTER NOW", "#00C853", "🟢"
+    if trigger_type in ("VWAP RECLAIM", "PULLBACK HOLD", "MOMENTUM BREAK") and execution_score >= 40:
+        return "WAIT — PULLBACK FORMING", "#FFD600", "🟡"
+    if trigger_type == "NO TRIGGER":
+        return "NO ENTRY — MONITOR", "#4a5568", "⚪"
+    return "WAIT — SETUP DEVELOPING", "#FFD600", "🟡"
+
+
+def render_sniper_strip_html(ticker, direction, trigger_type, trigger_active,
+                              entry_window, trigger_detail, entry_status, entry_status_color,
+                              entry_status_emoji, execution_score, zone_low, zone_high,
+                              entry_type, execution_script, missed_plan):
+    """Renders the sniper strip HTML block for the top of signal cards."""
+
+    # Execution score bar color
+    if execution_score >= 75:
+        exec_color = "#00C853"
+        exec_label = "STRONG"
+    elif execution_score >= 50:
+        exec_color = "#FFD600"
+        exec_label = "MODERATE"
+    else:
+        exec_color = "#FF1744"
+        exec_label = "WEAK"
+
+    trigger_display = {
+        "VWAP RECLAIM":   "⚡ VWAP RECLAIM",
+        "PULLBACK HOLD":  "⚡ PULLBACK HOLD → GO",
+        "MOMENTUM BREAK": "⚡ MOMENTUM BREAK",
+        "REJECTION WICK": "⚠️ REJECTION WICK",
+        "EXTENDED":       "🚫 PRICE EXTENDED",
+        "NO TRIGGER":     "— MONITORING",
+    }.get(trigger_type, "— MONITORING")
+
+    script_lines = execution_script.replace("\n", "<br>")
+
+    return (
+        "<div style='background:linear-gradient(135deg,#0f0f12,#1a1a1d);"
+        "border:1px solid %s;border-radius:10px;padding:14px 16px;margin-bottom:10px'>"
+
+        # Row 1: Entry Status (big, decision-first)
+        "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px'>"
+        "<div style='font-family:Barlow Condensed,Arial Black,sans-serif;"
+        "font-size:1.15rem;font-weight:900;letter-spacing:0.05em;color:%s'>"
+        "%s %s</div>"
+        "<div style='text-align:right'>"
+        "<div style='font-size:0.62rem;color:#A1A1A6;letter-spacing:0.1em'>EXECUTION</div>"
+        "<div style='font-size:0.95rem;font-weight:700;color:%s'>%s%%</div>"
+        "<div style='font-size:0.58rem;color:%s'>%s</div>"
+        "</div></div>"
+
+        # Row 2: Trigger + Window
+        "<div style='display:flex;gap:16px;margin-bottom:10px'>"
+        "<div style='flex:1'>"
+        "<div style='font-size:0.65rem;color:#A1A1A6;letter-spacing:0.1em;margin-bottom:2px'>TRIGGER</div>"
+        "<div style='font-size:0.82rem;font-weight:700;color:#F5F5F5'>%s</div>"
+        "<div style='font-size:0.7rem;color:#A1A1A6;margin-top:2px'>%s</div>"
+        "</div>"
+        "<div>"
+        "<div style='font-size:0.65rem;color:#A1A1A6;letter-spacing:0.1em;margin-bottom:2px'>WINDOW</div>"
+        "<div style='font-size:0.82rem;font-weight:700;color:#F5F5F5'>⏱ %s</div>"
+        "</div></div>"
+
+        # Row 3: Entry Zone
+        "<div style='background:#111115;border-radius:6px;padding:8px 12px;margin-bottom:8px'>"
+        "<div style='font-size:0.62rem;color:#A1A1A6;letter-spacing:0.1em;margin-bottom:4px'>%s ZONE</div>"
+        "<div style='font-size:0.95rem;font-weight:700;color:#D4AF37'>"
+        "$%.2f – $%.2f</div>"
+        "<div style='font-size:0.7rem;color:#A1A1A6;margin-top:4px;line-height:1.5'>%s</div>"
+        "</div>"
+
+        # Row 4: Missed entry
+        "<div style='font-size:0.68rem;color:#4a5568'>"
+        "Missed entry: %s</div>"
+
+        "</div>"
+    ) % (
+        entry_status_color,
+        entry_status_color, entry_status_emoji, entry_status,
+        exec_color, execution_score,
+        exec_color, exec_label,
+        trigger_display, trigger_detail,
+        entry_window,
+        entry_type,
+        zone_low, zone_high, script_lines,
+        missed_plan,
+    )
+
 
 @_thread_cache(ttl=120)
 def fetch_ticker_news(ticker, hours=4, limit=10):
@@ -5713,7 +6095,7 @@ if _mt:
         unsafe_allow_html=True
     )
 
-tab4,tab1,tab2,tab8,tab7 = st.tabs(["SCAN","SIGNALS","CHART","WATCH QUEUE","HOW IT WORKS"])
+tab4,tab1,tab2,tab8,tab9,tab7 = st.tabs(["SCAN","SIGNALS","CHART","WATCH QUEUE","🎯 SNIPER","HOW IT WORKS"])
 
 with tab1:
     if _blank_state:
@@ -6913,6 +7295,87 @@ with tab8:
                     st.error("Error: %s" % str(e)[:80])
             st.rerun()
 
+with tab9:
+    st.markdown("""
+    <div style='background:linear-gradient(135deg,#0a0a0d,#111115);border:1px solid #D4AF37;
+    border-radius:12px;padding:20px 24px;margin-bottom:20px'>
+    <div style='font-family:Barlow Condensed,Arial Black,sans-serif;font-size:1.6rem;
+    font-weight:900;color:#D4AF37;letter-spacing:0.05em'>🎯 SNIPER MODE</div>
+    <div style='color:#A1A1A6;font-size:0.82rem;margin-top:4px'>
+    Only GO NOW signals with active triggers and execution score ≥ 75.
+    No noise. Pure execution feed.</div></div>
+    """, unsafe_allow_html=True)
+
+    _go_now_sniper = st.session_state.get("scan_go_now", []) or st.session_state.get("auto_scan_go_now", [])
+
+    if not _go_now_sniper:
+        st.markdown("<div style='text-align:center;color:#4a5568;padding:60px;font-size:0.85rem'>Run a scan to populate Sniper Mode.</div>", unsafe_allow_html=True)
+    else:
+        _sniper_hits = []
+        for _sr in _go_now_sniper:
+            try:
+                _s_1m = fetch_1min(_sr["ticker"])
+                _s_tt, _s_ta, _s_ew, _s_td = detect_micro_trigger(_s_1m, _sr.get("direction", "bullish"))
+                _s_vol = False
+                if _s_1m is not None and len(_s_1m) > 5:
+                    _s_va = float(_s_1m["volume"].iloc[-10:].mean())
+                    _s_vc = float(_s_1m["volume"].iloc[-1])
+                    _s_vol = _s_vc > _s_va * 1.2
+                _s_exec = calc_execution_score(
+                    _s_tt, _s_ta, _s_vol,
+                    _sr.get("entry_timing", {}).get("status", "WAITING"),
+                    _sr.get("direction", "bullish"),
+                    _s_1m, current_price, atr
+                )
+                if _s_exec >= 75 and _s_ta:
+                    _sniper_hits.append({"r": _sr, "exec": _s_exec, "trigger": _s_tt,
+                                         "detail": _s_td, "window": _s_ew})
+            except Exception:
+                pass
+
+        _sniper_hits.sort(key=lambda x: x["exec"], reverse=True)
+
+        if not _sniper_hits:
+            st.markdown("""
+            <div style='background:#111115;border:1px solid #2A2A2D;border-radius:10px;
+            padding:32px;text-align:center'>
+            <div style='font-size:1.1rem;font-weight:700;color:#A1A1A6;margin-bottom:8px'>
+            NO SNIPER SETUPS RIGHT NOW</div>
+            <div style='color:#4a5568;font-size:0.82rem'>
+            GO NOW signals exist but none have active triggers with execution score ≥ 75.<br>
+            Triggers fire when price hits the entry zone on 1-minute candles.<br>
+            Check back as market conditions develop.</div></div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='color:#D4AF37;font-size:0.78rem;font-weight:700;letter-spacing:0.15em;margin-bottom:16px'>⚡ {len(_sniper_hits)} ACTIVE SNIPER SETUP{'S' if len(_sniper_hits) != 1 else ''}</div>", unsafe_allow_html=True)
+            for _sh in _sniper_hits:
+                _r = _sh["r"]
+                _dir_color = "#D4AF37" if _r.get("direction") == "bullish" else "#C1121F"
+                _action = "BUY CALL" if _r.get("direction") == "bullish" else "BUY PUT"
+                st.markdown(f"""
+                <div style='background:linear-gradient(135deg,#0f0f12,#1a1a1d);
+                border:2px solid {_dir_color};border-radius:10px;padding:16px 20px;margin-bottom:12px'>
+                <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:10px'>
+                    <div>
+                        <span style='font-family:Barlow Condensed,Arial Black,sans-serif;
+                        font-size:1.3rem;font-weight:900;color:{_dir_color}'>{_r["ticker"]}</span>
+                        <span style='color:#A1A1A6;font-size:0.82rem;margin-left:10px'>{_action} · {_r.get("pattern","Signal")}</span>
+                    </div>
+                    <div style='text-align:right'>
+                        <div style='font-size:0.65rem;color:#A1A1A6'>EXECUTION</div>
+                        <div style='font-size:1.1rem;font-weight:700;color:#00C853'>{_sh["exec"]}%</div>
+                    </div>
+                </div>
+                <div style='font-size:0.8rem;color:#F5F5F5;font-weight:700'>⚡ {_sh["trigger"]} → {_sh["window"]}</div>
+                <div style='font-size:0.72rem;color:#A1A1A6;margin-top:4px'>{_sh["detail"]}</div>
+                <div style='display:flex;gap:20px;margin-top:10px;font-size:0.78rem'>
+                    <span style='color:#A1A1A6'>Conf: <b style='color:#F5F5F5'>{_r.get("confidence",0)}%</b></span>
+                    <span style='color:#A1A1A6'>Gates: <b style='color:#F5F5F5'>{_r.get("gates_passed",0)}/7</b></span>
+                    <span style='color:#A1A1A6'>Entry: <b style='color:#D4AF37'>${_r.get("price",0):.2f}</b></span>
+                    <span style='color:#A1A1A6'>Stop: <b style='color:#FF1744'>${_r.get("opt",{}).get("stop",0):.2f}</b></span>
+                </div></div>
+                """, unsafe_allow_html=True)
+
 with tab7:
     st.markdown("""
 <style>
@@ -6932,7 +7395,7 @@ with tab7:
     📡 HOW IT WORKS
   </div>
   <div style='font-size:0.75rem;color:#A1A1A6;margin-top:6px'>
-    PaidButPressured Options Screener
+    PaidButPressured — Setup Intelligence + Execution Intelligence
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -6941,137 +7404,167 @@ with tab7:
 <div class='hiw-section'>
   <div class='hiw-title'>🎯 What Is This?</div>
   <div class='hiw-body'>
-    PaidButPressured is a real-time options screener built for active traders who want 
-    high-conviction setups delivered fast — without the noise.<br><br>
-    Our proprietary engine scans the market continuously, filters out weak signals, 
-    and surfaces only the setups that meet our strict multi-layer confirmation process. 
-    No guesswork. No opinions. Just data-driven setups with clear entry, target, and stop levels.
+    PaidButPressured is a real-time options screener built for everyday traders who want 
+    high-conviction setups with clear execution timing — not just signals, but the exact 
+    moment to act on them.<br><br>
+    The engine runs two layers simultaneously: a <b style='color:#F5F5F5'>Setup Layer</b> 
+    that finds high-probability patterns using a 7-point gate system and 6-signal precision 
+    scoring — and an <b style='color:#F5F5F5'>Execution Layer</b> that analyzes 1-minute 
+    candles in real time to tell you exactly when to pull the trigger.
+  </div>
+</div>
+
+<div class='hiw-section' style='border-left-color:#D4AF37'>
+  <div class='hiw-title'>🎯 The Sniper Strip — Read This First</div>
+  <div class='hiw-body'>
+    The gold bar at the top of every signal card is the most important thing on the screen.
+    It tells you what to DO right now, not just what the setup looks like.<br><br>
+    <span class='hiw-badge' style='background:#00C85322;color:#00C853;border:1px solid #00C853'>🟢 ENTER NOW</span>
+    Trigger is active. Price is in the entry zone. 1-2 candle window. Act.<br><br>
+    <span class='hiw-badge' style='background:#FFD60022;color:#FFD600;border:1px solid #FFD600'>🟡 WAIT — PULLBACK FORMING</span>
+    Setup is valid but not yet at the entry zone. Monitor.<br><br>
+    <span class='hiw-badge' style='background:#FF174422;color:#FF1744;border:1px solid #FF1744'>🔴 EXTENDED — DO NOT CHASE</span>
+    Price has moved too far from the entry zone. Wait for a pullback.<br><br>
+    <span class='hiw-badge' style='background:#1A1A1D;color:#A1A1A6;border:1px solid #A1A1A6'>⚪ NO ENTRY — MONITOR</span>
+    No active trigger. Watch for one to develop.
+  </div>
+</div>
+
+<div class='hiw-section' style='border-left-color:#00C853'>
+  <div class='hiw-title'>⚡ Micro Triggers — The 1-Minute Signal</div>
+  <div class='hiw-body'>
+    The trigger type tells you WHY the sniper strip fired. These are detected on 1-minute candles in real time.<br><br>
+    <b style='color:#F5F5F5'>VWAP RECLAIM</b> — Price just crossed above VWAP (calls) or below VWAP (puts) on the 1-min chart. 
+    Highest conviction trigger. Institutional traders use VWAP as their benchmark — when price crosses it with force, the session bias shifts.<br><br>
+    <b style='color:#F5F5F5'>PULLBACK HOLD</b> — Price pulled back to VWAP or EMA8 on 1-min and is holding above it (calls) or below it (puts). 
+    Buyers or sellers stepped in at that level. Enter on the next push in signal direction.<br><br>
+    <b style='color:#F5F5F5'>MOMENTUM BREAK</b> — Price broke the recent 1-min high (calls) or low (puts) with above-average volume. 
+    Momentum entry — the move is happening now.<br><br>
+    <b style='color:#F5F5F5'>REJECTION WICK</b> — Warning signal. Long wick against your direction. Sellers rejecting higher prices (calls) 
+    or buyers rejecting lower prices (puts). Wait for the wick to resolve before entering.<br><br>
+    <b style='color:#FF1744'>EXTENDED</b> — Price has moved too far from VWAP. Do not chase. Wait for a pullback to the entry zone.
+  </div>
+</div>
+
+<div class='hiw-section' style='border-left-color:#D4AF37'>
+  <div class='hiw-title'>📊 Two Scores — Setup vs Execution</div>
+  <div class='hiw-body'>
+    The screener now shows two separate scores. They measure different things.<br><br>
+    <b style='color:#F5F5F5'>Setup Score (Confidence %)</b> — How strong is the pattern? 
+    This is the 6-signal precision score covering trend, volume, exhaustion, squeeze, RSI divergence, 
+    and Fibonacci confluence. High confidence means the technical setup is solid.<br><br>
+    <b style='color:#F5F5F5'>Execution Score (0–100%)</b> — How good is the TIMING right now? 
+    This measures trigger quality, 1-min volume, extension from entry zone, and momentum on the last 3 1-min candles. 
+    A setup can be 97% confidence but 30% execution if price is far from the entry zone — meaning the setup is great 
+    but right now is not the moment to enter.<br><br>
+    <b style='color:#00C853'>Strong execution (75%+)</b> — Clean timing. Enter if setup agrees.<br>
+    <b style='color:#FFD600'>Moderate execution (50–74%)</b> — Timing developing. Watch closely.<br>
+    <b style='color:#FF1744'>Weak execution (below 50%)</b> — Not the moment. Wait.
+  </div>
+</div>
+
+<div class='hiw-section' style='border-left-color:#F6E27A'>
+  <div class='hiw-title'>📍 Entry Zone — Not Just a Price</div>
+  <div class='hiw-body'>
+    Every signal now shows an entry zone instead of a single entry price. 
+    This is the range where the setup is valid. Enter anywhere inside it.<br><br>
+    <b style='color:#F5F5F5'>BREAKOUT ZONE</b> — For breakout patterns. Enter as price pushes through the level.<br>
+    <b style='color:#F5F5F5'>PULLBACK ZONE</b> — For pullback patterns. Enter as price dips into the zone and holds.<br>
+    <b style='color:#F5F5F5'>RECLAIM ZONE</b> — For VWAP reclaim patterns. Enter on the first candle that closes above VWAP.<br>
+    <b style='color:#F5F5F5'>RETEST ZONE</b> — For break-and-retest patterns. Enter as price comes back to test the broken level.<br><br>
+    The execution script below the zone tells you exactly what to do:<br>
+    <i style='color:#A1A1A6'>"Enter between $X – $Y on push. If price breaks above $Y → wait for pullback. If price loses $X → setup invalid."</i><br><br>
+    <b style='color:#D4AF37'>Missed the entry?</b> The missed entry plan tells you where to re-enter if you weren't watching.
   </div>
 </div>
 
 <div class='hiw-section' style='border-left-color:#D4AF37'>
   <div class='hiw-title'>🚦 Signal Tiers</div>
   <div class='hiw-body'>
-    Every signal is scored and placed into one of three tiers:<br><br>
+    Every signal is scored and placed into one of three buckets:<br><br>
     <span class='hiw-badge' style='background:#22C55E22;color:#22C55E;border:1px solid #22C55E'>🟢 GO NOW</span>
-    The highest conviction setups. All confirmation criteria met. Entry is valid right now.<br><br>
+    Highest conviction. 85%+ confidence, 5/7 gates, 4/6 signals, CONFIRMED entry. Act on these.<br><br>
     <span class='hiw-badge' style='background:#D4AF3722;color:#D4AF37;border:1px solid #D4AF37'>🟡 WATCHING</span>
-    Strong setup, waiting on final confirmation. Worth tracking — entry is close.<br><br>
+    Strong setup, waiting on final confirmation. Add to Watch Queue.<br><br>
     <span class='hiw-badge' style='background:#1A1A1D;color:#A1A1A6;border:1px solid #A1A1A6'>📋 ON DECK</span>
-    Setup is developing. Not ready yet but worth knowing about.
+    Setup developing. Not ready. Monitor.
   </div>
 </div>
 
 <div class='hiw-section' style='border-left-color:#9966ff'>
-  <div class='hiw-title'>⚙️ The Engine</div>
+  <div class='hiw-title'>⚙️ The 7-Point Gate System</div>
   <div class='hiw-body'>
-    Every signal passes through our multi-layer confirmation system before it reaches you.<br><br>
-    We evaluate each setup across multiple independent dimensions — momentum, structure, 
-    timing, market context, and more. A signal must satisfy a minimum number of these 
-    dimensions to qualify for each tier.<br><br>
-    The result is a <b style='color:#F5F5F5'>Confidence Score</b> from 0–100% and a 
-    <b style='color:#F5F5F5'>Gate Count</b> showing how many checks the setup passed. 
-    Higher confidence and more gates = stronger signal.
+    Before any signal reaches you it passes 7 independent checks. Each is a hard filter.<br><br>
+    <b style='color:#F5F5F5'>Volatility Environment</b> — IV Rank must be below 60%. Avoids expensive premium.<br>
+    <b style='color:#F5F5F5'>Volume Confirmation</b> — Options volume must be 1.2x average. Confirms institutional interest.<br>
+    <b style='color:#F5F5F5'>Momentum Divergence</b> — RSI divergence detected. Signals exhaustion of prior move.<br>
+    <b style='color:#F5F5F5'>Entry Timing</b> — Price within 3% of entry level. Ensures you're not chasing.<br>
+    <b style='color:#F5F5F5'>Risk/Reward</b> — Minimum 2:1 R:R on swing, 1.5:1 on quick. Math must work.<br>
+    <b style='color:#F5F5F5'>Expiration</b> — DTE meets the pattern's timeframe requirement.<br>
+    <b style='color:#F5F5F5'>Earnings Risk</b> — No earnings within 7 days of expiration.<br><br>
+    5/7 minimum for GO NOW. 6/7 or 7/7 = PRIME SETUP badge.
   </div>
 </div>
 
-<div class='hiw-section' style='border-left-color:#F6E27A'>
-  <div class='hiw-title'>📊 Reading a Signal Card</div>
+<div class='hiw-section' style='border-left-color:#C1121F'>
+  <div class='hiw-title'>📰 News Sentiment Engine</div>
   <div class='hiw-body'>
-    Each signal card gives you everything you need to place the trade:<br><br>
-    <b style='color:#F5F5F5'>Entry</b> — the stock price where the setup is valid<br>
-    <b style='color:#F5F5F5'>Target</b> — our measured price objective<br>
-    <b style='color:#F5F5F5'>Stop</b> — where the thesis is invalidated, exit if breached<br>
-    <b style='color:#F5F5F5'>Strike</b> — the recommended options strike price<br>
-    <b style='color:#F5F5F5'>Premium</b> — estimated cost per share to enter<br>
-    <b style='color:#F5F5F5'>R:R</b> — risk to reward ratio on the trade<br>
-    <b style='color:#F5F5F5'>Confidence %</b> — our internal conviction score<br>
-    <b style='color:#F5F5F5'>Gates</b> — how many confirmation layers this signal passed
-  </div>
-</div>
-
-<div class='hiw-section' style='border-left-color:#D4AF37'>
-  <div class='hiw-title'>🎯 How to Trade From the Cards</div>
-  <div class='hiw-body'>
-    Not all signals are equal. Here's how to prioritize:<br><br>
-    <b style='color:#22C55E'>Tier 1 — Highest Conviction:</b><br>
-    GO NOW + Entry CONFIRMED + Daily trend agrees + Fibonacci Confluence + Gates 5/7+<br>
-    This is your best trade of the day. Act on it.<br><br>
-    <b style='color:#D4AF37'>Tier 2 — Solid Setup:</b><br>
-    GO NOW or WATCHING + Entry CONFIRMED + 4/7 gates + Exhaustion confirmed<br>
-    Good trade. Standard size. Don't chase if price has moved past entry.<br><br>
-    <b style='color:#C1121F'>Tier 3 — Wait:</b><br>
-    Entry still WAITING, counter-trend, gates 3/7 or lower<br>
-    Add to Watch Queue. Never enter on WAITING.
-  </div>
-</div>
-
-<div class='hiw-section' style='border-left-color:#22C55E'>
-  <div class='hiw-title'>📋 The Rules</div>
-  <div class='hiw-body'>
-    <b style='color:#F5F5F5'>1. Never enter on WAITING</b> — the entry timing check exists for a reason. Wait for CONFIRMED.<br><br>
-    <b style='color:#F5F5F5'>2. Never fight the daily trend</b> — if it says "Daily trend conflicts" cut your size in half minimum.<br><br>
-    <b style='color:#F5F5F5'>3. Check the move required</b> — LIKELY is your sweet spot. AMBITIOUS is a lottery ticket.<br><br>
-    <b style='color:#F5F5F5'>4. Respect the stop</b> — when price hits your stop level, exit. No hoping, no holding.<br><br>
-    <b style='color:#F5F5F5'>5. Quick trades close same day</b> — never hold a quick trade overnight.<br><br>
-    <b style='color:#F5F5F5'>6. Fibonacci + pattern = priority</b> — when both show confirmed, that's your trade of the day.<br><br>
-    <b style='color:#D4AF37'>The one sentence rule:</b><br>
-    GO NOW + CONFIRMED entry + daily trend agrees + Fibonacci showing = enter.<br>
-    Everything else = wait or skip.
+    Every signal card now includes a live news sentiment block pulled from financial news feeds.<br><br>
+    <b style='color:#F5F5F5'>Philosophy:</b> News is directional data, not a blocker. Negative news on a bullish signal 
+    doesn't kill the signal — it surfaces a PUT opportunity instead.<br><br>
+    <b style='color:#F5F5F5'>Hard blocks (only 2 exist):</b> Trading halt and delisted. Those are the only situations 
+    where options literally can't be traded.<br><br>
+    <b style='color:#F5F5F5'>Confidence adjustments:</b> News aligned with signal direction adds +8 to confidence. 
+    News opposing subtracts -12. Source credibility is weighted — Reuters/Bloomberg articles 
+    score 3x versus Seeking Alpha at 0.8x.<br><br>
+    <b style='color:#D4AF37'>💡 NEWS SUGGESTS PUT/CALL</b> — When news sentiment strongly contradicts your signal direction 
+    (score ≥ 50 opposing), the card shows a flip suggestion. You can see both setups simultaneously and choose.
+    <br><br>
+    <b style='color:#FF1744'>🔴 BREAKING</b> badge appears when 3+ articles hit in 15 minutes — signals a developing catalyst.
   </div>
 </div>
 
 <div class='hiw-section' style='border-left-color:#D4AF37'>
   <div class='hiw-title'>📡 Market Regime Engine</div>
   <div class='hiw-body'>
-    Every scan runs a 5-layer market analysis that classifies current conditions and adjusts signal confidence accordingly.<br><br>
-    <b style='color:#F5F5F5'>The Regime Banner</b> appears after every scan showing:<br>
-    Regime label · Breadth score (% CALLS vs % PUTS) · 5-day and 20-day trend · RSI reading · Rally authenticity<br><br>
-    <b style='color:#F5F5F5'>The 8 Regime Types:</b><br><br>
-    <span style='color:#22C55E'>🟢 BULL CONFIRMED</span> — Broad participation, healthy volume. CALL signals elevated.<br><br>
-    <span style='color:#C1121F'>🔴 BEAR CONFIRMED</span> — Sustained downtrend with broad participation. PUT signals elevated.<br><br>
-    <span style='color:#C1121F'>⚠️ BULL TRAP</span> — Rally is suspect. Volume weak, breadth bearish. CALL signals blocked or penalized. Watch for reversal.<br><br>
-    <span style='color:#F6E27A'>⚡ BEAR TRAP</span> — Short-term bounce in downtrend. Oversold relief rally. Treat with caution.<br><br>
-    <span style='color:#F6E27A'>📉 DISTRIBUTION</span> — Index healthy long-term but short-term weakness. Smart money may be selling into strength.<br><br>
-    <span style='color:#D4AF37'>💀 CAPITULATION</span> — Extreme fear. Oversold conditions. Potential reversal zone — watch for CALL setups at key support.<br><br>
-    <span style='color:#F6E27A'>🔍 SUSPECT RALLY</span> — Rally showing weakness signals. Proceed with extra caution on CALL signals.<br><br>
-    <span style='color:#A1A1A6'>↔️ CHOPPY</span> — No clear directional edge. Reduce size. Wait for clarity before entering.
-  </div>
-</div>
-
-<div class='hiw-section' style='border-left-color:#22C55E'>
-  <div class='hiw-title'>🏷️ Signal Alignment Badges</div>
-  <div class='hiw-body'>
-    Every signal card shows a regime alignment badge telling you whether the signal works with or against current market conditions:<br><br>
-    <span style='background:#22C55E22;color:#22C55E;border:1px solid #22C55E44;padding:2px 8px;border-radius:4px;font-size:0.8rem'>✅ REGIME</span> &nbsp; Signal direction matches the current regime. Higher conviction — this is what you want.<br><br>
-    <span style='background:#C1121F22;color:#C1121F;border:1px solid #C1121F44;padding:2px 8px;border-radius:4px;font-size:0.8rem'>⚠️ COUNTER</span> &nbsp; Signal is fighting the regime. Confidence is reduced by 10%. Extra caution required — smaller size if you take it.<br><br>
-    <span style='background:#C1121F44;color:#C1121F;border:1px solid #C1121F;padding:2px 8px;border-radius:4px;font-size:0.8rem'>🚫 BLOCKED</span> &nbsp; Regime actively conflicts with this signal. Confidence reduced by 20%. BULL TRAP + CALL signal = blocked. Avoid these.<br><br>
-    <b style='color:#D4AF37'>The rule:</b> Always prioritize ✅ REGIME signals. Only take ⚠️ COUNTER signals if everything else is perfect — Fibonacci confirmed, 6/7+ gates, daily trend agrees. Never take 🚫 BLOCKED signals.
-  </div>
-</div>
-
-<div class='hiw-section' style='border-left-color:#C1121F'>
-  <div class='hiw-title'>⚠️ Risk Disclosure</div>
-  <div class='hiw-body'>
-    Options trading involves substantial risk of loss and is not appropriate for all investors. 
-    Past performance of signals does not guarantee future results.<br><br>
-    PaidButPressured is an educational and informational tool only. 
-    Nothing on this platform constitutes financial advice, investment advice, 
-    or a recommendation to buy or sell any security.<br><br>
-    Always paper trade new setups before using real capital. 
-    Never risk more than you can afford to lose. 
-    You are solely responsible for your own trading decisions.
+    Every scan runs a 5-layer market analysis classifying current conditions across 8 regime types.<br><br>
+    <span style='color:#22C55E'>🟢 BULL CONFIRMED</span> — Broad participation. CALL signals elevated.<br>
+    <span style='color:#C1121F'>🔴 BEAR CONFIRMED</span> — Sustained downtrend. PUT signals elevated.<br>
+    <span style='color:#C1121F'>⚠️ BULL TRAP</span> — Fake rally. CALL signals penalized.<br>
+    <span style='color:#F6E27A'>⚡ BEAR TRAP</span> — Oversold bounce. Proceed with caution.<br>
+    <span style='color:#F6E27A'>📉 DISTRIBUTION</span> — Smart money selling into strength.<br>
+    <span style='color:#D4AF37'>💀 CAPITULATION</span> — Extreme fear. Watch for CALL setups at key support.<br>
+    <span style='color:#F6E27A'>🔍 SUSPECT RALLY</span> — Rally showing weakness signals.<br>
+    <span style='color:#A1A1A6'>↔️ CHOPPY</span> — No clear edge. Reduce size. Wait for clarity.<br><br>
+    Macro news triggers (tariffs, rate cuts, trade deals) appear above the tabs after every scan.
   </div>
 </div>
 
 <div class='hiw-section' style='border-left-color:#D4AF37'>
-  <div class='hiw-title'>📱 Best Practices</div>
+  <div class='hiw-title'>🎯 Sniper Mode Tab</div>
   <div class='hiw-body'>
-    <b style='color:#F5F5F5'>Scan by sector</b> — run sector scans throughout the day instead of full universe every time. Focus on what's in play.<br><br>
-    <b style='color:#F5F5F5'>Prioritize GO NOW</b> — these are your highest conviction setups. WATCHING signals need one more confirmation before entry.<br><br>
-    <b style='color:#F5F5F5'>Use the Watch Queue</b> — add WATCHING signals to your queue and let the screener track entry confirmation for you.<br><br>
-    <b style='color:#F5F5F5'>Respect your stop</b> — the stop level is calculated for a reason. Honor it every time.<br><br>
-    <b style='color:#F5F5F5'>Check Telegram</b> — admin-curated GO NOW alerts are posted manually after review. These are the setups worth acting on.
+    The 🎯 SNIPER tab is a pure execution feed. It shows only GO NOW signals that have:<br><br>
+    — An active 1-minute trigger (VWAP RECLAIM, PULLBACK HOLD, or MOMENTUM BREAK)<br>
+    — Execution score of 75% or higher<br><br>
+    Everything else is hidden. No noise. When you see a setup in Sniper Mode, 
+    the system is telling you the moment is now. Check it during market hours for 
+    your highest-conviction entry opportunities.<br><br>
+    <b style='color:#D4AF37'>How to use it:</b> Run a scan → switch to Sniper tab → 
+    if setups appear, flip to the SIGNALS tab for the full card and execute from there.
+  </div>
+</div>
+
+<div class='hiw-section' style='border-left-color:#22C55E'>
+  <div class='hiw-title'>📋 The Rules — Simple Version</div>
+  <div class='hiw-body'>
+    <b style='color:#F5F5F5'>1. Sniper strip first</b> — if it says EXTENDED or NO ENTRY, skip it regardless of confidence score.<br><br>
+    <b style='color:#F5F5F5'>2. Never enter on WAITING</b> — wait for entry timing to show CONFIRMED.<br><br>
+    <b style='color:#F5F5F5'>3. Setup Score + Execution Score must both be strong</b> — a 97% setup with 30% execution is not the moment.<br><br>
+    <b style='color:#F5F5F5'>4. Never fight the daily trend</b> — if it says Trend Opposing, cut size minimum in half.<br><br>
+    <b style='color:#F5F5F5'>5. Respect the stop</b> — when price hits the stop level, exit. No hoping.<br><br>
+    <b style='color:#F5F5F5'>6. Quick trades close same day</b> — never hold overnight.<br><br>
+    <b style='color:#D4AF37'>One sentence:</b> Sniper strip says ENTER NOW + execution ≥75% + CONFIRMED entry + 5/7 gates = execute.
+    Everything else = wait.
   </div>
 </div>
 """, unsafe_allow_html=True)
