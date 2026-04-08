@@ -212,7 +212,7 @@ def check_auth():
 
     col = st.columns([1,4,1])[1]
     with col:
-        _mode = st.radio("", ["Sign In", "Create Account"],
+        _mode = st.radio("Account Mode", ["Sign In", "Create Account"],
                          horizontal=True, label_visibility="collapsed")
         email    = st.text_input("Email", placeholder="your@email.com",
                                  label_visibility="collapsed")
@@ -2395,20 +2395,24 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
         _pre_signals_hit = sig.get("signals_hit", sig.get("detail", {}).get("signals_hit", None))
 
         if _pre_signals_hit is not None:
-            # precision_score 6-signal system available (scan tab path)
+            # precision_score 6-signal system available
             _pre_signals  = _pre_signals_hit
             _pre_sig_pct  = (_pre_signals / 6 * 100)
-            _min_signals  = 5
+            _min_signals  = 4  # enrichment already ran quality controls — don't double-cap
         else:
             # Fall back to score_setup 5-factor system (signals tab path)
             _pre_signals  = sum(1 for f in sig.get("factors", {}).values() if isinstance(f, dict) and f.get("pass"))
             _pre_sig_pct  = (_pre_signals / 5 * 100)
             _min_signals  = 4
 
+        # Skip alignment cap entirely when signal_detail is populated —
+        # enrichment already ran precision_score with its own quality controls.
+        # Cap only applies when we're working from raw score_setup factors.
+        _has_enrichment = bool(sig.get("signal_detail") or sig.get("detail", {}).get("signal_detail"))
         _pre_gates    = sig.get("gates_passed", 0)
         _pre_gate_pct = (_pre_gates / 7 * 100) if _pre_gates else 0
         _pre_div      = abs(_pre_gate_pct - _pre_sig_pct)
-        _misaligned   = _pre_signals < _min_signals or _pre_div > 28
+        _misaligned   = (not _has_enrichment) and (_pre_signals < _min_signals or _pre_div > 28)
 
         # Compute display label and confidence BEFORE first card render
         if _misaligned:
@@ -2610,6 +2614,17 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                     "</div>"
                 )
                 st.markdown(htf_html, unsafe_allow_html=True)
+
+            # ── Weekly Macro Bias label ────────────────────────────────────
+            _mb_label = sig.get("macro_bias_label", "")
+            if _mb_label:
+                _mb_col = "#00C853" if "ALIGNED" in _mb_label else "#C1121F" if "HEADWIND" in _mb_label else "#A1A1A6"
+                st.markdown(
+                    "<div style='background:#1A1A1D;border:1px solid %s33;border-radius:8px;"
+                    "padding:8px 14px;margin-top:6px;font-size:0.75rem;color:%s;font-weight:600'>"
+                    "📡 WEEKLY MACRO: %s</div>" % (_mb_col, _mb_col, _mb_label),
+                    unsafe_allow_html=True
+                )
 
             # ── Move probability ──────────────────────────────────────────
             tr_color = "#D4AF37" if opt["target_realistic"]=="Likely" else "#F6E27A" if opt["target_realistic"]=="Possible" else "#C1121F"
@@ -3996,6 +4011,202 @@ def render_sniper_strip_html(ticker, direction, trigger_type, trigger_active,
     )
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# WEEKLY MACRO BIAS ENGINE
+# Runs once per week. Cached in Supabase. Served fresh all week.
+# Reads ES (SPY proxy), NQ (QQQ proxy), BTC weekly candles from FMP.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _wbias_fetch_weekly(ticker, limit=3):
+    """Fetch weekly proxy data using FMP daily endpoint — filter to weekly manually."""
+    if not FMP_API_KEY:
+        return []
+    try:
+        import requests as _req
+        # Use daily data and sample weekly — FMP weekly endpoint is unreliable
+        url = (
+            "https://financialmodelingprep.com/stable/historical-price-eod/full"
+            "?symbol=%s&from=%s&apikey=%s"
+            % (ticker, (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d"), FMP_API_KEY)
+        )
+        r = _req.get(url, timeout=8)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        hist = data.get("historical", data) if isinstance(data, dict) else data
+        if not hist:
+            return []
+        # Return last N daily candles sorted newest first — caller uses [0] as current
+        hist_sorted = sorted(hist, key=lambda x: x.get("date",""), reverse=True)
+        return hist_sorted[:limit*7]  # enough days to cover N weeks
+    except Exception:
+        return []
+
+def _wbias_score_asset(ticker_key, fmp_ticker):
+    """Score a single asset bullish/bearish/neutral based on recent price action."""
+    candles = _wbias_fetch_weekly(fmp_ticker, limit=3)
+    if len(candles) < 5:
+        return {"asset": ticker_key, "bias": "NEUTRAL", "pct": None}
+    try:
+        # Compare most recent close vs close 5 days ago
+        current_close = float(candles[0]["close"])
+        week_ago_close = float(candles[4]["close"])
+        pct = (current_close - week_ago_close) / week_ago_close * 100
+        if pct >= 0.5:
+            bias = "BULLISH"
+        elif pct <= -0.5:
+            bias = "BEARISH"
+        else:
+            bias = "NEUTRAL"
+        return {"asset": ticker_key, "bias": bias, "pct": round(pct, 2)}
+    except Exception:
+        return {"asset": ticker_key, "bias": "NEUTRAL", "pct": None}
+
+def _wbias_get_week_start():
+    """Return most recent Monday as YYYY-MM-DD string."""
+    today = datetime.now().date()
+    days_back = today.weekday()  # Monday=0
+    return str(today - timedelta(days=days_back))
+
+def _wbias_load_supabase(week_start):
+    """Load this week's bias from Supabase cache."""
+    try:
+        r = _supabase_request(
+            "GET",
+            "/rest/v1/weekly_bias?week_start=eq.%s&limit=1" % week_start,
+        )
+        if r and isinstance(r, list) and len(r) > 0:
+            return r[0]
+    except Exception:
+        pass
+    return None
+
+def _supabase_request(method, path, payload=None):
+    """Generic Supabase REST call reusing existing env vars."""
+    import requests as _req
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return None
+    url = SUPABASE_URL.rstrip("/") + path
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY,
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    try:
+        if method == "GET":
+            r = _req.get(url, headers=headers, timeout=8)
+            return r.json() if r.status_code in (200, 201) else None
+        elif method == "POST":
+            r = _req.post(url, headers={**headers, "Prefer": "resolution=merge-duplicates"}, json=payload, timeout=8)
+            return r.status_code in (200, 201, 204)
+    except Exception:
+        return None
+
+def _wbias_save_supabase(week_start, assets, overall):
+    """Save this week's bias to Supabase."""
+    row = {
+        "week_start":   week_start,
+        "es_bias":      assets.get("SPY", {}).get("bias", "NEUTRAL"),
+        "nq_bias":      assets.get("QQQ", {}).get("bias", "NEUTRAL"),
+        "btc_bias":     assets.get("BTC", {}).get("bias", "NEUTRAL"),
+        "es_pct":       assets.get("SPY", {}).get("pct"),
+        "nq_pct":       assets.get("QQQ", {}).get("pct"),
+        "btc_pct":      assets.get("BTC", {}).get("pct"),
+        "overall_bias": overall,
+        "created_at":   datetime.utcnow().isoformat(),
+    }
+    _supabase_request("POST", "/rest/v1/weekly_bias", row)
+
+@_thread_cache(ttl=3600)
+def get_weekly_macro_bias():
+    """
+    Primary entry point. Returns weekly macro bias dict.
+    Reads Supabase cache first, fetches live only if no record for this week.
+    """
+    week_start = _wbias_get_week_start()
+
+    # Try cache first
+    cached = _wbias_load_supabase(week_start)
+    if cached:
+        return {
+            "week_start": cached.get("week_start"),
+            "overall":    cached.get("overall_bias", "NEUTRAL"),
+            "assets": {
+                "SPY": {"bias": cached.get("es_bias", "NEUTRAL"), "pct": cached.get("es_pct")},
+                "QQQ": {"bias": cached.get("nq_bias", "NEUTRAL"), "pct": cached.get("nq_pct")},
+                "BTC": {"bias": cached.get("btc_bias", "NEUTRAL"), "pct": cached.get("btc_pct")},
+            },
+            "source": "cache",
+        }
+
+    # Fresh fetch — SPY and QQQ as ES/NQ proxies (FMP futures tickers unreliable)
+    BIAS_ASSETS = {"SPY": "SPY", "QQQ": "QQQ", "BTC": "BTCUSD"}
+    asset_results = {}
+    for key, ticker in BIAS_ASSETS.items():
+        result = _wbias_score_asset(key, ticker)
+        asset_results[key] = result
+
+    # Weighted scoring: SPY 2x, QQQ 2x, BTC 1x
+    weights = {"SPY": 2, "QQQ": 2, "BTC": 1}
+    score, total_w = 0, 0
+    for key, res in asset_results.items():
+        w = weights.get(key, 1)
+        s = {"BULLISH": 1, "BEARISH": -1, "NEUTRAL": 0}.get(res["bias"], 0)
+        score  += s * w
+        total_w += w
+    ratio = score / total_w if total_w else 0
+    overall = "BULLISH" if ratio >= 0.4 else "BEARISH" if ratio <= -0.4 else "NEUTRAL"
+
+    _wbias_save_supabase(week_start, asset_results, overall)
+
+    return {
+        "week_start": week_start,
+        "overall":    overall,
+        "assets":     {k: {"bias": v["bias"], "pct": v.get("pct")} for k,v in asset_results.items()},
+        "source":     "live",
+    }
+
+def render_weekly_bias_banner():
+    """Renders the weekly macro bias banner. Call above the scan tab."""
+    try:
+        bias = get_weekly_macro_bias()
+    except Exception:
+        return
+
+    overall = bias.get("overall", "NEUTRAL")
+    assets  = bias.get("assets", {})
+    week    = bias.get("week_start", "")
+
+    colors = {"BULLISH": "#00C853", "BEARISH": "#C1121F", "NEUTRAL": "#A1A1A6"}
+    icons  = {"BULLISH": "🟢", "BEARISH": "🔴", "NEUTRAL": "⚪"}
+    a_icons = {"BULLISH": "✅", "BEARISH": "❌", "NEUTRAL": "➖"}
+    col    = colors.get(overall, "#A1A1A6")
+    icon   = icons.get(overall, "⚪")
+
+    asset_html = ""
+    for k, v in assets.items():
+        b = v.get("bias", "NEUTRAL")
+        p = v.get("pct")
+        pct_str = " %+.1f%%" % p if p is not None else ""
+        a_col = colors.get(b, "#A1A1A6")
+        asset_html += (
+            "<span style='font-size:0.75rem;margin-right:20px'>"
+            "%s <b style='color:#F5F5F5'>%s</b> "
+            "<span style='color:%s'>%s%s</span></span>"
+        ) % (a_icons.get(b, "➖"), k, a_col, b, pct_str)
+
+    st.markdown(
+        "<div style='background:#0d0d0f;border:1px solid %s44;border-left:3px solid %s;"
+        "border-radius:8px;padding:10px 16px;margin-bottom:10px'>"
+        "<div style='font-size:0.6rem;color:#A1A1A6;letter-spacing:0.15em;margin-bottom:4px'>"
+        "WEEKLY MACRO BIAS — WEEK OF %s</div>"
+        "<div style='font-size:1rem;font-weight:700;color:%s;margin-bottom:6px'>%s %s</div>"
+        "<div>%s</div></div>" % (col, col, week, col, icon, overall, asset_html),
+        unsafe_allow_html=True
+    )
+
+
 @_thread_cache(ttl=120)
 def fetch_ticker_news(ticker, hours=4, limit=10):
     if not FMP_API_KEY:
@@ -4628,6 +4839,12 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     else:
         final = min(final, 84)
 
+    # Signal count hard caps — score cannot exceed these limits regardless of
+    # how strong individual signals score. Prevents 3/6 signals from showing 90%+.
+    _signal_caps = {0: 55, 1: 62, 2: 72, 3: 80, 4: 88, 5: 94, 6: 97}
+    _sig_cap = _signal_caps.get(min(signals_hit, 6), 97)
+    final = min(final, _sig_cap)
+
     return final, {
         "exhaustion_confirmed": exh_confirmed,
         "exhaustion_score":     exh_score,
@@ -4823,6 +5040,29 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
             entry_status = r.get("entry_status", "")
             exh_ok       = r.get("exh_confirmed", False)
             signals_hit  = r.get("signals_hit", r.get("detail", {}).get("signals_hit", 0))
+
+            # ── Weekly macro bias adjustment ───────────────────────────────
+            try:
+                _wbias = get_weekly_macro_bias()
+                _wbias_overall = _wbias.get("overall", "NEUTRAL")
+                _sig_type = "CALL" if r.get("direction") == "bullish" else "PUT"
+                if _wbias_overall == "BULLISH" and _sig_type == "CALL":
+                    conf = min(97, conf + 3)   # macro aligned — boost
+                    r["macro_bias_label"] = "✅ MACRO ALIGNED"
+                elif _wbias_overall == "BEARISH" and _sig_type == "PUT":
+                    conf = min(97, conf + 3)
+                    r["macro_bias_label"] = "✅ MACRO ALIGNED"
+                elif _wbias_overall == "BEARISH" and _sig_type == "CALL":
+                    conf = max(50, conf - 5)   # macro headwind — penalize
+                    r["macro_bias_label"] = "⚠️ MACRO HEADWIND"
+                elif _wbias_overall == "BULLISH" and _sig_type == "PUT":
+                    conf = max(50, conf - 5)
+                    r["macro_bias_label"] = "⚠️ MACRO HEADWIND"
+                else:
+                    r["macro_bias_label"] = "➖ MACRO NEUTRAL"
+                r["confidence"] = conf
+            except Exception:
+                r["macro_bias_label"] = "➖ MACRO NEUTRAL"
 
             low_rr = r.get("low_rr", False)
 
@@ -6025,7 +6265,7 @@ for ng in _new_go_now:
            ng["pattern"], ng["confidence"], ng["gates_passed"],
            ng["opt"]["strike"], ng["opt"]["target"], ng["opt"]["stop"]),
     unsafe_allow_html=True)
-    st.components.v1.html("""<script>
+    st.iframe("""<script>
     try {
         var ctx=new(window.AudioContext||window.webkitAudioContext)();
         [440,554,659].forEach(function(f,i){
@@ -6097,6 +6337,9 @@ if _mt:
 
 tab4,tab1,tab2,tab8,tab9,tab7 = st.tabs(["SCAN","SIGNALS","CHART","WATCH QUEUE","🎯 SNIPER","HOW IT WORKS"])
 
+# ── Weekly Macro Bias Banner ───────────────────────────────────────────────
+render_weekly_bias_banner()
+
 with tab1:
     if _blank_state:
         st.markdown("<div style='text-align:center;color:#4a5568;padding:40px;font-size:0.85rem'>Select a ticker from the sidebar to view signals.</div>", unsafe_allow_html=True)
@@ -6128,7 +6371,12 @@ with tab1:
                         signals_only=True  # skip hard stops — pattern already surfaced
                     )
                     if isinstance(_ps_detail, dict):
-                        c["confidence"]    = _ps_conf if _ps_conf is not None else c["confidence"]
+                        # Enrichment adds signal detail and updates signal count.
+                        # Never lower the confidence — signals_only=True path skips
+                        # hard stops so its score can be lower than the full run.
+                        # Only update confidence if enrichment scored it HIGHER.
+                        if _ps_conf is not None and _ps_conf > c["confidence"]:
+                            c["confidence"] = _ps_conf
                         c["detail"]        = _ps_detail
                         c["signals_hit"]   = _ps_detail.get("signals_hit", 0)
                         c["signal_detail"] = _ps_detail.get("signal_detail", [])
@@ -6430,7 +6678,7 @@ window.addEventListener('resize', () => chart.resize(chartEl.offsetWidth, 480));
         else:
             st.caption("No confirmed patterns detected on current timeframe.")
 
-        st.components.v1.html(chart_html, height=490, scrolling=False)
+        st.iframe(chart_html, height=490, scrolling=False)
 
         # Legend
         st.markdown(
@@ -6538,6 +6786,28 @@ with tab4:
         watching = st.session_state.auto_scan_watching
         on_deck  = st.session_state.auto_scan_on_deck
         mkt_bias = st.session_state.auto_scan_mkt
+
+        # ── Staleness filter — re-check entry status on cached GO NOW signals ──
+        # If entry flipped AGAINST or EXTENDED since last scan, drop to WATCHING
+        _stale_drop = []
+        _valid_go   = []
+        for _r in go_now:
+            try:
+                _fresh = check_entry_confirmation(_r["ticker"], _r["direction"], _r.get("entry", 0))
+                _fresh_status = _fresh.get("status", "WAITING") if isinstance(_fresh, dict) else str(_fresh)
+                if _fresh_status == "AGAINST":
+                    _r["entry_status"] = "AGAINST"
+                    watching.insert(0, _r)
+                    _stale_drop.append(_r["ticker"])
+                else:
+                    _valid_go.append(_r)
+            except Exception:
+                _valid_go.append(_r)  # keep if check fails
+        go_now = _valid_go
+        if _stale_drop:
+            st.session_state.auto_scan_go_now   = go_now
+            st.session_state.auto_scan_watching = watching
+
         if st.button("🔄 Scan Now", use_container_width=True):
             with st.spinner("Scanning..."):
                 go_now, watching, on_deck, mkt_bias, _macro_triggers = full_scan(
@@ -6562,6 +6832,21 @@ with tab4:
         watching = st.session_state.get("scan_watching", [])
         on_deck  = st.session_state.get("scan_on_deck",  [])
         mkt_bias = st.session_state.get("scan_mkt",      "neutral")
+
+        # ── Staleness filter — same as auto-scan path ──────────────────────────
+        _valid_go2 = []
+        for _r in go_now:
+            try:
+                _fresh2 = check_entry_confirmation(_r["ticker"], _r["direction"], _r.get("entry", 0))
+                _fresh2_status = _fresh2.get("status", "WAITING") if isinstance(_fresh2, dict) else str(_fresh2)
+                if _fresh2_status == "AGAINST":
+                    _r["entry_status"] = "AGAINST"
+                    watching.insert(0, _r)
+                else:
+                    _valid_go2.append(_r)
+            except Exception:
+                _valid_go2.append(_r)
+        go_now = _valid_go2
 
         _run_btn = st.button("🔍 RUN SCAN", type="primary", use_container_width=True)
         _demo_mode = False
