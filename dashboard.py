@@ -98,6 +98,7 @@ FINNHUB_API_KEY    = os.environ.get("FINNHUB_API_KEY", "")
 FMP_API_KEY        = os.environ.get("FMP_API_KEY", "")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 APP_PASSWORD       = os.environ.get("APP_PASSWORD", "")
 SUPABASE_URL       = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY       = os.environ.get("SUPABASE_KEY", "")
@@ -2593,8 +2594,8 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                     flip_reason=_sig_flip_reason,
                     conf_adj=_sig_adj,
                 ), unsafe_allow_html=True)
-            except Exception:
-                pass
+            except Exception as _news_err:
+                st.caption("⚠️ News debug: %s" % str(_news_err)[:120])
 
             # ── HTF Confluence ────────────────────────────────────────────
             if htf_trend is not None:
@@ -2752,7 +2753,7 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                         # Signals tab just logs history and enters paper trade
                         save_signal_history(_signal_r)
                         # Only auto-enter paper trade if signal meets conviction threshold
-                        _auto_conf  = sig.get("confidence", 0) >= 88
+                        _auto_conf  = sig.get("confidence", 0) >= 85
                         _auto_gates = gates_passed >= 5
                         if st.session_state.get("paper_auto_enabled", True) and _auto_conf and _auto_gates:
                             paper_enter_trade(_signal_r)
@@ -3635,6 +3636,11 @@ _SOURCE_WEIGHT = {
     "fool.com": 1.5, "thestreet.com": 1.5, "investors.com": 1.5,
     "benzinga.com": 1.0, "zacks.com": 1.0,
     "seekingalpha.com": 0.8,
+    # Finnhub source name formats (no .com)
+    "reuters": 3.0, "bloomberg": 3.0,
+    "cnbc": 2.5, "marketwatch": 2.0, "barrons": 2.0,
+    "benzinga": 1.0, "seekingalpha": 0.8,
+    "yahoo": 1.0, "yahoo finance": 1.0,
 }
 
 def get_source_weight(site):
@@ -4207,41 +4213,66 @@ def render_weekly_bias_banner():
     )
 
 
-@_thread_cache(ttl=120)
 def fetch_ticker_news(ticker, hours=4, limit=10):
-    if not FMP_API_KEY:
+    """Fetch ticker news from Finnhub."""
+    if not FINNHUB_API_KEY:
         return []
     try:
         import requests as _req
+        from_d = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+        to_d   = datetime.now().strftime("%Y-%m-%d")
         url = (
-            "https://financialmodelingprep.com/stable/news/stock"
-            "?symbols=%s&limit=%s&apikey=%s"
-            % (ticker.upper(), limit, FMP_API_KEY)
+            "https://finnhub.io/api/v1/company-news"
+            "?symbol=%s&from=%s&to=%s&token=%s"
+            % (ticker.upper(), from_d, to_d, FINNHUB_API_KEY)
         )
-        r = _req.get(url, timeout=5)
+        r = _req.get(url, timeout=8)
         if r.status_code != 200:
             return []
         data = r.json()
-        return data if isinstance(data, list) else []
+        if not isinstance(data, list):
+            return []
+        normalized = []
+        for a in data[:limit]:
+            normalized.append({
+                "title":         a.get("headline", ""),
+                "text":          a.get("summary", ""),
+                "site":          a.get("source", ""),
+                "url":           a.get("url", ""),
+                "publishedDate": str(a.get("datetime", "")),
+            })
+        return normalized
     except Exception:
         return []
 
 
 @_thread_cache(ttl=180)
 def fetch_market_news(hours=2, limit=20):
-    if not FMP_API_KEY:
+    """Fetch general market news from Finnhub."""
+    if not FINNHUB_API_KEY:
         return []
     try:
         import requests as _req
         url = (
-            "https://financialmodelingprep.com/stable/news/general"
-            "?limit=%s&apikey=%s" % (limit, FMP_API_KEY)
+            "https://finnhub.io/api/v1/news"
+            "?category=general&token=%s" % FINNHUB_API_KEY
         )
         r = _req.get(url, timeout=5)
         if r.status_code != 200:
             return []
         data = r.json()
-        return data if isinstance(data, list) else []
+        if not isinstance(data, list):
+            return []
+        normalized = []
+        for a in data[:limit]:
+            normalized.append({
+                "title":         a.get("headline", ""),
+                "text":          a.get("summary", ""),
+                "site":          a.get("source", ""),
+                "url":           a.get("url", ""),
+                "publishedDate": str(a.get("datetime", "")),
+            })
+        return normalized
     except Exception:
         return []
 
@@ -5243,10 +5274,10 @@ with st.sidebar:
     else:               st.warning("DEMO MODE")
     if ANTHROPIC_API_KEY: st.success("AI BRIEF READY")
     else:                 st.info("AI Brief: add ANTHROPIC_API_KEY to enable")
-    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+    if DISCORD_WEBHOOK_URL:
         st.success("📲 TELEGRAM CONNECTED")
     else:
-        st.info("📲 Add TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in Railway to enable alerts")
+        st.info("📲 Add DISCORD_WEBHOOK_URL in Railway to enable alerts")
 
 # Auto-refresh - NEVER fire while a scan is running.
 # _BG_RESULTS["running"] is the authoritative flag - session_state.scan_running is not used.
@@ -5406,23 +5437,34 @@ _BG_RESULTS = {
 _BG_THREAD_STARTED = False
 
 
-def send_telegram_text(msg):
-    """Generic Telegram text sender — not signal-specific."""
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+def send_discord(msg):
+    """
+    Generic Discord webhook sender — replaces Telegram.
+    Strips HTML tags since Discord uses markdown not HTML.
+    """
+    if not DISCORD_WEBHOOK_URL:
         return
-    import urllib.request, json as _j
-    payload = _j.dumps({
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": msg, "parse_mode": "HTML"
-    }).encode("utf-8")
+    import urllib.request, json as _j, re
+    # Convert HTML to Discord markdown
+    text = msg
+    text = re.sub(r'<b>(.*?)</b>', r'**\1**', text)
+    text = re.sub(r'<i>(.*?)</i>', r'*\1*', text)
+    text = re.sub(r'<[^>]+>', '', text)  # strip remaining tags
+    payload = _j.dumps({"content": text}).encode("utf-8")
     try:
         req = urllib.request.Request(
-            "https://api.telegram.org/bot%s/sendMessage" % TELEGRAM_BOT_TOKEN,
-            data=payload, headers={"Content-Type": "application/json"}, method="POST"
+            DISCORD_WEBHOOK_URL,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
         )
         urllib.request.urlopen(req, timeout=8)
     except Exception:
         pass
+
+# Keep send_telegram_text as alias so existing calls don't break
+def send_telegram_text(msg):
+    send_discord(msg)
 
 
 _news_seen_articles = {}  # module-level — persists across bg loop iterations
@@ -5903,100 +5945,41 @@ def send_make_webhook(r):
 
 
 def send_telegram_alert(r, alert_type="GO NOW"):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+    """Send signal alert to Discord with rich embed."""
+    if not DISCORD_WEBHOOK_URL:
         return
     import urllib.request, json
-    is_bull = r["direction"] == "bullish"
-    opt     = r["opt"]
-    action  = "CALL" if is_bull else "PUT"
-    emoji   = "\U0001f7e2" if is_bull else "\U0001f534"
-    bucket_emoji = {"GO NOW": "\U0001f6a8", "WATCHING": "\U0001f440", "ON DECK": "\U0001f4cb"}.get(alert_type, "\U0001f4e1")
+    is_bull     = r["direction"] == "bullish"
+    opt         = r["opt"]
+    action      = "CALL" if is_bull else "PUT"
+    color       = 0x00C853 if is_bull else 0xC1121F  # green or red
+    bucket_emoji = {"GO NOW": "🚨", "WATCHING": "👀", "ON DECK": "📋"}.get(alert_type, "📡")
     detail      = r.get("detail", {}) or {}
     sig_detail  = r.get("signal_detail", []) or detail.get("signal_detail", [])
     signals_hit = r.get("signals_hit", 0) or detail.get("signals_hit", 0)
-    sig_lines   = "\n".join(["  " + s for s in sig_detail]) if sig_detail else ("  %s/5 signals confirmed" % signals_hit)
-    lines = [
-        "%s <b>%s - %s %s</b>" % (bucket_emoji, alert_type, r["ticker"], action),
-        "\u2501" * 20,
-        "%s Pattern: <b>%s</b>" % (emoji, r["pattern"]),
-        "\U0001f4b0 Entry:   <b>$%.2f</b>" % r["price"],
-        "\U0001f3af Target:  <b>$%.2f</b>" % opt["target"],
-        "\U0001f6d1 Stop:    <b>$%.2f</b>" % opt["stop"],
-        "\U0001f4ca Strike:  <b>$%.2f</b>  |  Exp: <b>%s</b>" % (opt["strike"], opt["expiration"]),
-        "\U0001f4b5 Premium: <b>$%.2f/sh</b>  |  RR: <b>%.1fx</b>" % (opt["premium"], opt.get("rr_option", 0)),
-        "\u2501" * 20,
-        "\U0001f9e0 Confidence: <b>%s%%</b>  |  Gates: <b>%s/7</b>" % (r["confidence"], r["gates_passed"]),
-        "\U0001f4f6 Signals:",
-        sig_lines,
-        "\u2501" * 20,
-        "<i>Not financial advice. Paper trade first.</i>",
-    ]
-    msg = "\n".join(lines)
-    payload = json.dumps({"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}).encode("utf-8")
+    sig_lines   = "\n".join(sig_detail) if sig_detail else "%s/6 signals confirmed" % signals_hit
+
+    embed = {
+        "title": "%s %s — %s %s" % (bucket_emoji, alert_type, r["ticker"], action),
+        "color": color,
+        "fields": [
+            {"name": "Pattern", "value": r.get("pattern", "Signal"), "inline": True},
+            {"name": "Style",   "value": r.get("style", "swing").upper(), "inline": True},
+            {"name": "Confidence", "value": "%s%%" % r["confidence"], "inline": True},
+            {"name": "Gates",   "value": "%s/7" % r["gates_passed"], "inline": True},
+            {"name": "Entry",   "value": "$%.2f" % r["price"], "inline": True},
+            {"name": "Stop",    "value": "$%.2f" % opt["stop"], "inline": True},
+            {"name": "Target",  "value": "$%.2f" % opt["target"], "inline": True},
+            {"name": "Premium", "value": "$%.2f/sh" % opt["premium"], "inline": True},
+            {"name": "R:R",     "value": "%.1fx" % opt.get("rr_option", 0), "inline": True},
+            {"name": "Signals", "value": sig_lines or "—", "inline": False},
+        ],
+        "footer": {"text": "PaidButPressured · Not financial advice · Paper trade first"}
+    }
+    payload = json.dumps({"embeds": [embed]}).encode("utf-8")
     try:
         req = urllib.request.Request(
-            "https://api.telegram.org/bot%s/sendMessage" % TELEGRAM_BOT_TOKEN,
-            data=payload, headers={"Content-Type": "application/json"}, method="POST"
-        )
-        urllib.request.urlopen(req, timeout=10)
-    except Exception:
-        pass
-
-
-
-def send_telegram_exit_alert(t):
-    """Sends a paper trade exit notification with full context."""
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        return
-    import urllib.request, json
-
-    is_win     = t["status"] == "WIN"
-    emoji      = "✅" if is_win else "❌"
-    pnl_sign   = "+" if t["pnl_pct"] >= 0 else ""
-    action     = t.get("action", "CALL")
-    ticker     = t.get("ticker", "?")
-    pattern    = t.get("pattern", "Signal")
-    style      = t.get("style", "swing").upper()
-    confidence = t.get("confidence", 0)
-    gates      = t.get("gates_passed", 0)
-    signals    = t.get("signals_hit", 0)
-    sig_detail = t.get("signal_detail", [])
-    sig_lines  = "\n".join(["  " + s for s in sig_detail]) if sig_detail else "  Signal detail unavailable"
-
-    msg = (
-        "%s <b>PAPER TRADE CLOSED — %s %s</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "📊 Pattern: <b>%s</b> (%s)\n"
-        "🧠 Confidence: <b>%s%%</b> | Gates: <b>%s/7</b> | Signals: <b>%s/6</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "Result:  <b>%s</b>\n"
-        "Reason:  <b>%s</b>\n"
-        "P&L:     <b>%s%.1f%%  ($%+.0f)</b>\n"
-        "Peak:    <b>+%.1f%%</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "<i>Entry $%.2f → Exit $%.2f</i>\n"
-        "Signals at entry:\n%s"
-    ) % (
-        emoji, ticker, action,
-        pattern, style,
-        confidence, gates, signals,
-        t["status"],
-        t.get("exit_reason", ""),
-        pnl_sign, t["pnl_pct"], t["pnl_dollar"],
-        t["peak_pnl_pct"],
-        t["entry_price"], t.get("exit_price", 0),
-        sig_lines,
-    )
-
-    payload = json.dumps({
-        "chat_id":    TELEGRAM_CHAT_ID,
-        "text":       msg,
-        "parse_mode": "HTML",
-    }).encode("utf-8")
-
-    try:
-        req = urllib.request.Request(
-            "https://api.telegram.org/bot%s/sendMessage" % TELEGRAM_BOT_TOKEN,
+            DISCORD_WEBHOOK_URL,
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST"
@@ -6006,9 +5989,47 @@ def send_telegram_exit_alert(t):
         pass
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# PAPER TRADING ENGINE
-# ═══════════════════════════════════════════════════════════════════════════════
+
+def send_telegram_exit_alert(t):
+    """Send paper trade exit alert to Discord."""
+    if not DISCORD_WEBHOOK_URL:
+        return
+    import urllib.request, json
+
+    is_win     = t["status"] == "WIN"
+    pnl_sign   = "+" if t["pnl_pct"] >= 0 else ""
+    color      = 0x00C853 if is_win else 0xC1121F
+    emoji      = "✅" if is_win else "❌"
+    sig_detail = t.get("signal_detail", [])
+    sig_lines  = "\n".join(sig_detail) if sig_detail else "Signal detail unavailable"
+
+    embed = {
+        "title": "%s PAPER TRADE CLOSED — %s %s" % (emoji, t.get("ticker","?"), t.get("action","CALL")),
+        "color": color,
+        "fields": [
+            {"name": "Pattern",    "value": "%s (%s)" % (t.get("pattern","Signal"), t.get("style","swing").upper()), "inline": True},
+            {"name": "Result",     "value": t["status"], "inline": True},
+            {"name": "Reason",     "value": t.get("exit_reason","—"), "inline": True},
+            {"name": "P&L",        "value": "%s%.1f%% ($%+.0f)" % (pnl_sign, t["pnl_pct"], t["pnl_dollar"]), "inline": True},
+            {"name": "Peak Gain",  "value": "+%.1f%%" % t["peak_pnl_pct"], "inline": True},
+            {"name": "Confidence", "value": "%s%% | %s/7 gates | %s/6 signals" % (t.get("confidence",0), t.get("gates_passed",0), t.get("signals_hit",0)), "inline": False},
+            {"name": "Entry → Exit", "value": "$%.2f → $%.2f" % (t["entry_price"], t.get("exit_price",0)), "inline": False},
+            {"name": "Signals at Entry", "value": sig_lines or "—", "inline": False},
+        ],
+        "footer": {"text": "PaidButPressured · Not financial advice"}
+    }
+    payload = json.dumps({"embeds": [embed]}).encode("utf-8")
+    try:
+        req = urllib.request.Request(
+            DISCORD_WEBHOOK_URL,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        urllib.request.urlopen(req, timeout=10)
+    except Exception:
+        pass
+
 
 def paper_enter_trade(r):
     """Auto-enter a paper trade from a GO NOW signal."""
@@ -6056,7 +6077,7 @@ def paper_enter_trade(r):
 
     # Fire Telegram entry alert
     try:
-        if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+        if DISCORD_WEBHOOK_URL:
             _sig_lines = "\n".join(["  " + s for s in r.get("signal_detail", [])]) or "  Signal data unavailable"
             _entry_msg = (
                 "🚨 <b>PAPER TRADE ENTERED — %s %s</b>\n"
@@ -6280,7 +6301,7 @@ for ng in _new_go_now:
     </script>""", height=0)
     # Auto-enter paper trade for new GO NOW — 88%+ confidence, 5/7 gates minimum
     if st.session_state.get("paper_auto_enabled", True):
-        if ng.get("confidence", 0) >= 88 and ng.get("gates_passed", 0) >= 5:
+        if ng.get("confidence", 0) >= 85 and ng.get("gates_passed", 0) >= 5:
             paper_enter_trade(ng)
 
 # auto_scan_poll removed - background thread runs independently,
@@ -7400,37 +7421,27 @@ with tab4:
                         add_to_watch_queue(r["ticker"], r.get("direction","bullish"), r.get("sig", r), r.get("opt", {}))
                         st.success("Added to Watch Queue!")
 
-                # Admin only — Send to Telegram button
+                # Admin only — Send to Discord button
                 _is_admin = (
                     st.session_state.get("is_admin", False) or
-                    st.session_state.get("user_email", "") == ADMIN_EMAIL
+                    st.session_state.get("user_email", "").strip().lower() == ADMIN_EMAIL.strip().lower()
                 )
-                if _is_admin and bucket == "go_now":
+                if _is_admin and bucket in ("go_now", "watching"):
                     _tg_key = "tg_sent_%s_%s_%s" % (r["ticker"], r.get("style",""), idx)
                     if st.session_state.get(_tg_key):
                         st.markdown(
                             "<div style='background:#1A1500;border:1px solid #D4AF37;border-radius:6px;"
-                            "padding:6px;text-align:center;font-size:0.72rem;color:#D4AF37'>✅ Sent to Telegram</div>",
+                            "padding:6px;text-align:center;font-size:0.72rem;color:#D4AF37'>✅ Sent to Discord</div>",
                             unsafe_allow_html=True
                         )
-                        # Only show Telegram button if signal meets high conviction threshold
-                        _tg_conf_ok  = r.get("confidence", 0) >= 92
-                        _tg_gates_ok = r.get("gates_passed", 0) >= 5
-                        _tg_entry_ok = r.get("entry_status", "") == "CONFIRMED"
-                        if not (_tg_conf_ok and _tg_gates_ok and _tg_entry_ok):
-                            st.markdown(
-                                "<div style='background:#1A1A1D;border:1px solid #2A2A2D;border-radius:6px;"
-                                "padding:6px;text-align:center;font-size:0.68rem;color:#4a5568'>"
-                                "Signal below alert threshold (need 92%+ · 5/7 gates · CONFIRMED)</div>",
-                                unsafe_allow_html=True
-                            )
-                        elif st.button("📣 Send to Telegram", key="tg_%s_%s_%s" % (bucket, r["ticker"], idx), use_container_width=True):
+                    else:
+                        if st.button("📣 Send to Discord", key="tg_%s_%s_%s" % (bucket, r["ticker"], idx), use_container_width=True):
                             try:
-                                send_telegram_alert(r, alert_type="GO NOW")
+                                send_telegram_alert(r, alert_type=bucket.replace("_"," ").upper())
                                 st.session_state[_tg_key] = True
-                                st.success("✅ Alert sent!")
+                                st.success("✅ Sent to Discord!")
                             except Exception as _te:
-                                st.error("Telegram error: %s" % str(_te)[:60])
+                                st.error("Discord error: %s" % str(_te)[:60])
         def section_hdr(label, color, count):
             st.markdown(f"""
             <div style='display:flex;align-items:center;gap:10px;margin:20px 0 8px'>
