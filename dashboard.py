@@ -5326,6 +5326,28 @@ with st.sidebar:
             for key in keys_to_clear:
                 st.session_state.pop(key, None)
             st.rerun()
+
+        # ── Change Password ────────────────────────────────────────────────
+        with st.expander("🔑 Change Password"):
+            _cp_new  = st.text_input("New Password", type="password", key="cp_new", placeholder="Min 6 characters")
+            _cp_conf = st.text_input("Confirm Password", type="password", key="cp_conf", placeholder="Repeat password")
+            if st.button("Update Password", use_container_width=True, key="cp_btn"):
+                if len(_cp_new) < 6:
+                    st.error("Password must be at least 6 characters")
+                elif _cp_new != _cp_conf:
+                    st.error("Passwords don't match")
+                else:
+                    try:
+                        from supabase import create_client
+                        _sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+                        _at = st.session_state.get("_access_token", "")
+                        _rt = st.session_state.get("_refresh_token", "")
+                        if _at and _rt:
+                            _sb.auth.set_session(_at, _rt)
+                        _sb.auth.update_user({"password": _cp_new})
+                        st.success("✅ Password updated!")
+                    except Exception as _cpe:
+                        st.error("Error: %s" % str(_cpe)[:80])
     st.markdown("---")
     _ticker_options = ["— Select a ticker —"] + list(st.session_state.user_watchlist or DEFAULT_WATCHLIST)
     _ticker_choice  = st.selectbox("TICKER", _ticker_options, index=0)
