@@ -21,6 +21,22 @@ from backtester import run_backtest
 
 st.set_page_config(page_title="PaidButPressured", page_icon="📡", layout="centered", initial_sidebar_state="expanded")
 
+# ── Hash token → query param redirect (for Supabase password reset / invite) ──
+# Supabase puts access_token in the URL hash which Streamlit can't read.
+# This JS detects it and converts it to a query param so Python can handle it.
+st.markdown("""
+<script>
+(function() {
+    var hash = window.location.hash;
+    if (hash && hash.includes('access_token')) {
+        var params = hash.substring(1);
+        var newUrl = window.location.pathname + '?' + params;
+        window.location.replace(newUrl);
+    }
+})();
+</script>
+""", unsafe_allow_html=True)
+
 # ── PWA MANIFEST + SERVICE WORKER INJECTION ───────────────────────────────────
 st.markdown("""
 <link rel="manifest" href="data:application/json;charset=utf-8,%7B%22name%22%3A%22PaidButPressured%22%2C%22short_name%22%3A%22PBP%22%2C%22description%22%3A%22Options%20Screener%20by%20PaidButPressured%22%2C%22start_url%22%3A%22%2F%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23060c14%22%2C%22theme_color%22%3A%22%2300e5aa%22%2C%22orientation%22%3A%22portrait%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22https%3A%2F%2Fraw.githubusercontent.com%2Fyungweb%2Foptions-screener%2Fmain%2Ficon-192.png%22%2C%22sizes%22%3A%22192x192%22%2C%22type%22%3A%22image%2Fpng%22%7D%2C%7B%22src%22%3A%22https%3A%2F%2Fraw.githubusercontent.com%2Fyungweb%2Foptions-screener%2Fmain%2Ficon-512.png%22%2C%22sizes%22%3A%22512x512%22%2C%22type%22%3A%22image%2Fpng%22%7D%5D%7D">
@@ -156,6 +172,59 @@ def check_auth():
         st.session_state.user_id       = "dev"
         return
 
+    # ── Password reset / invite handler ───────────────────────────────────────
+    # Supabase sends access_token + type=recovery or type=invite in the URL hash
+    # Streamlit doesn't expose hash params directly — check query params for token
+    _qp = st.query_params
+    _token_type = _qp.get("type", "")
+    _access_tok = _qp.get("access_token", "")
+
+    if _token_type in ("recovery", "invite", "signup") and _access_tok:
+        st.markdown("""
+<div style='max-width:400px;margin:60px auto;padding:32px 36px;
+background:#1A1A1D;border:1px solid #2A2A2D;border-radius:16px;text-align:center'>
+<div style='font-size:1.4rem;font-weight:700;color:#F5F5F5;letter-spacing:2px;margin-bottom:4px'>
+📡 PAIDBUTPRESSURED</div>
+<div style='font-size:0.75rem;color:#A1A1A6;margin-bottom:24px'>Set Your Password</div>
+</div>""", unsafe_allow_html=True)
+        col = st.columns([1,4,1])[1]
+        with col:
+            new_pw  = st.text_input("New Password", type="password", placeholder="Choose a password (min 6 chars)")
+            new_pw2 = st.text_input("Confirm Password", type="password", placeholder="Confirm your password")
+            if st.button("SET PASSWORD & LOG IN", use_container_width=True):
+                if len(new_pw) < 6:
+                    st.error("Password must be at least 6 characters")
+                elif new_pw != new_pw2:
+                    st.error("Passwords don't match")
+                else:
+                    try:
+                        from supabase import create_client
+                        sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+                        # Set session using the recovery token
+                        resp = sb.auth.set_session(_access_tok, "")
+                        if resp and resp.user:
+                            # Update password
+                            sb.auth.update_user({"password": new_pw})
+                            st.session_state.authenticated       = True
+                            st.session_state.tos_agreed          = True
+                            st.session_state.user_email          = resp.user.email
+                            st.session_state.user_id             = resp.user.id
+                            st.session_state.is_admin            = (resp.user.email == ADMIN_EMAIL)
+                            st.session_state.watchlist_loaded    = False
+                            st.session_state._access_token       = resp.session.access_token if resp.session else ""
+                            st.session_state._refresh_token      = resp.session.refresh_token if resp.session else ""
+                            st.session_state._last_token_refresh = datetime.now()
+                            # Clear the token from URL
+                            st.query_params.clear()
+                            st.success("Password set! Welcome to PaidButPressured.")
+                            st.rerun()
+                        else:
+                            st.error("Reset link expired. Request a new one from the login screen.")
+                    except Exception as e:
+                        st.error("Error: %s" % str(e)[:100])
+        st.stop()
+        return
+
     # Already authenticated this session — try token refresh to keep alive
     if st.session_state.get("authenticated") and st.session_state.get("user_email"):
         # Refresh token every ~10 minutes to prevent expiry
@@ -245,6 +314,26 @@ def check_auth():
                             st.error("Sign in failed — check your email and password")
                     except Exception as e:
                         st.error("Sign in error: %s" % str(e)[:100])
+
+            # ── Forgot Password ───────────────────────────────────────────
+            with st.expander("Forgot your password?"):
+                fp_email = st.text_input("Enter your email", key="fp_email",
+                                          placeholder="your@email.com")
+                if st.button("Send Reset Link", key="fp_btn", use_container_width=True):
+                    if not fp_email:
+                        st.error("Enter your email address")
+                    else:
+                        try:
+                            from supabase import create_client
+                            sb  = create_client(SUPABASE_URL, SUPABASE_KEY)
+                            _redirect = SUPABASE_URL.replace("https://", "https://options-screener-production.up.railway.app?type=recovery&")
+                            sb.auth.reset_password_for_email(
+                                fp_email,
+                                {"redirect_to": "https://options-screener-production.up.railway.app"}
+                            )
+                            st.success("Reset link sent! Check your inbox.")
+                        except Exception as e:
+                            st.error("Error: %s" % str(e)[:100])
 
         else:  # Create Account
             # Show TOS before signup
