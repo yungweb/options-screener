@@ -661,8 +661,32 @@ SCAN_UNIVERSE = [
     "GE","CAT","DE","BA","LMT","RTX","RIVN","LCID","F","GM",
     # Speculative / High momentum
     "ASTS","RDW","IREN",
+    # Small/Mid Cap AI & Tech
+    "BBAI","SOUN","SERV","JOBY","ACHR","AMBA","CRSR","TOST","BRZE","GTLB",
+    "FROG","NCNO","JAMF","ALKT","RELY","CWAN","LSPD","TASK",
+    # Small/Mid Fintech
+    "NU","DAVE","MQ","UPST","LC","OPFI","NRDS","COOP","STEP",
+    # Small/Mid Biotech
+    "RXRX","ALNY","IONS","ACAD","HALO","ITCI","IMVT","VKTX","NUVL","ROIV",
+    "KROS","ADMA","SAGE",
+    # Crypto Mining
+    "MARA","CLSK","RIOT","HUT","CORZ","BTDR",
+    # Small/Mid Energy
+    "CIVI","SM","CHRD","NOG","ESTE",
+    # Consumer Small/Mid
+    "RH","BOOT","BURL","FIVE","OLLI","CVNA","KMX","AN","PAG",
+    # Defense & Space
+    "RKLB","LUNR","KTOS","AVAV","SPCE",
+    # Media & Entertainment
+    "WBD","PARA","FUBO","NWSA",
+    # Growth Mid Cap
+    "DUOL","ELF","SKIN","GNRC",
     # ETF sectors
     "XLK","XLF","XLE","XLV","XLY","XLI","GLD","SLV","TLT","HYG","IBIT",
+    # Additional liquid movers
+    "OPEN","NKLA","WKHS","FUBO","WBD","PARA","GNRC","BOOT","PAG","AN",
+    "CHRD","NOG","ESTE","VKTX","ROIV","NRDS","COOP","STEP","SAGE","ADMA",
+    "SM","CIVI","HII","CACI","LDOS","SAIC","NWSA","ELF","DUOL","SKIN","BTDR","CORZ",
 ]
 SCAN_UNIVERSE = list(dict.fromkeys(SCAN_UNIVERSE))  # deduplicate
 
@@ -678,7 +702,19 @@ SECTOR_LISTS = {
     "Energy & Power":   ["XOM","CVX","OXY","SLB","HAL","MPC","PSX","VST","CEG","GEV"],
     "Consumer":         ["WMT","TGT","COST","HD","LOW","NKE","LULU","MCD","SBUX","CMG","DKNG","CELH","HIMS"],
     "High Momentum":    ["PLTR","TSLA","COIN","MSTR","ASTS","NVDA","AMD","HOOD","SOFI","AFRM",
-                         "RIVN","RDW","IREN","NBIS","ZETA","AAOI","CRDO","LCID","GRAB","SE"],
+                         "RIVN","RDW","IREN","NBIS","ZETA","AAOI","CRDO","LCID","GRAB","SE",
+                         "BBAI","SOUN","MARA","RIOT","CLSK","UPST","RKLB","LUNR","NU","CVNA"],
+    "Small/Mid AI & Tech": ["BBAI","SOUN","SERV","JOBY","ACHR","AMBA","CRSR","TOST","BRZE","GTLB",
+                         "FROG","NCNO","JAMF","ALKT","RELY","CWAN","LSPD","TASK","NU","DAVE",
+                         "MQ","UPST","LC","OPFI","NRDS","COOP","STEP","DUOL","SKIN","ELF"],
+    "Biotech":          ["RXRX","ALNY","IONS","ACAD","HALO","ITCI","IMVT","VKTX","NUVL","ROIV",
+                         "KROS","ADMA","SAGE","MRNA","BNTX","GILD","REGN","BIIB","PFE"],
+    "Crypto & Mining":  ["MARA","CLSK","RIOT","HUT","CORZ","BTDR","COIN","MSTR","IBIT"],
+    "Defense & Space":  ["RKLB","LUNR","KTOS","AVAV","SPCE","LMT","RTX","BA","GE","AXON"],
+    "Affordable Movers": ["BBAI","SOUN","SERV","JOBY","ACHR","AMBA","CRSR","TOST","MARA","CLSK",
+                         "RIOT","HUT","CORZ","CIVI","SM","NOG","BOOT","OLLI","CVNA","RKLB",
+                         "LUNR","KTOS","WBD","PARA","FUBO","UPST","NU","DAVE","RXRX","ACAD",
+                         "SOFI","AFRM","HOOD","RIVN","LCID","ASTS","IREN","ZETA","NBIS","AAOI"],
     "Industrial & EV":  ["GE","CAT","DE","BA","LMT","RTX","RIVN","LCID","F","GM"],
     "ETF Sectors":      ["XLK","XLF","XLE","XLV","XLY","XLI","GLD","SLV","TLT","HYG","IBIT","SPY","QQQ","IWM"],
     "Full Universe":    [],  # populated from SCAN_UNIVERSE at runtime
