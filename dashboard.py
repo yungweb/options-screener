@@ -6460,7 +6460,7 @@ for ng in _new_go_now:
            ng["pattern"], ng["confidence"], ng["gates_passed"],
            ng["opt"]["strike"], ng["opt"]["target"], ng["opt"]["stop"]),
     unsafe_allow_html=True)
-    st.iframe("""<script>
+    st.components.v1.html("""<script>
     try {
         var ctx=new(window.AudioContext||window.webkitAudioContext)();
         [440,554,659].forEach(function(f,i){
@@ -6873,7 +6873,7 @@ window.addEventListener('resize', () => chart.resize(chartEl.offsetWidth, 480));
         else:
             st.caption("No confirmed patterns detected on current timeframe.")
 
-        st.iframe(chart_html, height=490, scrolling=False)
+        st.components.v1.html(chart_html, height=490, scrolling=False)
 
         # Legend
         st.markdown(
