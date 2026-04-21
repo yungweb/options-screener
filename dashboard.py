@@ -280,10 +280,31 @@ background:#1A1A1D;border:1px solid #2A2A2D;border-radius:16px;text-align:center
 </div>
 """, unsafe_allow_html=True)
 
+    # Check for invite token in URL
+    _invite_token = st.query_params.get("invite", "")
+    _invite_valid = False
+    if _invite_token:
+        try:
+            from supabase import create_client as _sc
+            _sb_check = _sc(SUPABASE_URL, SUPABASE_KEY)
+            _tok_res = _sb_check.table("invite_tokens").select("*").eq("token", _invite_token).eq("used", False).execute()
+            _invite_valid = bool(_tok_res.data)
+        except Exception:
+            _invite_valid = False
+
     col = st.columns([1,4,1])[1]
     with col:
-        _mode = st.radio("Account Mode", ["Sign In", "Create Account"],
-                         horizontal=True, label_visibility="collapsed")
+        if _invite_valid:
+            _mode = st.radio("Account Mode", ["Sign In", "Create Account"],
+                             horizontal=True, label_visibility="collapsed")
+        else:
+            _mode = "Sign In"
+            if not _invite_token:
+                st.markdown(
+                    "<div style='text-align:center;margin-bottom:12px;font-size:0.75rem;color:#A1A1A6'>"
+                    "New member? Check your email for your access link.</div>",
+                    unsafe_allow_html=True
+                )
         email    = st.text_input("Email", placeholder="your@email.com",
                                  label_visibility="collapsed")
         password = st.text_input("Password", type="password",
@@ -362,6 +383,12 @@ background:#1A1A1D;border:1px solid #2A2A2D;border-radius:16px;text-align:center
                                 st.session_state._access_token       = resp.session.access_token
                                 st.session_state._refresh_token      = resp.session.refresh_token
                                 st.session_state._last_token_refresh = datetime.now()
+                            # Mark invite token as used
+                            if _invite_token:
+                                try:
+                                    sb.table("invite_tokens").update({"used": True}).eq("token", _invite_token).execute()
+                                except Exception:
+                                    pass
                             st.success("Account created! Welcome to PaidButPressured.")
                             st.rerun()
                         else:
