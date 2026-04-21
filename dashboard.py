@@ -117,7 +117,8 @@ TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 APP_PASSWORD       = os.environ.get("APP_PASSWORD", "")
 SUPABASE_URL       = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY       = os.environ.get("SUPABASE_KEY", "")
+SUPABASE_KEY         = os.environ.get("SUPABASE_KEY", "")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
 # ── TERMS OF SERVICE TEXT ────────────────────────────────────────────────────
 TOS_TEXT = """
@@ -586,6 +587,7 @@ def check_onboarding():
     st.stop()
 
 check_auth()
+init_user_watchlist()  # called after auth so user_id is available
 check_onboarding()  # Show first-time tutorial
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -5823,13 +5825,14 @@ def get_bg_results():
 # SUPABASE PERSISTENCE ENGINE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def get_supabase():
-    """Returns a Supabase client if configured, else None."""
+def get_supabase(service=False):
+    """Returns a Supabase client. Use service=True to bypass RLS."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         return None
     try:
         from supabase import create_client
-        return create_client(SUPABASE_URL, SUPABASE_KEY)
+        key = SUPABASE_SERVICE_KEY if (service and SUPABASE_SERVICE_KEY) else SUPABASE_KEY
+        return create_client(SUPABASE_URL, key)
     except Exception:
         return None
 
@@ -5850,7 +5853,7 @@ def get_user_id():
 
 def load_user_data(user_id):
     """Load all user data from Supabase user_data table."""
-    sb = get_supabase()
+    sb = get_supabase(service=True)
     if not sb or not user_id: return {}
     try:
         import json as _j
@@ -5868,7 +5871,7 @@ def load_user_data(user_id):
 
 def save_user_data(user_id, watchlist=None, watch_queue=None, preferences=None):
     """Save user data to Supabase."""
-    sb = get_supabase()
+    sb = get_supabase(service=True)
     if not sb or not user_id: return False
     try:
         import json as _j
@@ -6058,7 +6061,7 @@ def init_user_watchlist():
 
     st.session_state.watchlist_loaded = True
 
-init_user_watchlist()  # call immediately after definition
+# init_user_watchlist() called after check_auth below
 
 start_bg_scan_thread()  # start background scanner daemon
 
