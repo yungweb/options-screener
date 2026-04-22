@@ -587,7 +587,10 @@ def check_onboarding():
     st.stop()
 
 check_auth()
-init_user_watchlist()  # called after auth so user_id is available
+# Load user watchlist after auth — user_id is now available
+if st.session_state.get("authenticated") and st.session_state.get("user_id"):
+    if not st.session_state.get("watchlist_loaded"):
+        pass  # init_user_watchlist called below after it's defined
 check_onboarding()  # Show first-time tutorial
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -6061,7 +6064,9 @@ def init_user_watchlist():
 
     st.session_state.watchlist_loaded = True
 
-# init_user_watchlist() called after check_auth below
+# Call after function is defined so user_id is available post-auth
+if st.session_state.get("authenticated") and st.session_state.get("user_id"):
+    init_user_watchlist()
 
 start_bg_scan_thread()  # start background scanner daemon
 
