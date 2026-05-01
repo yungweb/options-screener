@@ -21,7 +21,6 @@ from backtester import run_backtest
 
 st.set_page_config(page_title="PaidButPressured", page_icon="📡", layout="centered", initial_sidebar_state="expanded")
 
-# ── Hash token → query param redirect (for Supabase password reset / invite) ──
 # Supabase puts access_token in the URL hash which Streamlit can't read.
 # This JS detects it and converts it to a query param so Python can handle it.
 st.markdown("""
@@ -37,7 +36,6 @@ st.markdown("""
 </script>
 """, unsafe_allow_html=True)
 
-# ── PWA MANIFEST + SERVICE WORKER INJECTION ───────────────────────────────────
 st.markdown("""
 <link rel="manifest" href="data:application/json;charset=utf-8,%7B%22name%22%3A%22PaidButPressured%22%2C%22short_name%22%3A%22PBP%22%2C%22description%22%3A%22Options%20Screener%20by%20PaidButPressured%22%2C%22start_url%22%3A%22%2F%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23060c14%22%2C%22theme_color%22%3A%22%2300e5aa%22%2C%22orientation%22%3A%22portrait%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22https%3A%2F%2Fraw.githubusercontent.com%2Fyungweb%2Foptions-screener%2Fmain%2Ficon-192.png%22%2C%22sizes%22%3A%22192x192%22%2C%22type%22%3A%22image%2Fpng%22%7D%2C%7B%22src%22%3A%22https%3A%2F%2Fraw.githubusercontent.com%2Fyungweb%2Foptions-screener%2Fmain%2Ficon-512.png%22%2C%22sizes%22%3A%22512x512%22%2C%22type%22%3A%22image%2Fpng%22%7D%5D%7D">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -102,9 +100,7 @@ st.markdown("""
   }
 </script>
 """, unsafe_allow_html=True)
-# ─────────────────────────────────────────────────────────────────────────────
 
-# ── ENVIRONMENT VARIABLES (must be before check_auth) ────────────────────────
 ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
 ADMIN_UID          = os.environ.get("ADMIN_UID", "158a9910")
 ADMIN_EMAIL        = os.environ.get("ADMIN_EMAIL", "")
@@ -117,10 +113,8 @@ TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 APP_PASSWORD       = os.environ.get("APP_PASSWORD", "")
 SUPABASE_URL       = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY         = os.environ.get("SUPABASE_KEY", "")
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+SUPABASE_KEY       = os.environ.get("SUPABASE_KEY", "")
 
-# ── TERMS OF SERVICE TEXT ────────────────────────────────────────────────────
 TOS_TEXT = """
 **TERMS OF SERVICE & RISK DISCLOSURE**
 *PaidButPressured Options Screener - Last updated March 2026*
@@ -159,13 +153,7 @@ These terms may be updated at any time. Continued use of the Service constitutes
 *By checking the box below and entering the app, you confirm that you have read, understood, and agree to all terms above.*
 """
 
-# ── LOGIN WALL + TOS ──────────────────────────────────────────────────────────
 def check_auth():
-    """
-    Supabase Auth gate — email/password login.
-    Persists session via access token stored in query params.
-    Auto-refreshes token to prevent mid-session logouts.
-    """
     if not SUPABASE_URL or not SUPABASE_KEY:
         st.session_state.tos_agreed    = True
         st.session_state.authenticated = True
@@ -173,7 +161,6 @@ def check_auth():
         st.session_state.user_id       = "dev"
         return
 
-    # ── Password reset / invite handler ───────────────────────────────────────
     # Supabase sends access_token + type=recovery or type=invite in the URL hash
     # Streamlit doesn't expose hash params directly — check query params for token
     _qp = st.query_params
@@ -266,7 +253,6 @@ background:#1A1A1D;border:1px solid #2A2A2D;border-radius:16px;text-align:center
         except Exception:
             pass  # tokens expired — fall through to login screen
 
-    # ── Auth screen ───────────────────────────────────────────────────────────
     st.markdown("""
 <style>
 .auth-wrap { max-width:400px; margin:60px auto; padding:32px 36px;
@@ -281,31 +267,10 @@ background:#1A1A1D;border:1px solid #2A2A2D;border-radius:16px;text-align:center
 </div>
 """, unsafe_allow_html=True)
 
-    # Check for invite token in URL
-    _invite_token = st.query_params.get("invite", "")
-    _invite_valid = False
-    if _invite_token:
-        try:
-            from supabase import create_client as _sc
-            _sb_check = _sc(SUPABASE_URL, SUPABASE_KEY)
-            _tok_res = _sb_check.table("invite_tokens").select("*").eq("token", _invite_token).eq("used", False).execute()
-            _invite_valid = bool(_tok_res.data)
-        except Exception:
-            _invite_valid = False
-
     col = st.columns([1,4,1])[1]
     with col:
-        if _invite_valid:
-            _mode = st.radio("Account Mode", ["Sign In", "Create Account"],
-                             horizontal=True, label_visibility="collapsed")
-        else:
-            _mode = "Sign In"
-            if not _invite_token:
-                st.markdown(
-                    "<div style='text-align:center;margin-bottom:12px;font-size:0.75rem;color:#A1A1A6'>"
-                    "New member? Check your email for your access link.</div>",
-                    unsafe_allow_html=True
-                )
+        _mode = st.radio("Account Mode", ["Sign In", "Create Account"],
+                         horizontal=True, label_visibility="collapsed")
         email    = st.text_input("Email", placeholder="your@email.com",
                                  label_visibility="collapsed")
         password = st.text_input("Password", type="password",
@@ -337,7 +302,6 @@ background:#1A1A1D;border:1px solid #2A2A2D;border-radius:16px;text-align:center
                     except Exception as e:
                         st.error("Sign in error: %s" % str(e)[:100])
 
-            # ── Forgot Password ───────────────────────────────────────────
             with st.expander("Forgot your password?"):
                 fp_email = st.text_input("Enter your email", key="fp_email",
                                           placeholder="your@email.com")
@@ -384,12 +348,6 @@ background:#1A1A1D;border:1px solid #2A2A2D;border-radius:16px;text-align:center
                                 st.session_state._access_token       = resp.session.access_token
                                 st.session_state._refresh_token      = resp.session.refresh_token
                                 st.session_state._last_token_refresh = datetime.now()
-                            # Mark invite token as used
-                            if _invite_token:
-                                try:
-                                    sb.table("invite_tokens").update({"used": True}).eq("token", _invite_token).execute()
-                                except Exception:
-                                    pass
                             st.success("Account created! Welcome to PaidButPressured.")
                             st.rerun()
                         else:
@@ -410,11 +368,6 @@ background:#1A1A1D;border:1px solid #2A2A2D;border-radius:16px;text-align:center
 
 
 def check_onboarding():
-    """
-    Shows onboarding flow for first-time users.
-    Tracks completion via Supabase onboarding_complete flag.
-    Skip button available on every step.
-    """
     # Already completed onboarding this session
     if st.session_state.get("onboarding_complete"):
         return
@@ -587,12 +540,7 @@ def check_onboarding():
     st.stop()
 
 check_auth()
-# Load user watchlist after auth — user_id is now available
-if st.session_state.get("authenticated") and st.session_state.get("user_id"):
-    if not st.session_state.get("watchlist_loaded"):
-        pass  # init_user_watchlist called below after it's defined
 check_onboarding()  # Show first-time tutorial
-# ─────────────────────────────────────────────────────────────────────────────
 
 st.markdown("""
 <style>
@@ -722,7 +670,6 @@ SCAN_UNIVERSE = [
 ]
 SCAN_UNIVERSE = list(dict.fromkeys(SCAN_UNIVERSE))  # deduplicate
 
-# ── Sector scan lists ─────────────────────────────────────────────────────────
 SECTOR_LISTS = {
     "My Watchlist":     [],  # populated from session state at runtime
     "Tech & Semis":     ["NVDA","AMD","INTC","AVGO","QCOM","MU","AMAT","LRCX","KLAC","MRVL",
@@ -793,8 +740,6 @@ def get_market_status():
     elif t < dtime(20, 0): return "after",  "After-Hours Trading - Until 8:00 PM ET"
     else:                  return "closed", "Market Closed - Pre-market opens 4:00 AM ET"
 
-# ── Thread-safe TTL cache ─────────────────────────────────────────────────────
-# @st.cache_data cannot be called safely from background threads (ThreadPoolExecutor).
 # Doing so fires "missing ScriptRunContext" warnings and can cause instability.
 # Functions in the scan worker path use _thread_cache instead - pure Python,
 # no Streamlit context required, thread-safe via a single lock.
@@ -803,11 +748,6 @@ _THREAD_CACHE      = {}
 _THREAD_CACHE_LOCK = _threading.Lock()
 
 def _thread_cache(ttl=300):
-    """
-    Decorator: simple TTL memoize safe to call from any thread.
-    Stores results in a module-level dict keyed by (func_name, args).
-    Expired entries are evicted on the next call for that key.
-    """
     def decorator(fn):
         def wrapper(*args):
             key = (fn.__name__,) + args
@@ -823,12 +763,9 @@ def _thread_cache(ttl=300):
         wrapper.__name__ = fn.__name__
         return wrapper
     return decorator
-# ─────────────────────────────────────────────────────────────────────────────
 
-# ── DataFrame column helpers ──────────────────────────────────────────────────
 # yfinance v0.2.x returns MultiIndex columns for single-ticker downloads.
 # e.g. df["close"] returns a DataFrame with shape (n,1) instead of a Series.
-# _col() safely squeezes any column to a 1D float Series regardless of structure.
 
 def _col(df, name):
     """Return column `name` from df as a guaranteed 1D float Series."""
@@ -838,10 +775,6 @@ def _col(df, name):
     return c.astype(float)
 
 def _clean_df(df):
-    """
-    Normalize a yfinance DataFrame so all columns are flat (non-MultiIndex)
-    and contain float values. Safe to call multiple times (idempotent).
-    """
     if df is None or df.empty:
         return df
     if isinstance(df.columns, pd.MultiIndex):
@@ -855,10 +788,7 @@ def _clean_df(df):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
-# ─────────────────────────────────────────────────────────────────────────────
 
-# ── yfinance session manager ──────────────────────────────────────────────────
-# Yahoo Finance rotates crumb/auth tokens. A stale session causes 401 Unauthorized.
 # We keep one module-level session and refresh it on any 401/crumb error.
 _YF_SESSION_LOCK = _threading.Lock()
 _yf_session      = None
@@ -875,12 +805,6 @@ def _get_yf_session():
     return _yf_session
 
 def _polygon_download(ticker, period, interval):
-    """
-    Fetch OHLCV from Polygon.io REST API.
-    Converts yfinance-style period/interval to Polygon multiplier/timespan.
-    Returns a DataFrame with columns: datetime, open, high, low, close, volume
-    or None on failure.
-    """
     api_key = POLYGON_API_KEY
     if not api_key:
         return None
@@ -929,10 +853,6 @@ def _polygon_download(ticker, period, interval):
 
 
 def _finnhub_download(ticker, period, interval):
-    """
-    Fetch OHLCV from Finnhub REST API.
-    Free tier: 60 calls/minute. Retries once on 429.
-    """
     if not FINNHUB_API_KEY:
         return None
     try:
@@ -998,11 +918,6 @@ def _finnhub_price(ticker):
 
 
 def _fmp_download(ticker, period, interval):
-    """
-    Fetch OHLCV from Financial Modeling Prep (FMP) Premium.
-    Uses stable endpoints: /stable/historical-chart/{interval} for intraday
-    and /stable/historical-price-eod/full for daily.
-    """
     if not FMP_API_KEY:
         return None
     try:
@@ -1118,10 +1033,6 @@ def _fmp_price(ticker):
 
 
 def _yf_download(ticker, period, interval, **kwargs):
-    """
-    FMP-first data fetcher. Premium = 750 calls/min, intraday, no rate limits.
-    Falls back to yfinance, then Finnhub, then Polygon.
-    """
     # 1. FMP Premium - best coverage, no rate issues, intraday included
     if FMP_API_KEY:
         df = _fmp_download(ticker, period, interval)
@@ -1246,6 +1157,27 @@ def check_earnings(ticker):
             pass
     return None
 
+@_thread_cache(ttl=3600)
+def fetch_200ma(ticker):
+    try:
+        df = _fmp_download(ticker, "1y", "1d")
+        if df is None or len(df) < 20:
+            return None, None, None, None
+        close      = df["close"].astype(float)
+        ma_period  = min(200, len(close))
+        ma         = close.rolling(ma_period).mean().dropna()
+        if ma.empty:
+            return None, None, None, None
+        current_ma    = float(ma.iloc[-1])
+        prior_ma      = float(ma.iloc[-6]) if len(ma) >= 6 else current_ma
+        current_price = float(close.iloc[-1])
+        above_ma      = current_price > current_ma
+        slope_rising  = current_ma > prior_ma
+        pct_from_ma   = round((current_price - current_ma) / current_ma * 100, 2) if current_ma > 0 else 0
+        return above_ma, round(current_ma, 2), slope_rising, pct_from_ma
+    except Exception:
+        return None, None, None, None
+
 @_thread_cache(ttl=300)
 def fetch_iv_rank(ticker):
     try:
@@ -1320,11 +1252,6 @@ def estimate_move_timeframe(pattern_label):
 
 @_thread_cache(ttl=600)
 def fetch_real_strikes(ticker, expiration_str):
-    """
-    Fetch actually listed strikes from FMP options chain for a given expiration.
-    Returns sorted list of floats, or None if unavailable.
-    expiration_str format: 'YYYY-MM-DD'
-    """
     if not FMP_API_KEY or not ticker:
         return None
     try:
@@ -1349,10 +1276,6 @@ def fetch_real_strikes(ticker, expiration_str):
         return None
 
 def snap_to_chain(price, raw, real_strikes=None):
-    """
-    Snap raw strike to nearest actually listed strike.
-    Uses real FMP chain if available, falls back to exchange increment logic.
-    """
     if real_strikes:
         return min(real_strikes, key=lambda s: abs(s - raw))
     # Fallback increment logic — conservative (wider increments = safer)
@@ -1403,16 +1326,13 @@ def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, c
     real_strikes = fetch_real_strikes(ticker, exp_str) if FMP_API_KEY else None
     strike = snap_to_chain(current_price, raw_strike, real_strikes)
 
-    # IV adjustment: quick trades use higher IV estimate (short-dated premiums are inflated)
     iv_adj  = min(iv * 1.3, 0.80) if actual_dte <= 7 else iv
     # ATM option premium approximation: price * IV * sqrt(DTE/365) * ~0.4 for ATM
-    # But 0.4 is too high for high-priced stocks - use 0.38 for quick (ATM) 0.25 for swing (OTM)
     otm_discount = 0.38 if trade_style == "quick" else 0.22
     premium = round(current_price * iv_adj * (max(actual_dte, 1)/365)**0.5 * otm_discount, 2)
     premium = max(premium, 0.05)
     breakeven = (strike + premium) if is_call else (strike - premium)
 
-    # ── Target sanity check ───────────────────────────────────────────────────
     # Use the pattern's measured move as-is. Only apply a sanity cap so we never
     # show a target that requires an unrealistic price move.
     # Cap: target cannot be more than 20% away from current price for stocks,
@@ -1466,7 +1386,6 @@ def calc_trade(entry, stop, target, direction, days_to_exp, account, risk_pct, c
     stop_loss_pct     = 0.20
     rr_option         = round(profit_target_pct / stop_loss_pct, 2)
 
-    # Profit at target — based on 100% gain (2x premium) which matches exit_take_half
     # This aligns the "Est Profit" display with what the exit rules actually say
     option_gain_per_share = premium * 1.0  # 100% gain = 2x premium
     profit_per   = round(option_gain_per_share * 100, 2)
@@ -1563,15 +1482,7 @@ def run_seven_point_gate(df, sig, opt, iv_rank, earnings_days, dte_used):
     elevate         = critical_pass and non_crit_pass >= 2
     return gates, passed, elevate
 
-# ── Entry confirmation candles ────────────────────────────────────────────────
 def check_entry_confirmation(df, direction):
-    """
-    Checks last candles to see if price is moving in signal direction.
-    CONFIRMED: Last candle closes in signal direction with meaningful body (not doji)
-    WATCHING:  Last candle is neutral/mixed but no strong move against
-    AGAINST:   Price clearly moving opposite to signal direction
-    Returns status: CONFIRMED / WAITING / AGAINST
-    """
     if len(df) < 4:
         return {"confirmed": False, "status": "WAITING", "candles": [], "message": "Not enough data"}
 
@@ -1645,7 +1556,156 @@ def check_entry_confirmation(df, direction):
 
     return {"confirmed": confirmed, "status": status, "candles": candle_dirs, "message": message}
 
-# ── Watch queue ───────────────────────────────────────────────────────────────
+
+def analyze_breakout_state(ticker, direction, sr_resistance, sr_support):
+    """
+    Two-layer S/R-aware breakout monitor.
+    Returns dict with state and message for Watch Queue display.
+
+    States:
+      WAITING_BREAKOUT    — price approaching key level
+      MOMENTUM_ENTRY      — strong break, vol confirmed, enter now
+      WEAK_BREAK          — thin break, optional caution entry or wait for retest
+      RETEST_READY        — pullback to level holding, cleanest entry
+      RETEST_FAILED       — retest failed, signal invalid (auto-remove)
+      NO_LEVELS           — no S/R context, fall back to candle logic
+    """
+    is_bull = direction == "bullish"
+    if is_bull:
+        key_level = sr_resistance  # CALL needs to break above resistance
+    else:
+        key_level = sr_support     # PUT needs to break below support
+
+    if not key_level or key_level <= 0:
+        return {"state": "NO_LEVELS", "message": "", "key_level": None, "current_price": None}
+
+    try:
+        df_1m = _fmp_download(ticker, "1d", "1m")
+        if df_1m is None or len(df_1m) < 5:
+            return {"state": "NO_LEVELS", "message": "1m data unavailable", "key_level": key_level, "current_price": None}
+
+        df_1m = df_1m.sort_values("datetime").reset_index(drop=True) if "datetime" in df_1m.columns else df_1m
+        last_5  = df_1m.tail(5)
+        current = float(df_1m.iloc[-1]["close"])
+        last_candle  = df_1m.iloc[-1]
+        prior_candle = df_1m.iloc[-2] if len(df_1m) >= 2 else last_candle
+
+        # Volume context — last candle vs avg of last 20
+        avg_vol_20 = float(df_1m.tail(20)["volume"].mean()) if len(df_1m) >= 20 else 1
+        last_vol   = float(last_candle.get("volume", 0))
+        vol_mult   = last_vol / max(avg_vol_20, 1)
+
+        # Body strength — body as % of total range
+        c_open  = float(last_candle["open"])
+        c_close = float(last_candle["close"])
+        c_high  = float(last_candle.get("high", c_close))
+        c_low   = float(last_candle.get("low",  c_open))
+        body    = abs(c_close - c_open)
+        rng     = max(c_high - c_low, 0.001)
+        body_pct = body / rng
+
+        # Distance from key level
+        dist_pct = abs(current - key_level) / key_level * 100
+
+        if is_bull:
+            broken_above = current > key_level and c_close > key_level
+            still_below  = current < key_level
+            broke_back   = c_close < key_level and float(prior_candle["close"]) > key_level
+
+            if still_below and dist_pct < 0.5:
+                return {
+                    "state":         "WAITING_BREAKOUT",
+                    "message":       "Approaching $%.2f resistance — watching 1-min for break above" % key_level,
+                    "key_level":     key_level,
+                    "current_price": current,
+                }
+            if broken_above:
+                # Strong break: vol ≥ 1.5x and body ≥ 50% of range
+                if vol_mult >= 1.5 and body_pct >= 0.50:
+                    return {
+                        "state":         "MOMENTUM_ENTRY",
+                        "message":       "Strong break above $%.2f — volume %.1fx, momentum confirmed. Enter now." % (key_level, vol_mult),
+                        "key_level":     key_level,
+                        "current_price": current,
+                        "vol_mult":      round(vol_mult, 2),
+                    }
+                # Weak break: low vol or thin body
+                else:
+                    return {
+                        "state":         "WEAK_BREAK",
+                        "message":       "Breakout printed above $%.2f but volume thin (%.1fx). Enter with caution at own risk, or wait for pullback to $%.2f. Loss of $%.2f on 1-min close = invalid." % (key_level, vol_mult, key_level, key_level),
+                        "key_level":     key_level,
+                        "current_price": current,
+                        "vol_mult":      round(vol_mult, 2),
+                    }
+            if broke_back:
+                return {
+                    "state":         "RETEST_FAILED",
+                    "message":       "Failed retest — closed back below $%.2f. Setup invalid." % key_level,
+                    "key_level":     key_level,
+                    "current_price": current,
+                }
+            # Already above and holding on retest
+            if current >= key_level * 0.998 and current <= key_level * 1.005 and c_close > key_level:
+                return {
+                    "state":         "RETEST_READY",
+                    "message":       "Retest of $%.2f holding — clean entry zone now." % key_level,
+                    "key_level":     key_level,
+                    "current_price": current,
+                }
+        else:
+            broken_below = current < key_level and c_close < key_level
+            still_above  = current > key_level
+            broke_back   = c_close > key_level and float(prior_candle["close"]) < key_level
+
+            if still_above and dist_pct < 0.5:
+                return {
+                    "state":         "WAITING_BREAKOUT",
+                    "message":       "Approaching $%.2f support — watching 1-min for break below" % key_level,
+                    "key_level":     key_level,
+                    "current_price": current,
+                }
+            if broken_below:
+                if vol_mult >= 1.5 and body_pct >= 0.50:
+                    return {
+                        "state":         "MOMENTUM_ENTRY",
+                        "message":       "Strong break below $%.2f — volume %.1fx, momentum confirmed. Enter now." % (key_level, vol_mult),
+                        "key_level":     key_level,
+                        "current_price": current,
+                        "vol_mult":      round(vol_mult, 2),
+                    }
+                else:
+                    return {
+                        "state":         "WEAK_BREAK",
+                        "message":       "Breakdown printed below $%.2f but volume thin (%.1fx). Enter with caution at own risk, or wait for retest to $%.2f. Reclaim of $%.2f on 1-min close = invalid." % (key_level, vol_mult, key_level, key_level),
+                        "key_level":     key_level,
+                        "current_price": current,
+                        "vol_mult":      round(vol_mult, 2),
+                    }
+            if broke_back:
+                return {
+                    "state":         "RETEST_FAILED",
+                    "message":       "Failed retest — reclaimed $%.2f. Setup invalid." % key_level,
+                    "key_level":     key_level,
+                    "current_price": current,
+                }
+            if current <= key_level * 1.002 and current >= key_level * 0.995 and c_close < key_level:
+                return {
+                    "state":         "RETEST_READY",
+                    "message":       "Retest of $%.2f holding below — clean entry zone now." % key_level,
+                    "key_level":     key_level,
+                    "current_price": current,
+                }
+
+        return {
+            "state":         "WAITING_BREAKOUT",
+            "message":       "Watching $%.2f — price not yet at decision point" % key_level,
+            "key_level":     key_level,
+            "current_price": current,
+        }
+    except Exception as _e:
+        return {"state": "NO_LEVELS", "message": "Breakout check error: %s" % str(_e)[:60], "key_level": key_level, "current_price": None}
+
 WATCH_TIMEOUT_MINS = 30
 
 def init_watch_queue():
@@ -1695,6 +1755,22 @@ def add_to_watch_queue(ticker, direction, sig, opt):
     init_watch_queue()
     key = f"{ticker}_{direction}"
     if key not in st.session_state.watch_queue:
+        # Pull S/R levels from wherever they live in the signal payload
+        _detail = sig.get("detail", {}) or {}
+        _sr     = _detail.get("sr_data", {}) or sig.get("sr_data", {}) or {}
+        sr_resistance = _sr.get("nearest_resistance")
+        sr_support    = _sr.get("nearest_support")
+        # Last resort: compute fresh if missing
+        if not sr_resistance and not sr_support:
+            try:
+                _price_now = opt.get("entry") or sig.get("price") or 0
+                if _price_now:
+                    _fresh_sr = detect_sr_levels(ticker, float(_price_now), direction)
+                    sr_resistance = _fresh_sr.get("nearest_resistance")
+                    sr_support    = _fresh_sr.get("nearest_support")
+            except Exception:
+                pass
+
         st.session_state.watch_queue[key] = {
             "ticker":    ticker,
             "direction": direction,
@@ -1709,8 +1785,14 @@ def add_to_watch_queue(ticker, direction, sig, opt):
             "added_at":  datetime.now(),
             "last_checked": None,
             "status":    "WAITING",
-            "message":   "Watching for 2 confirmation candles...",
+            "message":   "Initializing breakout monitor...",
             "alerted":   False,
+            # S/R context for breakout-aware monitoring
+            "sr_resistance": sr_resistance,
+            "sr_support":    sr_support,
+            "breakout_state":"WAITING",
+            "vol_mult":      None,
+            "key_level":     None,
         }
         _save_watch_queue_db()
 
@@ -1730,8 +1812,9 @@ def clear_watch_queue():
 
 def run_background_watch_checks(tf_mult, tf_span, tf_days):
     """
-    Runs on every Watch Queue tab refresh.
-    Fetches fresh data bypassing cache. Uses signal's actual timeframe.
+    Two-layer S/R-aware breakout monitor.
+    5-min: setup health (is signal still valid)
+    1-min: actual breakout/retest execution trigger via analyze_breakout_state()
     """
     init_watch_queue()
     queue = st.session_state.watch_queue
@@ -1745,13 +1828,67 @@ def run_background_watch_checks(tf_mult, tf_span, tf_days):
             to_remove.append(key)
             continue
         try:
+            ticker        = item["ticker"]
+            direction     = item["direction"]
+            sr_resistance = item.get("sr_resistance")
+            sr_support    = item.get("sr_support")
+
+            # ── LAYER 1: S/R-aware breakout analysis (1-min) ─────────────
+            br = analyze_breakout_state(ticker, direction, sr_resistance, sr_support)
+
+            # If we have S/R levels, use breakout-state logic
+            if br["state"] != "NO_LEVELS" and br.get("key_level"):
+                prev_state = item.get("breakout_state", "WAITING")
+                item["breakout_state"] = br["state"]
+                item["key_level"]      = br.get("key_level")
+                item["current_price"]  = br.get("current_price")
+                item["vol_mult"]       = br.get("vol_mult")
+                item["message"]        = br["message"]
+                item["last_checked"]   = datetime.now()
+
+                # Auto-remove failed retests
+                if br["state"] == "RETEST_FAILED":
+                    to_remove.append(key)
+                    continue
+
+                # Map breakout state to legacy status for display
+                if br["state"] in ("MOMENTUM_ENTRY", "RETEST_READY"):
+                    item["status"] = "CONFIRMED"
+                    if not item["alerted"]:
+                        item["alerted"] = True
+                        any_new_confirm = True
+                elif br["state"] == "WEAK_BREAK":
+                    item["status"] = "WEAK_BREAK"
+                else:
+                    item["status"] = "WAITING"
+
+                # Still pull candle direction for display
+                try:
+                    df_1m_disp = _fmp_download(ticker, "1d", "1m")
+                    if df_1m_disp is not None and len(df_1m_disp) >= 5:
+                        df_1m_disp = df_1m_disp.tail(5)
+                        candle_dirs = []
+                        for _, row in df_1m_disp.iterrows():
+                            o, c = float(row["open"]), float(row["close"])
+                            body = abs(c - o)
+                            rng  = float(row.get("high", c)) - float(row.get("low", o))
+                            if rng > 0 and body / rng >= 0.3:
+                                candle_dirs.append("green" if c > o else "red")
+                            else:
+                                candle_dirs.append("doji")
+                        item["candles"] = candle_dirs
+                except Exception:
+                    pass
+
+                continue  # done with this item
+
+            # ── LAYER 2: Fallback — original candle-confirmation logic ───
             style = item.get("style", "swing")
             interval, period = ("5m", "2d") if style == "quick" else ("1h", "14d")
 
-            raw = _fmp_download(item["ticker"], period, interval)
+            raw = _fmp_download(ticker, period, interval)
             if raw is None or (hasattr(raw, 'empty') and raw.empty):
-                # Fall back to yfinance if FMP returns nothing
-                raw = _yf_download(item["ticker"], period=period, interval=interval)
+                raw = _yf_download(ticker, period=period, interval=interval)
             if raw is None or (hasattr(raw, 'empty') and raw.empty):
                 item["message"] = "Data unavailable - retrying..."
                 continue
@@ -1764,12 +1901,13 @@ def run_background_watch_checks(tf_mult, tf_span, tf_days):
                     fresh_df = fresh_df.rename(columns={col: "timestamp"})
                     break
 
-            conf = check_entry_confirmation(fresh_df, item["direction"])
+            conf = check_entry_confirmation(fresh_df, direction)
             was_confirmed_before = item["status"] == "CONFIRMED"
-            item["status"]       = conf["status"]
-            item["message"]      = conf["message"]
-            item["candles"]      = conf.get("candles", [])
-            item["last_checked"] = datetime.now()
+            item["status"]         = conf["status"]
+            item["message"]        = conf["message"]
+            item["candles"]        = conf.get("candles", [])
+            item["last_checked"]   = datetime.now()
+            item["breakout_state"] = "NO_LEVELS"
 
             if conf["confirmed"] and not was_confirmed_before and not item["alerted"]:
                 item["alerted"]   = True
@@ -1781,7 +1919,8 @@ def run_background_watch_checks(tf_mult, tf_span, tf_days):
             print("[WATCH QUEUE ERROR] %s: %s" % (item.get("ticker", "?"), traceback.format_exc()))
 
     for key in to_remove:
-        del queue[key]
+        if key in queue:
+            del queue[key]
 
     st.session_state.watch_queue = queue
     return any_new_confirm
@@ -1815,12 +1954,6 @@ def get_trend(df):
     return "bullish",bull_score,bull,ema20,vwap,rsi
 
 def detect_market_regime(df):
-    """
-    Determines if market is TRENDING or CHOPPY using ATR expansion and directional consistency.
-    Trending = ATR expanding + price making consistent directional moves.
-    Choppy   = ATR contracting or price reversing frequently.
-    Returns: regime ("trending"/"choppy"), strength (0-100)
-    """
     if len(df) < 30: return "unknown", 50
     close = df["close"].astype(float)
     high  = df["high"].astype(float)
@@ -1849,11 +1982,6 @@ def detect_market_regime(df):
 
 @_thread_cache(ttl=300)
 def check_liquidity(ticker):
-    """
-    Check options liquidity via Polygon options snapshot API.
-    Returns: (liquid bool, avg_volume, avg_oi, message)
-    Liquid = avg volume >= 50 AND avg OI >= 100 on nearest expiry calls.
-    """
     if not POLYGON_API_KEY:
         return True, 0, 0, "Verify OI manually"
     try:
@@ -1898,10 +2026,6 @@ def check_liquidity(ticker):
         return True, 0, 0, "Liquidity check error"
 
 def score_setup(df, setup):
-    """
-    Confidence scoring - base layer (50 pts max).
-    Final score = base + TF confluence + extra confluence = 50-100.
-    """
     close  = _col(df, "close"); high = _col(df, "high"); low = _col(df, "low")
     vol    = _col(df, "volume")
     price  = float(close.iloc[-1])
@@ -1938,11 +2062,6 @@ def score_setup(df, setup):
     return factors, raw_score, base_score, rsi, vwap, ema20
 
 def calc_quick_levels(price, direction, atr):
-    """
-    For QUICK trades: ATR-based levels with proper fallback.
-    Target = 1.0x ATR, Stop = 0.5x ATR.
-    Fallback: uses 1.5% of price if ATR is None/zero/unreasonably small.
-    """
     min_atr = price * 0.005
     if not atr or atr <= 0 or atr < min_atr:
         atr = max(price * 0.015, min_atr)
@@ -1959,10 +2078,6 @@ def calc_quick_levels(price, direction, atr):
 
 @_thread_cache(ttl=60)
 def _fetch_tf(ticker, interval, period):
-    """
-    Module-level cached data fetcher for multi-timeframe data.
-    Handles both yfinance (index-based datetime) and Finnhub (datetime column) formats.
-    """
     try:
         df = _yf_download(ticker, period=period, interval=interval, prepost=True)
         if df is None or df.empty:
@@ -1993,12 +2108,6 @@ def _fetch_tf(ticker, interval, period):
 
 
 def fetch_multi_tf(ticker, trade_style):
-    """
-    Fetches the correct timeframes automatically based on trade style.
-    Quick: 5min (primary) + 15min (confirmation)
-    Swing: 1hr (primary) + 4hr (confirmation) + Daily (trend anchor)
-    Returns dict of {label: df}
-    """
     if trade_style == "quick":
         tf5  = _fetch_tf(ticker, "5m",  "5d")
         tf15 = _fetch_tf(ticker, "15m", "5d")
@@ -2016,17 +2125,6 @@ def fetch_multi_tf(ticker, trade_style):
         }
 
 def detect_squeeze(df, direction):
-    """
-    Bollinger Band / Keltner Channel squeeze detector.
-    Three states:
-      "firing"  - was in squeeze, just broke out in signal direction (BEST - enter now)
-      "squeeze" - compression active, building energy, watching for break
-      "none"    - normal volatility, no edge from squeeze
-
-    A firing squeeze is one of the strongest options entry signals because:
-      - IV is low during compression = cheap premium
-      - Volatility expansion after break inflates option value fast
-    """
     if df is None or len(df) < 25:
         return "none", 0
 
@@ -2085,12 +2183,6 @@ def detect_squeeze(df, direction):
 
 
 def check_vwap_confluence(df_5min, direction):
-    """
-    Quick trade extra confluence: VWAP reclaim/rejection on 5min.
-    For calls: previous candle closed BELOW vwap, current candle closes ABOVE = actual reclaim
-    For puts:  previous candle closed ABOVE vwap, current candle closes BELOW = actual rejection
-    Returns: (passes: bool, label: str)
-    """
     if df_5min is None or len(df_5min) < 5:
         return False, "5min data unavailable"
     close = _col(df_5min, "close")
@@ -2130,12 +2222,6 @@ def check_vwap_confluence(df_5min, direction):
     return passes, label
 
 def check_ema50_slope(df_daily, direction):
-    """
-    Swing trade extra confluence: 50 EMA slope on Daily.
-    Slope = (current EMA50 - EMA50 5 bars ago) / EMA50 5 bars ago
-    Calls need rising slope, Puts need falling slope.
-    Returns: (passes: bool, label: str)
-    """
     if df_daily is None or len(df_daily) < 55:
         return False, "Daily data unavailable for EMA50"
     close  = df_daily["close"].astype(float)
@@ -2153,11 +2239,6 @@ def check_ema50_slope(df_daily, direction):
     return passes, label
 
 def check_tf_trend_agreement(dfs, direction):
-    """
-    Checks how many timeframes agree with the signal direction.
-    Fixed: properly extracts scalar float from potentially multi-column DataFrame.
-    Returns (agreeing_count, total_checked, details_list)
-    """
     details  = []
     agreeing = 0
     for label, df in dfs.items():
@@ -2190,12 +2271,6 @@ def check_tf_trend_agreement(dfs, direction):
 
 def build_multi_tf_candidates(ticker, toggles, account, risk_pct,
                                dte, trade_style, atr=None):
-    """
-    Automatically fetches the right timeframes and builds candidates
-    with multi-TF confluence baked in.
-    Quick:  15min primary pattern + 5min trend + 5min VWAP
-    Swing:  1hr primary pattern + 4hr trend + Daily EMA50 slope
-    """
     tfs = fetch_multi_tf(ticker, trade_style)
 
     # Pick primary df for pattern detection
@@ -2231,7 +2306,6 @@ def build_multi_tf_candidates(ticker, toggles, account, risk_pct,
                 tfs.get("daily"), direction)
             extra_name = "Daily EMA50"
 
-        # ── Clean 50-100 final score ─────────────────────────────────────────────
         # Base (from score_setup): 0-50 pts  (each of 5 factors = 10 pts)
         # TF confluence:           0-30 pts  (each agreeing TF = 10 pts, max 3 TFs = 30)
         # Extra confluence:        0-20 pts  (VWAP reclaim or EMA50 slope)
@@ -2279,19 +2353,16 @@ def build_candidates(df, ticker, toggles, account, risk_pct, dte, trade_style="s
     price = float(_raw_price.iloc[0] if hasattr(_raw_price, "iloc") else _raw_price)
     regime, regime_strength = detect_market_regime(df)
     is_quick = trade_style == "quick"
-    # Define regime_bonus once here so it's always available even if no patterns found
     regime_bonus = 5 if regime == "trending" else -5
     candidates = []
     raw = []
     if is_quick:
-        # ── QUICK PATTERNS (intraday only) ────────────────────────────────
         if toggles.get("br"):   raw += [s for s in detect_break_and_retest(df, ticker, rr_min=1.5) if s.confirmed]
         if toggles.get("vwap"): raw += [s for s in detect_vwap_reclaim(df, ticker, rr_min=1.5) if s.confirmed]
         if toggles.get("flag"): raw += [s for s in detect_bull_bear_flag(df, ticker, rr_min=1.5, trade_style="quick") if s.confirmed]
         if toggles.get("orb"):  raw += [s for s in detect_opening_range_breakout(df, ticker, rr_min=1.5) if s.confirmed]
         if toggles.get("mom"):  raw += [s for s in detect_momentum_continuation(df, ticker, rr_min=1.5) if s.confirmed]
     else:
-        # ── SWING PATTERNS (multi-day only) ───────────────────────────────
         if toggles.get("db"):   raw += [s for s in detect_double_bottom(df, ticker, rr_min=2.0) if s.confirmed]
         if toggles.get("dt"):   raw += [s for s in detect_double_top(df, ticker, rr_min=2.0) if s.confirmed]
         if toggles.get("br"):   raw += [s for s in detect_break_and_retest(df, ticker, rr_min=2.0) if s.confirmed]
@@ -2429,12 +2500,7 @@ def build_share_text(ticker, sig, opt, gates_passed, gates_total, elevate, marke
             f"Time:   {datetime.now().strftime('%m/%d/%Y %H:%M')}\n"
             f"NOT FINANCIAL ADVICE")
 
-# ── AI Trade Brief ───────────────────────────────────────────────────────────
 def get_ai_brief(ticker, sig, opt, gates, gates_passed, iv_rank, earnings_days, conf_status):
-    """
-    Calls Claude API with full signal context.
-    Returns a structured verdict: rating, reasoning, key risk.
-    """
     import urllib.request
     import json
 
@@ -2546,8 +2612,6 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
         dir_color = "#D4AF37" if is_bull else "#C1121F"
         dir_label = "BUY CALL" if is_bull else "BUY PUT"
 
-        # ── Pre-render alignment check ─────────────────────────────────────────
-        # SIGNALS tab candidates come from build_candidates (score_setup, 5-factor system)
         # SCAN tab candidates come from full_scan (precision_score, 6-signal system)
         # Use whichever system has data — never assume signals_hit is populated
         _pre_signals_hit = sig.get("signals_hit", sig.get("detail", {}).get("signals_hit", None))
@@ -2609,7 +2673,6 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
             session_name = {"pre": "Pre-Market", "after": "After-Hours", "closed": "Market Closed"}.get(mstatus, "Extended Hours")
             quick_warn_html = "<div style='background:#1a150a;border:1px solid #F6E27A;border-radius:6px;padding:8px 12px;margin-bottom:6px;color:#F6E27A;font-size:0.8rem'>⚡ %s - Quick trade levels based on latest price. Use for planning only.</div>" % session_name
 
-        # ── SNIPER STRIP COMPUTATION ───────────────────────────────────────────
         _sniper_html = ""
         try:
             _df1m = fetch_1min(ticker)
@@ -2695,11 +2758,10 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
             gates, gates_passed, elevate = run_seven_point_gate(df,sig,opt,iv_rank,earnings_days,opt["actual_dte"])
             est_days, dte_rec = estimate_move_timeframe(sig["pattern_label"])
 
-            # ── Signal/Gate alignment enforcement for SIGNALS tab ─────────────
             # Use precision_score signals_hit (6-signal system) — same as card display
             _tab_signals     = sig.get("signals_hit", sig.get("detail", {}).get("signals_hit", 0))
             _tab_gate_pct    = (gates_passed / 7) * 100
-            _tab_signal_pct  = (_tab_signals / 6) * 100
+            _tab_signal_pct  = (_tab_signals / 7) * 100
             _tab_divergence  = abs(_tab_gate_pct - _tab_signal_pct)
             _tab_aligned     = _tab_divergence <= 28 and _tab_signals >= 5
             # If not aligned — suppress PRIME SETUP and force gate color to yellow
@@ -2741,7 +2803,6 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
             )
             st.markdown(gate_html, unsafe_allow_html=True)
 
-            # ── News Sentiment (Integration Point 4) ──────────────────────
             try:
                 _, _, _sig_news, _sig_adj, _sig_flip, _sig_flip_reason = run_news_check(ticker, sig["direction"])
                 st.markdown(render_news_sentiment_html(
@@ -2754,7 +2815,6 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
             except Exception as _news_err:
                 st.caption("⚠️ News debug: %s" % str(_news_err)[:120])
 
-            # ── HTF Confluence ────────────────────────────────────────────
             if htf_trend is not None:
                 htf_agrees = htf_trend == sig["direction"]
                 htf_color  = "#D4AF37" if htf_agrees else "#C1121F"
@@ -2773,7 +2833,6 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                 )
                 st.markdown(htf_html, unsafe_allow_html=True)
 
-            # ── Weekly Macro Bias label ────────────────────────────────────
             _mb_label = sig.get("macro_bias_label", "")
             if _mb_label:
                 _mb_col = "#00C853" if "ALIGNED" in _mb_label else "#C1121F" if "HEADWIND" in _mb_label else "#A1A1A6"
@@ -2784,7 +2843,6 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                     unsafe_allow_html=True
                 )
 
-            # ── Move probability ──────────────────────────────────────────
             tr_color = "#D4AF37" if opt["target_realistic"]=="Likely" else "#F6E27A" if opt["target_realistic"]=="Possible" else "#C1121F"
             atr_txt  = (str(opt["atr_multiples"]) + "x ATR needed") if opt["atr_multiples"] else ""
             move_html = (
@@ -2869,7 +2927,6 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                     conf_status = conf_status + " (extended hrs)"
                 if "CONFIRMED" in conf_status:
                     conf_bg = "#1A1500"; conf_border = "#D4AF37"; conf_color = "#D4AF37"; conf_icon = "✅"
-                    # ── Fire Telegram + paper trade from signals tab ──────────
                     _sig_key = "signals_fired_%s_%s_%s" % (ticker, sig.get("direction",""), i)
                     if not st.session_state.get(_sig_key):
                         st.session_state[_sig_key] = True
@@ -2956,6 +3013,81 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                         unsafe_allow_html=True
                     )
 
+                try:
+                    _detail_ma = sig.get("detail", {}) or {}
+                    _ma_above  = _detail_ma.get("ma200_above")
+                    _ma_val    = _detail_ma.get("ma200_val")
+                    _ma_rising = _detail_ma.get("ma200_rising")
+                    _ma_pct    = _detail_ma.get("ma200_pct")
+                    if _ma_above is not None and _ma_val:
+                        _is_bull_ma = sig["direction"] == "bullish"
+                        _ma_col = (
+                            "#D4AF37" if ((_ma_above and _ma_rising and _is_bull_ma) or
+                                         (not _ma_above and not _ma_rising and not _is_bull_ma))
+                            else "#F6E27A" if ((_ma_above and _is_bull_ma) or
+                                              (not _ma_above and not _is_bull_ma))
+                            else "#C1121F"
+                        )
+                        _ma_state = (
+                            "Above Rising" if (_ma_above and _ma_rising) else
+                            "Above Flat"   if (_ma_above and not _ma_rising) else
+                            "Below Falling" if (not _ma_above and not _ma_rising) else
+                            "Below Rising"
+                        )
+                        _ma_pct_str = " (%+.1f%%)" % _ma_pct if _ma_pct is not None else ""
+                        st.markdown(
+                            "<div style='background:#1A1A1D;border:1px solid %s44;border-radius:8px;"
+                            "padding:10px 14px;margin-top:8px'>"
+                            "<div style='display:flex;justify-content:space-between;align-items:center'>"
+                            "<span style='color:#A1A1A6;font-family:monospace;font-size:0.68rem;"
+                            "letter-spacing:1px'>200-DAY MA</span>"
+                            "<span style='color:%s;font-weight:700;font-size:0.78rem'>%s%s</span>"
+                            "</div>"
+                            "<div style='font-size:0.75rem;color:#A1A1A6;margin-top:2px'>"
+                            "MA Value: <b style='color:#F5F5F5'>$%.2f</b></div>"
+                            "</div>" % (_ma_col, _ma_col, _ma_state, _ma_pct_str, _ma_val),
+                            unsafe_allow_html=True
+                        )
+                except Exception:
+                    pass
+
+                try:
+                    _detail_sr = sig.get("detail", {}) or {}
+                    _sr        = _detail_sr.get("sr_data", {})
+                    if _sr and _sr.get("label") not in ("S/R Unavailable", "S/R Error", "No Key S/R Nearby", ""):
+                        _sr_boost = _sr.get("conf_boost", 0)
+                        _sr_col   = (
+                            "#D4AF37" if _sr_boost >= 8 else
+                            "#22C55E" if _sr_boost > 0 else
+                            "#C1121F" if _sr_boost < 0 else
+                            "#A1A1A6"
+                        )
+                        _sup_str = "$%.2f" % _sr["nearest_support"]  if _sr.get("nearest_support")  else "—"
+                        _res_str = "$%.2f" % _sr["nearest_resistance"] if _sr.get("nearest_resistance") else "—"
+                        st.markdown(
+                            "<div style='background:#1A1A1D;border:1px solid %s44;border-radius:8px;"
+                            "padding:10px 14px;margin-top:8px'>"
+                            "<div style='display:flex;justify-content:space-between;align-items:center;"
+                            "margin-bottom:4px'>"
+                            "<span style='color:#A1A1A6;font-family:monospace;font-size:0.68rem;"
+                            "letter-spacing:1px'>SUPPORT / RESISTANCE</span>"
+                            "<span style='color:%s;font-size:0.75rem;font-weight:700'>%s</span>"
+                            "</div>"
+                            "<div style='font-size:0.75rem;color:#A1A1A6;margin-bottom:6px'>%s</div>"
+                            "<div style='display:flex;gap:16px;font-size:0.75rem'>"
+                            "<span>🟢 Support: <b style='color:#22C55E'>%s</b></span>"
+                            "<span>🔴 Resistance: <b style='color:#C1121F'>%s</b></span>"
+                            "</div>"
+                            "</div>" % (
+                                _sr_col, _sr_col, _sr.get("label", ""),
+                                _sr.get("detail", ""),
+                                _sup_str, _res_str,
+                            ),
+                            unsafe_allow_html=True
+                        )
+                except Exception:
+                    pass
+
                 # Show Watch button prominently for strong setups — no auto-adding
                 if elevate and not already_watching and conf_status != "CONFIRMED":
                     st.markdown(f"<div style='background:#1A1A1D;border:1px solid #D4AF37;border-radius:6px;padding:6px 12px;margin-top:4px;color:#D4AF37;font-size:0.8rem'>🚨 {gates_passed}/7 gates — elite setup. Hit Watch to track entry timing.</div>", unsafe_allow_html=True)
@@ -3024,16 +3156,10 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
 
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
 # PRECISION SCAN ENGINE
-# ═══════════════════════════════════════════════════════════════════════════════
 
 @_thread_cache(ttl=300)
 def get_market_internals():
-    """
-    Checks SPY and QQQ trend to determine overall market bias.
-    Returns: bias ("bullish"/"bearish"/"neutral"), strength (0-100)
-    """
     try:
         results = {}
         for sym in ["SPY","QQQ"]:
@@ -3085,22 +3211,14 @@ def get_sector_bias(sector_etf):
         return "neutral"
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
 # MARKET REGIME DETECTION ENGINE
 # Layer 1: Breadth Calculator
 # Layer 2: Index Health Check  
 # Layer 3: Rally Authenticity
 # Layer 4: Regime Classifier
 # Layer 5: Signal Adjuster
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def calculate_breadth_score(go_now, watching, on_deck):
-    """
-    Layer 1 — Breadth Calculator
-    Analyzes directional bias across all scan results.
-    Returns score from -100 (fully bearish) to +100 (fully bullish).
-    Weighted by confidence and gate count.
-    """
     bull_weight = 0.0
     bear_weight = 0.0
     
@@ -3146,11 +3264,6 @@ def calculate_breadth_score(go_now, watching, on_deck):
 
 
 def check_index_health(ticker="SPY"):
-    """
-    Layer 2 — Index Health Check
-    Analyzes SPY/QQQ/IWM for trend direction, volume, and momentum.
-    Returns dict with health metrics.
-    """
     try:
         # Get daily data for trend analysis
         df_daily = _fmp_download(ticker, "60d", "1d")
@@ -3221,14 +3334,6 @@ def check_index_health(ticker="SPY"):
 
 
 def check_rally_authenticity(ticker="SPY"):
-    """
-    Layer 3 — Rally Authenticity Score
-    Detects false rallies (bull traps) by comparing:
-    - Current move volume vs prior selloff volume
-    - Fibonacci resistance proximity
-    - RSI divergence on the bounce
-    Returns: AUTHENTIC, SUSPECT, or FALSE
-    """
     try:
         df = _fmp_download(ticker, "14d", "1d")
         if df is None or len(df) < 5:
@@ -3297,11 +3402,6 @@ def check_rally_authenticity(ticker="SPY"):
 
 
 def classify_market_regime(breadth_score, index_health, rally_auth, go_now, watching):
-    """
-    Layer 4 — Regime Classifier
-    Combines breadth, index health, and rally authenticity
-    into a single regime label.
-    """
     trend_20d    = index_health.get("trend_20d", "neutral")
     trend_5d     = index_health.get("trend_5d", "neutral")
     vol_ratio    = index_health.get("vol_ratio", 1.0)
@@ -3374,11 +3474,6 @@ def classify_market_regime(breadth_score, index_health, rally_auth, go_now, watc
 
 
 def apply_regime_adjustments(signals, regime_data):
-    """
-    Layer 5 — Signal Adjuster
-    Applies regime context to each signal.
-    Boosts aligned signals, flags counter-regime signals.
-    """
     regime = regime_data.get("regime", "NEUTRAL")
     bias   = regime_data.get("bias", "neutral")
     adjusted = []
@@ -3418,15 +3513,6 @@ def apply_regime_adjustments(signals, regime_data):
 
 
 def detect_fibonacci_confluence(df, direction, current_price=None):
-    """
-    Detects if current price is at a key Fibonacci retracement level.
-    
-    Uses the dominant swing high and low from the dataframe.
-    Returns confluence data including which level, confidence boost, and details.
-    
-    Levels checked: 23.6%, 38.2%, 50%, 61.8%, 78.6%
-    Tolerance: 0.5% of price range to be considered "at" a level
-    """
     if df is None or len(df) < 20:
         return {"confirmed": False, "level": None, "boost": 0, "detail": "Insufficient data"}
 
@@ -3452,7 +3538,6 @@ def detect_fibonacci_confluence(df, direction, current_price=None):
 
         # Calculate Fib levels
         # For bullish (price coming from low, retracing up): levels measured from low
-        # For bearish (price coming from high, retracing down): levels measured from high
         fib_levels = {
             "23.6%": swing_high - (price_range * 0.236),
             "38.2%": swing_high - (price_range * 0.382),
@@ -3532,12 +3617,157 @@ def detect_fibonacci_confluence(df, direction, current_price=None):
         return {"confirmed": False, "level": None, "boost": 0, "detail": "Fib error: %s" % str(e)[:40]}
 
 
+
+@_thread_cache(ttl=1800)
+def detect_sr_levels(ticker, current_price, direction):
+    empty = {
+        "at_support": False, "at_resistance": False,
+        "nearest_support": None, "nearest_resistance": None,
+        "support_levels": [], "resistance_levels": [],
+        "conf_boost": 0, "label": "S/R Unavailable", "detail": "",
+    }
+    if not current_price or current_price <= 0:
+        return empty
+    try:
+        df = _fmp_download(ticker, "1y", "1d")
+        if df is None or len(df) < 20:
+            return empty
+
+        close = df["close"].astype(float)
+        high  = df["high"].astype(float)
+        low   = df["low"].astype(float)
+
+        tol  = current_price * 0.006   # 0.6% tolerance to be "at" a level
+        sups = []
+        ress = []
+
+        lb = min(len(df), 60)
+        hs = high.iloc[-lb:].reset_index(drop=True)
+        ls = low.iloc[-lb:].reset_index(drop=True)
+
+        for i in range(2, len(hs) - 2):
+            h = float(hs.iloc[i])
+            if h > float(hs.iloc[i-1]) and h > float(hs.iloc[i-2])                and h > float(hs.iloc[i+1]) and h > float(hs.iloc[i+2]):
+                ress.append(h)
+
+        for i in range(2, len(ls) - 2):
+            l = float(ls.iloc[i])
+            if l < float(ls.iloc[i-1]) and l < float(ls.iloc[i-2])                and l < float(ls.iloc[i+1]) and l < float(ls.iloc[i+2]):
+                sups.append(l)
+
+        periods = min(252, len(close))
+        wk52h   = float(high.iloc[-periods:].max())
+        wk52l   = float(low.iloc[-periods:].min())
+        ress.append(wk52h)
+        sups.append(wk52l)
+
+        if current_price < 20:     incr = 1
+        elif current_price < 50:   incr = 5
+        elif current_price < 200:  incr = 10
+        elif current_price < 500:  incr = 25
+        else:                      incr = 50
+
+        base = round(current_price / incr) * incr
+        for mult in range(-6, 7):
+            level = base + mult * incr
+            if level > 0:
+                if level < current_price - tol:
+                    sups.append(float(level))
+                elif level > current_price + tol:
+                    ress.append(float(level))
+
+        def cluster(levels, thresh=0.015):
+            if not levels:
+                return []
+            levels = sorted(set(round(l, 2) for l in levels if l > 0))
+            out    = []
+            grp    = [levels[0]]
+            for l in levels[1:]:
+                if abs(l - grp[-1]) / grp[-1] < thresh:
+                    grp.append(l)
+                else:
+                    out.append(round(sum(grp) / len(grp), 2))
+                    grp = [l]
+            out.append(round(sum(grp) / len(grp), 2))
+            return out
+
+        sups = cluster([s for s in sups if s < current_price])
+        ress = cluster([r for r in ress if r > current_price])
+
+        nearest_sup = round(max(sups), 2) if sups else None
+        nearest_res = round(min(ress), 2) if ress else None
+
+        at_sup = nearest_sup is not None and abs(current_price - nearest_sup) <= tol * 3
+        at_res = nearest_res is not None and abs(current_price - nearest_res) <= tol * 3
+
+        if direction == "bullish":
+            if at_sup:
+                boost  = 8
+                label  = "Price at Support \u2705"
+                detail = "Buying into $%.2f support \u2014 favorable risk/reward" % nearest_sup
+            elif at_res:
+                boost  = -6
+                label  = "Price at Resistance \u26a0\ufe0f"
+                detail = "Buying into $%.2f resistance \u2014 CALL needs clean breakout first" % nearest_res
+            elif nearest_sup is not None:
+                dist = (current_price - nearest_sup) / current_price * 100
+                if dist < 3.0:
+                    boost  = 4
+                    label  = "Near Support (%.1f%% away)" % dist
+                    detail = "Support at $%.2f below \u2014 good cushion on stop" % nearest_sup
+                else:
+                    boost  = 0
+                    label  = "Between S/R Levels"
+                    detail = "Support $%.2f \u00b7 Resistance %s" % (
+                        nearest_sup, "$%.2f" % nearest_res if nearest_res else "N/A"
+                    )
+            else:
+                boost  = 0
+                label  = "No Key S/R Nearby"
+                detail = "No clear support/resistance within range"
+        else:  # bearish
+            if at_res:
+                boost  = 8
+                label  = "Price at Resistance \u2705"
+                detail = "Selling from $%.2f resistance \u2014 favorable risk/reward" % nearest_res
+            elif at_sup:
+                boost  = -6
+                label  = "Price at Support \u26a0\ufe0f"
+                detail = "Shorting into $%.2f support \u2014 PUT needs clean breakdown first" % nearest_sup
+            elif nearest_res is not None:
+                dist = (nearest_res - current_price) / current_price * 100
+                if dist < 3.0:
+                    boost  = 4
+                    label  = "Near Resistance (%.1f%% away)" % dist
+                    detail = "Resistance at $%.2f above \u2014 natural ceiling for stock" % nearest_res
+                else:
+                    boost  = 0
+                    label  = "Between S/R Levels"
+                    detail = "Support %s \u00b7 Resistance $%.2f" % (
+                        "$%.2f" % nearest_sup if nearest_sup else "N/A", nearest_res
+                    )
+            else:
+                boost  = 0
+                label  = "No Key S/R Nearby"
+                detail = "No clear support/resistance within range"
+
+        return {
+            "at_support":         at_sup,
+            "at_resistance":      at_res,
+            "nearest_support":    nearest_sup,
+            "nearest_resistance": nearest_res,
+            "support_levels":     sups[-5:] if sups else [],
+            "resistance_levels":  ress[:5]  if ress else [],
+            "conf_boost":         boost,
+            "label":              label,
+            "detail":             detail,
+        }
+    except Exception as _e:
+        empty["label"]  = "S/R Error"
+        empty["detail"] = str(_e)[:50]
+        return empty
+
 def detect_exhaustion(df, direction):
-    """
-    Elite exhaustion detection - requires 2 of 4 signals minimum.
-    Volume MUST be expanding (>1.2x avg) to count as exhaustion candle.
-    Confirmed = 2+ signals present (raised from 1).
-    """
     if len(df) < 20:
         return False, 0, ["Insufficient data"]
 
@@ -3618,7 +3848,6 @@ def detect_exhaustion(df, direction):
 
 
 
-# ── ACCURACY LAYER: Sector, Relative Strength, Momentum, Commodity ────────────
 
 # Commodity ETF map for energy/materials names
 _COMMODITY_MAP = {
@@ -3630,11 +3859,6 @@ _COMMODITY_MAP = {
 
 @_thread_cache(ttl=300)
 def check_sector_etf_trend(sector_etf):
-    """
-    Sector ETF must be above its 20 EMA for bullish signals,
-    below for bearish signals to be valid.
-    Returns: (bullish_ok, bearish_ok, detail)
-    """
     try:
         df = _fmp_download(sector_etf, "30d", "1d")
         if df is None or len(df) < 22:
@@ -3654,11 +3878,6 @@ def check_sector_etf_trend(sector_etf):
 
 @_thread_cache(ttl=300)
 def check_relative_strength(ticker, sector_etf, days=10):
-    """
-    Stock must outperform its sector ETF over the last N days for bullish signals.
-    For bearish: stock must underperform sector.
-    Returns: (bull_rs_ok, bear_rs_ok, detail)
-    """
     try:
         tk_df  = _fmp_download(ticker,     "20d", "1d")
         sec_df = _fmp_download(sector_etf, "20d", "1d")
@@ -3679,11 +3898,6 @@ def check_relative_strength(ticker, sector_etf, days=10):
 
 @_thread_cache(ttl=300)
 def check_momentum_filter(ticker, days_short=5, days_long=10):
-    """
-    Bullish signals require positive 5-day AND 10-day returns.
-    Bearish signals require negative 5-day AND 10-day returns.
-    Returns: (bull_ok, bear_ok, detail)
-    """
     try:
         df = _fmp_download(ticker, "20d", "1d")
         if df is None or len(df) < days_long + 1:
@@ -3703,10 +3917,6 @@ def check_momentum_filter(ticker, days_short=5, days_long=10):
 
 @_thread_cache(ttl=600)
 def check_commodity_trend(ticker, direction):
-    """
-    For energy/materials names — commodity ETF must align with signal direction.
-    If no commodity mapping exists, returns True (pass).
-    """
     commodity_etf = _COMMODITY_MAP.get(ticker.upper())
     if not commodity_etf:
         return True, "No commodity dependency"
@@ -3729,11 +3939,9 @@ def check_commodity_trend(ticker, direction):
         return True, "Commodity check unavailable"
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
 # PBP NEWS SENTIMENT ENGINE v2
 # Philosophy: News is directional data, not a blocker.
 # Only trading halt and delisted hard-block — everything else is PUT/CALL intel.
-# ═══════════════════════════════════════════════════════════════════════════════
 
 _BEAR_KEYWORDS = {
     "fraud": 3, "sec investigation": 3, "criminal": 3, "bankruptcy": 3,
@@ -3822,18 +4030,12 @@ def calculate_news_velocity(articles, window_minutes=30):
     velocity_score = min(100, recent * 25)
     return velocity_score, is_breaking, recent
 
-# ═══════════════════════════════════════════════════════════════════════════════
 # PBP SNIPER ENGINE
 # 1-minute candle analysis → micro trigger → execution score → entry zone
 # Transforms setup intelligence into execution intelligence
-# ═══════════════════════════════════════════════════════════════════════════════
 
 @_thread_cache(ttl=60)
 def fetch_1min(ticker, bars=30):
-    """
-    Fetch last N 1-minute candles from FMP.
-    Cached 60s — fresh enough for trigger detection, not spamming the API.
-    """
     if not FMP_API_KEY:
         return None
     try:
@@ -3863,17 +4065,6 @@ def fetch_1min(ticker, bars=30):
 
 
 def detect_micro_trigger(df_1min, direction):
-    """
-    Analyze last 5 1-minute candles for actionable trigger.
-    Returns: (trigger_type, trigger_active, entry_window, detail)
-
-    Trigger types:
-    - VWAP RECLAIM    — price crossed above VWAP (bull) or below (bear) on 1min
-    - PULLBACK HOLD   — price pulled back to VWAP/EMA and held (reversal candidate)
-    - MOMENTUM BREAK  — breakout of recent 1min high/low with volume
-    - REJECTION WICK  — long wick rejection at key level (contra trigger)
-    - NO TRIGGER      — nothing actionable right now
-    """
     if df_1min is None or len(df_1min) < 5:
         return "NO TRIGGER", False, "not active", "Insufficient 1min data"
 
@@ -3908,7 +4099,6 @@ def detect_micro_trigger(df_1min, direction):
 
         is_bull = direction == "bullish"
 
-        # ── VWAP RECLAIM (highest conviction 1min trigger) ────────────────────
         if is_bull:
             just_reclaimed = c2 < vwap_1m and c1 > vwap_1m
             if just_reclaimed:
@@ -3922,7 +4112,6 @@ def detect_micro_trigger(df_1min, direction):
                 window = "1–2 candles" if active else "closing"
                 return "VWAP RECLAIM", active, window, "Price crossed below 1min VWAP — sellers taking control"
 
-        # ── PULLBACK HOLD (second best — price retested and held) ─────────────
         if is_bull:
             near_vwap  = abs(c1 - vwap_1m) / vwap_1m < 0.003  # within 0.3%
             holding_up = c1 > c2 and c1 > vwap_1m
@@ -3938,7 +4127,6 @@ def detect_micro_trigger(df_1min, direction):
             if near_vwap and holding_dn:
                 return "PULLBACK HOLD", True, "1–2 candles", "Price pulled back to VWAP and rejecting — sellers in control"
 
-        # ── MOMENTUM BREAK (breakout of recent range) ─────────────────────────
         if is_bull:
             breakout = c1 > recent_high and vol_spike and body_pct > 0.4
             if breakout:
@@ -3948,7 +4136,6 @@ def detect_micro_trigger(df_1min, direction):
             if breakdown:
                 return "MOMENTUM BREAK", True, "1–2 candles", "Breaking recent 1min low with volume — momentum entry"
 
-        # ── REJECTION WICK (contra signal — warning) ─────────────────────────
         upper_wick = h1 - max(c1, o1)
         lower_wick = min(c1, o1) - l1
         if is_bull and upper_wick > body_1 * 2 and upper_wick > range_1 * 0.4:
@@ -3956,7 +4143,6 @@ def detect_micro_trigger(df_1min, direction):
         if not is_bull and lower_wick > body_1 * 2 and lower_wick > range_1 * 0.4:
             return "REJECTION WICK", False, "not active", "Long lower wick on 1min — buyers rejecting lower prices"
 
-        # ── NO TRIGGER ────────────────────────────────────────────────────────
         # Check if trigger expired (price has moved far from VWAP)
         extension = abs(c1 - vwap_1m) / vwap_1m
         if extension > 0.008:  # more than 0.8% from VWAP
@@ -3971,11 +4157,6 @@ def detect_micro_trigger(df_1min, direction):
 
 def calc_execution_score(trigger_type, trigger_active, vol_confirmed,
                           entry_status, direction, df_1min, current_price, atr):
-    """
-    Execution Score 0-100: measures TIMING quality, separate from setup quality.
-    Setup Score (confidence) = how good is the pattern
-    Execution Score          = how good is the ENTRY RIGHT NOW
-    """
     score = 0
 
     # Trigger present and active (+30)
@@ -4024,10 +4205,6 @@ def calc_execution_score(trigger_type, trigger_active, vol_confirmed,
 
 
 def build_entry_zone(entry_price, direction, pattern_label, atr, trigger_type):
-    """
-    Replace single entry price with an entry zone based on ATR and pattern type.
-    Returns: (zone_low, zone_high, entry_type, execution_script, missed_plan)
-    """
     if atr is None or atr <= 0:
         atr = entry_price * 0.01  # fallback: 1% of price
 
@@ -4074,10 +4251,6 @@ def build_entry_zone(entry_price, direction, pattern_label, atr, trigger_type):
 
 def get_sniper_entry_status(trigger_type, trigger_active, current_price,
                              zone_low, zone_high, execution_score):
-    """
-    Determines the top-line entry status for the sniper strip.
-    Returns: (status, color, emoji)
-    """
     if trigger_type == "EXTENDED":
         return "EXTENDED — DO NOT CHASE", "#FF1744", "🔴"
     if trigger_type == "REJECTION WICK":
@@ -4174,11 +4347,9 @@ def render_sniper_strip_html(ticker, direction, trigger_type, trigger_active,
     )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
 # WEEKLY MACRO BIAS ENGINE
 # Runs once per week. Cached in Supabase. Served fresh all week.
 # Reads ES (SPY proxy), NQ (QQQ proxy), BTC weekly candles from FMP.
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def _wbias_fetch_weekly(ticker, limit=3):
     """Fetch weekly proxy data using FMP daily endpoint — filter to weekly manually."""
@@ -4283,10 +4454,6 @@ def _wbias_save_supabase(week_start, assets, overall):
 
 @_thread_cache(ttl=3600)
 def get_weekly_macro_bias():
-    """
-    Primary entry point. Returns weekly macro bias dict.
-    Reads Supabase cache first, fetches live only if no record for this week.
-    """
     week_start = _wbias_get_week_start()
 
     # Try cache first
@@ -4554,13 +4721,6 @@ def check_macro_sentiment():
 
 
 def run_news_check(ticker, direction):
-    """
-    Returns: (block, reason, news_data, conf_adj, flip_signal, flip_reason)
-    block:       True ONLY for halt/delisted — everything else is tradeable
-    conf_adj:    -12 to +8 added to precision_score Tier 3
-    flip_signal: True when news strongly suggests opposite direction (score >= 50)
-    flip_reason: Shown on card as 💡 NEWS SUGGESTS PUT/CALL
-    """
     try:
         articles = fetch_ticker_news(ticker, hours=4, limit=10)
         news     = score_news_sentiment(articles, ticker)
@@ -4727,15 +4887,9 @@ def precision_score(ticker, direction, df_primary, df_confirm,
                     iv_rank, earnings_days, market_bias,
                     sector_bias, atr, dte, account_size, risk_pct,
                     trade_style, current_price=None, signals_only=False):
-    """
-    Elite scoring framework v6.1
-    TIER 1: Hard stops. TIER 2: 4/5 quality signals. TIER 3: scoring.
-    signals_only=True: skip all hard stops, return signal detail only (SIGNALS tab enrichment)
-    """
     import pytz
     from datetime import datetime as _dt
 
-    # ── TIER 1: Hard stops ────────────────────────────────────────────────────
     # signals_only=True skips all hard stops — SIGNALS tab enrichment path.
     # The pattern already surfaced; we just want 6-signal scoring, not re-gating.
     if not signals_only:
@@ -4789,7 +4943,6 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     except Exception:
         pass
 
-    # ── SECTOR ETF TREND GATE (Fix 4) ───────────────────────────────────────
     # Sector ETF must be above 20 EMA for bullish, below for bearish
     try:
         sector_etf = SECTOR_ETF.get(ticker, "SPY")
@@ -4804,7 +4957,6 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     except Exception:
         pass
 
-    # ── RELATIVE STRENGTH GATE (Fix 5) ───────────────────────────────────────
     # Stock must outperform its sector ETF over 10 days for bullish
     try:
         sector_etf = SECTOR_ETF.get(ticker, "SPY")
@@ -4819,7 +4971,6 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     except Exception:
         pass
 
-    # ── MOMENTUM FILTER (Fix 8) ───────────────────────────────────────────────
     # Positive 5-day AND 10-day returns required for bullish
     # Negative 5-day AND 10-day returns required for bearish
     try:
@@ -4833,7 +4984,6 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     except Exception:
         pass
 
-    # ── COMMODITY CORRELATION (Fix 7) ────────────────────────────────────────
     # Energy/materials names must have commodity trend aligned
     try:
         _comm_ok, _comm_detail = check_commodity_trend(ticker, direction)
@@ -4843,7 +4993,6 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     except Exception:
         pass
 
-    # ── LEGACY SECTOR MOVE CHECK (kept for intraday gaps) ────────────────────
     try:
         sector_etf = SECTOR_ETF.get(ticker, "SPY")
         if sector_etf and sector_etf != ticker:
@@ -4883,7 +5032,6 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     except Exception:
         pass
 
-    # ── NEWS CHECK (Integration Point 1) ────────────────────────────────────
     # Only hard blocks: trading halt and delisted. Everything else is intel.
     _news_block, _news_reason, _news_data, _news_conf_adj, _flip, _flip_reason = (
         run_news_check(ticker, direction)
@@ -4891,7 +5039,6 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     if _news_block:
         return None, _news_reason
 
-    # ── TIER 2: Quality signals - need 4 of 5 ────────────────────────────────
     signals_hit   = 0
     signal_detail = []
 
@@ -4968,13 +5115,40 @@ def precision_score(ticker, direction, df_primary, df_confirm,
         signal_detail.append("❌ Fibonacci Data Unavailable")
         fib_result = {"confirmed": False, "boost": 0}
 
+    # Signal 7: 200-Day MA alignment
+    _ma200_above  = None
+    _ma200_val    = None
+    _ma200_rising = None
+    _ma200_pct    = None
+    try:
+        _ma200_above, _ma200_val, _ma200_rising, _ma200_pct = fetch_200ma(ticker)
+        if _ma200_above is not None:
+            if direction == "bullish" and _ma200_above and _ma200_rising:
+                signals_hit += 1
+                signal_detail.append("\u2705 Above Rising 200MA ($%.2f, +%.1f%%)" % (_ma200_val, _ma200_pct or 0))
+            elif direction == "bearish" and not _ma200_above and not _ma200_rising:
+                signals_hit += 1
+                signal_detail.append("\u2705 Below Falling 200MA ($%.2f, %.1f%%)" % (_ma200_val, _ma200_pct or 0))
+            elif direction == "bullish" and _ma200_above and not _ma200_rising:
+                signal_detail.append("\u274c Above Flat 200MA \u2014 trend weakening")
+            elif direction == "bullish" and not _ma200_above:
+                signal_detail.append("\u274c Below 200MA \u2014 structural headwind")
+            elif direction == "bearish" and not _ma200_above and _ma200_rising:
+                signal_detail.append("\u274c Below Rising 200MA \u2014 potential support")
+            elif direction == "bearish" and _ma200_above:
+                signal_detail.append("\u274c Above 200MA \u2014 structural tailwind (headwind for PUT)")
+        else:
+            signal_detail.append("\u274c 200MA Unavailable")
+    except Exception:
+        signal_detail.append("\u274c 200MA Check Failed")
+
+
     # 4/5 required for GO NOW - but still score 3/5 for WATCHING/ON DECK
     # Bucket assignment in full_scan uses signals_hit to separate tiers
     if signals_hit < 2 and not signals_only:
         return None, "Only %s/5 quality signals aligned (need 2+ minimum)" % signals_hit
     # 2/5 signals: low confidence, will land in ON DECK only
 
-    # ── TIER 3: Execution quality scoring ────────────────────────────────────
     score = 50
     score += signals_hit * 5
     score += min(exh_score * 5, 18)  # exhaustion quality multiplier — raised weight
@@ -4982,6 +5156,35 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     # Fibonacci confluence boost — up to +8 max (reduced to prevent score inflation)
     fib_boost = fib_result.get("boost", 0) if isinstance(fib_result, dict) else 0
     score += min(fib_boost, 8)
+
+    # 200MA confidence boost
+    try:
+        if _ma200_above is not None:
+            if direction == "bullish" and _ma200_above and _ma200_rising:
+                score += 8
+            elif direction == "bullish" and _ma200_above and not _ma200_rising:
+                score += 2
+            elif direction == "bullish" and not _ma200_above:
+                score -= 6
+            elif direction == "bearish" and not _ma200_above and not _ma200_rising:
+                score += 8
+            elif direction == "bearish" and not _ma200_above and _ma200_rising:
+                score += 2
+            elif direction == "bearish" and _ma200_above:
+                score -= 6
+    except Exception:
+        pass
+
+    # S/R Level scoring
+    _sr_data  = {}
+    _sr_label = ""
+    try:
+        _sr_data  = detect_sr_levels(ticker, float(current_price) if current_price else 0, direction)
+        score    += _sr_data.get("conf_boost", 0)
+        _sr_label = _sr_data.get("label", "")
+    except Exception:
+        pass
+
 
     tf_agree = 0
     tf_total = 0
@@ -5029,8 +5232,8 @@ def precision_score(ticker, direction, df_primary, df_confirm,
 
     # Signal count hard caps — score cannot exceed these limits regardless of
     # how strong individual signals score. Prevents 3/6 signals from showing 90%+.
-    _signal_caps = {0: 55, 1: 62, 2: 72, 3: 80, 4: 88, 5: 94, 6: 97}
-    _sig_cap = _signal_caps.get(min(signals_hit, 6), 97)
+    _signal_caps = {0: 55, 1: 62, 2: 72, 3: 80, 4: 88, 5: 94, 6: 97, 7: 97}
+    _sig_cap = _signal_caps.get(min(signals_hit, 7), 97)
     final = min(final, _sig_cap)
 
     return final, {
@@ -5058,17 +5261,18 @@ def precision_score(ticker, direction, df_primary, df_confirm,
         "fib_detail":           fib_result.get("detail", "") if isinstance(fib_result, dict) else "",
         "fib_swing_high":       fib_result.get("swing_high") if isinstance(fib_result, dict) else None,
         "fib_swing_low":        fib_result.get("swing_low") if isinstance(fib_result, dict) else None,
+        "ma200_above":          _ma200_above,
+        "ma200_val":            _ma200_val,
+        "ma200_rising":         _ma200_rising,
+        "ma200_pct":            _ma200_pct,
+        "sr_data":              _sr_data,
+        "sr_label":             _sr_label,
     }
 
 
 def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                         dte_quick, dte_swing, max_premium,
                         trade_style_filter, market_bias):
-    """
-    Processes one ticker through the full precision stack.
-    Designed to run in a thread pool.
-    Returns list of result records (may be empty).
-    """
     results = []
     _reject_reason = "unknown"
     try:
@@ -5206,10 +5410,6 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
 def full_scan(scan_list, toggles, account_size, risk_pct,
               dte_quick, dte_swing, max_premium, trade_style_filter,
               progress_cb=None):
-    """
-    Parallel scanner using ThreadPoolExecutor.
-    Runs 10 tickers simultaneously - ~10x faster than sequential.
-    """
     market_bias, _ = get_market_internals()
     go_now   = []
     watching = []
@@ -5229,7 +5429,6 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
             exh_ok       = r.get("exh_confirmed", False)
             signals_hit  = r.get("signals_hit", r.get("detail", {}).get("signals_hit", 0))
 
-            # ── Weekly macro bias adjustment ───────────────────────────────
             try:
                 _wbias = get_weekly_macro_bias()
                 _wbias_overall = _wbias.get("overall", "NEUTRAL")
@@ -5254,7 +5453,6 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
 
             low_rr = r.get("low_rr", False)
 
-            # ── RR floor: quick=1.5x (30%/20%), swing=2.5x (50%/20%)
             _rr_val = r.get("opt", {}).get("rr_option", 0) or 0
             _min_rr = 1.5 if r.get("style") == "quick" else 2.5
             if _rr_val < _min_rr:
@@ -5262,7 +5460,6 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
                 on_deck.append(r)
                 continue
 
-            # ── GO NOW - compensating controls
             # Tier 1: conf>=85%, gates>=4, signals>=2
             # Tier 2: conf>=75%, gates>=5, signals>=3
             # Both: CONFIRMED + exhaustion
@@ -5272,13 +5469,12 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
             # Signal/Gate alignment check — they must agree within 2 points
             # Gate score out of 7, signal check out of 6 — normalize both to percentage
             _gate_pct   = (gates_passed / 7) * 100
-            _signal_pct = (signals_hit / 6) * 100
+            _signal_pct = (signals_hit / 7) * 100
             _divergence = abs(_gate_pct - _signal_pct)
             _aligned    = _divergence <= 28  # ~2 gates worth of divergence allowed
 
             # HIGH CONVICTION: conf>=85, gates>=5, signals>=5, aligned
             _high_conf = conf >= 85 and gates_passed >= 5 and signals_hit >= 4 and _aligned
-            # STRONG: conf>=75, gates>=5, signals>=5, aligned — same signal minimum, no exceptions
             _med_conf  = conf >= 75 and gates_passed >= 5 and signals_hit >= 4 and _aligned
 
             # Exhaustion confirmed = lower bar to GO NOW (74% conf, 4 gates)
@@ -5290,22 +5486,24 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
 
             if _go_now_ok:
                 go_now.append(r)
+                # Log to signal_outcomes for all users
+                try:
+                    log_signal_outcome(r)
+                except Exception:
+                    pass
 
-            # ── WATCHING
             elif conf >= 65 and gates_passed >= 4 and entry_status == "CONFIRMED" and signals_hit >= 2:
                 watching.append(r)
 
             elif conf >= 60 and gates_passed >= 3 and signals_hit >= 2:
                 watching.append(r)
 
-            # ── ON DECK
             elif conf >= 45 or signals_hit >= 2:
                 r["_on_deck_reason"] = (
                     "%s/5 signals" % signals_hit if signals_hit < 3
                     else "Building (%s%%)" % conf
                 )
                 on_deck.append(r)
-    # ── Macro news context (Integration Point 5) ─────────────────────────────
     try:
         _macro_bear, _macro_bull, _macro_triggers = check_macro_sentiment()
     except Exception:
@@ -5376,7 +5574,6 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
     return go_now, watching, on_deck, market_bias, _macro_triggers
 
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
 
     _user_email = st.session_state.get("user_email", "")
@@ -5395,7 +5592,6 @@ with st.sidebar:
                 st.session_state.pop(key, None)
             st.rerun()
 
-        # ── Change Password ────────────────────────────────────────────────
         with st.expander("🔑 Change Password"):
             _cp_new  = st.text_input("New Password", type="password", key="cp_new", placeholder="Min 6 characters")
             _cp_conf = st.text_input("Confirm Password", type="password", key="cp_conf", placeholder="Repeat password")
@@ -5459,7 +5655,6 @@ with st.sidebar:
         st.info("📲 Add DISCORD_WEBHOOK_URL in Railway to enable alerts")
 
 # Auto-refresh - NEVER fire while a scan is running.
-# _BG_RESULTS["running"] is the authoritative flag - session_state.scan_running is not used.
 init_watch_queue()
 _queue_active = any(item["status"] != "CONFIRMED" for item in st.session_state.watch_queue.values())
 try:
@@ -5476,7 +5671,6 @@ if AUTOREFRESH_AVAILABLE and not _bg_running_now:
 
 tf_mult,tf_span,tf_days = TIMEFRAMES[selected_tf]
 
-# ── Blank state — show logo instead of price card when no ticker selected ─────
 if not selected_ticker:
     st.markdown("""
     <div style='display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -5498,7 +5692,6 @@ if not selected_ticker:
         <div style='color:#4a5568;font-size:0.75rem;margin-top:8px'>Select a ticker from the sidebar to view signals · Or run a scan below</div>
     </div>
     """, unsafe_allow_html=True)
-    # Use demo data so tabs don't crash — nothing will auto-fire without a real ticker
     selected_ticker = "SPY"
     df            = fetch_ohlcv(selected_ticker, tf_mult, tf_span, tf_days)
     current_price = 0.0
@@ -5527,7 +5720,6 @@ if not _blank_state:
     iv_rank, hv   = fetch_iv_rank(selected_ticker)
     earnings_days = check_earnings(selected_ticker)
 
-# ── ATR calculation (14-period) ───────────────────────────────────────────────
 def calc_atr(df, period=14):
     if len(df) < period + 1: return None
     high  = df["high"].astype(float)
@@ -5540,7 +5732,6 @@ def calc_atr(df, period=14):
     ], axis=1).max(axis=1)
     return round(float(tr.rolling(period).mean().iloc[-1]), 2)
 
-# ── Higher timeframe confluence ───────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def fetch_htf_trend(ticker):
     """Fetch daily data and return trend + RSI for confluence check."""
@@ -5567,7 +5758,6 @@ if not _blank_state:
 else:
     atr = None
 
-# ── Background watch loop ────────────────────────────────────────────────────
 # Watch queue rendering moved to WATCH QUEUE tab - no more top-of-page reruns
 any_new_confirm = run_background_watch_checks(tf_mult, tf_span, tf_days)
 
@@ -5584,7 +5774,6 @@ mstatus, mtext = get_market_status()
 css_class = {"open":"market-open","pre":"market-pre","after":"market-pre","closed":"market-closed"}.get(mstatus,"market-closed")
 st.markdown(f"<div class='{css_class}'>{mtext}</div>", unsafe_allow_html=True)
 
-# ── AUTO-SCAN ENGINE ──────────────────────────────────────────────────────────
 SCAN_INTERVAL = 300  # 5 minutes
 
 def should_run_auto_scan():
@@ -5593,14 +5782,9 @@ def should_run_auto_scan():
     if last is None: return True
     return (datetime.now() - last).total_seconds() >= SCAN_INTERVAL
 
-# ═══════════════════════════════════════════════════════════════════════════════
 # BACKGROUND SCAN ENGINE
 # Runs in a daemon thread completely separate from Streamlit's render cycle.
-# Streamlit never runs the scan itself - it only reads results from shared state.
-# This means reruns, watch queue updates, and auto-refresh NEVER interrupt a scan.
-# ═══════════════════════════════════════════════════════════════════════════════
 
-# Module-level shared state - persists across Streamlit reruns in the same process
 _BG_LOCK    = _threading.Lock()
 _BG_TRIGGER = _threading.Event()   # set this to kick off an immediate scan
 _BG_RESULTS = {
@@ -5617,10 +5801,6 @@ _BG_THREAD_STARTED = False
 
 
 def send_discord(msg):
-    """
-    Generic Discord webhook sender — replaces Telegram.
-    Strips HTML tags since Discord uses markdown not HTML.
-    """
     if not DISCORD_WEBHOOK_URL:
         return
     import urllib.request, json as _j, re
@@ -5649,10 +5829,6 @@ def send_telegram_text(msg):
 _news_seen_articles = {}  # module-level — persists across bg loop iterations
 
 def _check_watchlist_news_alerts(watchlist):
-    """
-    Called from _bg_scan_loop every cycle.
-    Fires Telegram when breaking news hits a watchlist ticker.
-    """
     global _news_seen_articles
     for ticker in watchlist:
         try:
@@ -5696,26 +5872,18 @@ def _check_watchlist_news_alerts(watchlist):
             pass
 
 def _bg_scan_loop():
-    """
-    Daemon thread - runs forever, sleeps between scans.
-    Wakes up either on _BG_TRIGGER.set() (manual trigger)
-    or every 5 minutes automatically when auto-scan is enabled.
-    Never touches Streamlit state directly.
-    """
     import time as _time
 
     while True:
         # Wait for trigger or 5-minute auto interval
         triggered = _BG_TRIGGER.wait(timeout=300)
         _BG_TRIGGER.clear()
-        # ── Proactive news alerts — runs every loop cycle regardless of scan ──
         try:
             _wl_for_news = _BG_RESULTS.get("scan_list", ["SPY", "QQQ", "IWM"])
             _check_watchlist_news_alerts(_wl_for_news)
         except Exception:
             pass
 
-        # Read settings from shared results dict (written by Streamlit on settings change)
         with _BG_LOCK:
             scan_list    = _BG_RESULTS.get("scan_list",    ["SPY", "QQQ", "IWM"])
             toggles      = _BG_RESULTS.get("toggles",      {"db": True, "dt": True, "br": True})
@@ -5801,11 +5969,6 @@ def start_bg_scan_thread():
 
 def trigger_scan(scan_list, toggles, account_size, risk_pct,
                  dte_quick, dte_swing, max_premium, style, auto_enabled=False):
-    """
-    Called by Streamlit to kick off a scan.
-    Writes settings to shared state, fires the trigger event.
-    Returns immediately - scan runs in background.
-    """
     with _BG_LOCK:
         _BG_RESULTS["scan_list"]    = scan_list
         _BG_RESULTS["toggles"]      = toggles
@@ -5824,28 +5987,19 @@ def get_bg_results():
         return dict(_BG_RESULTS)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
 # SUPABASE PERSISTENCE ENGINE
-# ═══════════════════════════════════════════════════════════════════════════════
 
-def get_supabase(service=False):
-    """Returns a Supabase client. Use service=True to bypass RLS."""
+def get_supabase():
+    """Returns a Supabase client if configured, else None."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         return None
     try:
         from supabase import create_client
-        key = SUPABASE_SERVICE_KEY if (service and SUPABASE_SERVICE_KEY) else SUPABASE_KEY
-        return create_client(SUPABASE_URL, key)
+        return create_client(SUPABASE_URL, SUPABASE_KEY)
     except Exception:
         return None
 
 def get_user_id():
-    """
-    Gets or creates a persistent user ID stored in the URL query params.
-    This is how we identify users without full auth.
-    On first visit a UUID is generated and added to the URL.
-    On return visits the same ID is read from the URL.
-    """
     import uuid
     params = st.query_params
     uid = params.get("uid", None)
@@ -5856,7 +6010,7 @@ def get_user_id():
 
 def load_user_data(user_id):
     """Load all user data from Supabase user_data table."""
-    sb = get_supabase(service=True)
+    sb = get_supabase()
     if not sb or not user_id: return {}
     try:
         import json as _j
@@ -5874,7 +6028,7 @@ def load_user_data(user_id):
 
 def save_user_data(user_id, watchlist=None, watch_queue=None, preferences=None):
     """Save user data to Supabase."""
-    sb = get_supabase(service=True)
+    sb = get_supabase()
     if not sb or not user_id: return False
     try:
         import json as _j
@@ -6007,6 +6161,103 @@ def save_signal_history(r):
     except Exception:
         pass  # never crash the app over a db write
 
+
+def log_signal_outcome(r):
+    sb = get_supabase(service=True)
+    if not sb:
+        return
+    try:
+        opt         = r.get("opt", {})
+        ticker      = r.get("ticker", "")
+        signal_type = "CALL" if r.get("direction") == "bullish" else "PUT"
+        today_start = datetime.now(tz=pytz.UTC).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ).isoformat()
+        existing = sb.table("signal_outcomes")             .select("id")             .eq("ticker", ticker)             .eq("signal_type", signal_type)             .gte("logged_at", today_start)             .execute()
+        if existing.data:
+            return  # already logged this ticker+direction today
+        # Only insert columns that match the original schema
+        # signal_detail excluded — add it manually in Supabase if you want it
+        row = {
+            "ticker":       ticker,
+            "signal_type":  signal_type,
+            "direction":    r.get("direction"),
+            "pattern":      r.get("pattern"),
+            "style":        r.get("style"),
+            "confidence":   r.get("confidence"),
+            "gates_passed": r.get("gates_passed"),
+            "signals_hit":  r.get("signals_hit", 0),
+            "entry_price":  round(float(r.get("price", 0) or 0), 2),
+            "target":       round(float(opt.get("target", 0) or 0), 2),
+            "stop":         round(float(opt.get("stop", 0) or 0), 2),
+            "strike":       round(float(opt.get("strike", 0) or 0), 2),
+            "premium":      round(float(opt.get("premium", 0) or 0), 2),
+            "outcome_1d":   None,
+            "outcome_3d":   None,
+            "outcome_5d":   None,
+            "result":       "OPEN",
+            "logged_at":    datetime.now(tz=pytz.UTC).isoformat(),
+            "resolved_at":  None,
+        }
+        resp = sb.table("signal_outcomes").insert(row).execute()
+        if not resp.data:
+            print("[signal_outcomes] Insert returned no data for %s %s" % (ticker, signal_type))
+    except Exception as _soe:
+        print("[signal_outcomes] Insert failed: %s" % str(_soe)[:200])
+
+
+def update_signal_outcomes():
+    sb = get_supabase(service=True)
+    if not sb:
+        return
+    try:
+        cutoff = (datetime.now(tz=pytz.UTC) - timedelta(days=1)).isoformat()
+        res = sb.table("signal_outcomes")             .select("*")             .eq("result", "OPEN")             .lt("logged_at", cutoff)             .limit(20)             .execute()
+        if not res.data:
+            return
+        for row in res.data:
+            try:
+                ticker      = row["ticker"]
+                entry_price = float(row.get("entry_price") or 0)
+                direction   = row.get("direction", "bullish")
+                if entry_price <= 0:
+                    continue
+                df = _fmp_download(ticker, "10d", "1d")
+                if df is None or len(df) < 2:
+                    continue
+                df     = df.sort_values("datetime").reset_index(drop=True)
+                closes = df["close"].astype(float).tolist()
+
+                def pct_ret(idx):
+                    if len(closes) > idx:
+                        return round((closes[idx] - entry_price) / entry_price * 100, 2)
+                    return None
+
+                o1d = pct_ret(1)
+                o3d = pct_ret(3)
+                o5d = pct_ret(min(4, len(closes) - 1))
+
+                latest = o5d or o3d or o1d
+                if latest is not None:
+                    result = "WIN" if (
+                        (direction == "bullish" and latest > 0) or
+                        (direction == "bearish" and latest < 0)
+                    ) else "LOSS"
+                else:
+                    result = "OPEN"
+
+                sb.table("signal_outcomes").update({
+                    "outcome_1d":  o1d,
+                    "outcome_3d":  o3d,
+                    "outcome_5d":  o5d,
+                    "result":      result,
+                    "resolved_at": datetime.now(tz=pytz.UTC).isoformat() if result != "OPEN" else None,
+                }).eq("id", row["id"]).execute()
+            except Exception:
+                continue
+    except Exception:
+        pass
+
 def load_signal_history(limit=50):
     """Load recent signal history from Supabase."""
     sb = get_supabase()
@@ -6023,11 +6274,6 @@ def load_signal_history(limit=50):
         return []
 
 def init_user_watchlist():
-    """
-    Called once on load. Uses Supabase Auth user_id to load all user data.
-    Watch queue always reads fresh from Supabase.
-    Watchlist only loads once per session to avoid overwriting user changes.
-    """
     user_id = st.session_state.get("user_id")
     st.session_state.user_id = user_id
 
@@ -6064,14 +6310,11 @@ def init_user_watchlist():
 
     st.session_state.watchlist_loaded = True
 
-# Call after function is defined so user_id is available post-auth
-if st.session_state.get("authenticated") and st.session_state.get("user_id"):
-    init_user_watchlist()
+init_user_watchlist()  # call immediately after definition
 
 start_bg_scan_thread()  # start background scanner daemon
 
 # Load paper trades from Supabase now that functions are defined
-# Always reload paper trades when authenticated — ensures correct user's trades load
 if st.session_state.get("authenticated") and not st.session_state.get("_paper_trades_loaded"):
     _pt = load_paper_trades()
     if _pt:
@@ -6083,15 +6326,9 @@ elif not st.session_state.paper_trades:
         st.session_state.paper_trades = _pt
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
 # TELEGRAM ALERT ENGINE
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def send_make_webhook(r):
-    """
-    Fires signal data to Make.com webhook for automated Canva + Instagram posting.
-    Only fires from admin account.
-    """
     if not MAKE_WEBHOOK_URL:
         return
     try:
@@ -6302,15 +6539,6 @@ PAPER_PROFIT_TARGET = {
 PAPER_STOP_LOSS_PCT = -20  # exit any trade at -20% premium loss
 
 def paper_check_exits():
-    """
-    Run on every scan cycle. Checks all open paper trades for:
-    - Profit target hit: +30% (quick) or +50% (swing) premium gain
-    - Full price target hit on underlying stock
-    - Stop hit on underlying stock
-    - Premium decay -20%: hard stop loss
-    - Expired: past expiration date
-    Updates P&L and status in place.
-    """
     trades = st.session_state.paper_trades
     for t in trades:
         if t["status"] != "OPEN":
@@ -6425,7 +6653,6 @@ def paper_close_trade(trade_id, reason="MANUAL CLOSE"):
             t["pnl_dollar"]   = round(pnl_dollar, 2)
             break
 
-# Auto-scan: keep background thread settings in sync whenever auto-scan is enabled
 def sync_bg_auto_scan():
     """Push current sidebar settings into bg engine and enable auto mode."""
     cfg = st.session_state.auto_scan_settings
@@ -6446,7 +6673,6 @@ if st.session_state.auto_scan_enabled:
 
 _bg_status = get_bg_results()
 
-# ── GO NOW ALERT BANNER - fired from background thread new_go list ─────────────
 _new_go_now = _bg_status.get("new_go", [])
 # Deduplicate - only show banners for signals we haven't shown yet this session
 _shown_banners = st.session_state.get("shown_banners", set())
@@ -6468,7 +6694,7 @@ for ng in _new_go_now:
            ng["pattern"], ng["confidence"], ng["gates_passed"],
            ng["opt"]["strike"], ng["opt"]["target"], ng["opt"]["stop"]),
     unsafe_allow_html=True)
-    st.components.v1.html("""<script>
+    st.iframe("""<script>
     try {
         var ctx=new(window.AudioContext||window.webkitAudioContext)();
         [440,554,659].forEach(function(f,i){
@@ -6518,7 +6744,6 @@ if not _blank_state:
         css = f"divergence-{'bull' if div['type']=='bullish' else 'bear'}"
         st.markdown(f"<div class='{css}'><b>{div['label']}</b><br>{div['detail']}</div>", unsafe_allow_html=True)
 
-# ── Macro News Triggers ────────────────────────────────────────────────────
 _mt = st.session_state.get("macro_triggers", [])
 if _mt:
     _mt_chips = ""
@@ -6540,7 +6765,6 @@ if _mt:
 
 tab4,tab1,tab2,tab8,tab9,tab7 = st.tabs(["SCAN","SIGNALS","CHART","WATCH QUEUE","🎯 SNIPER","HOW IT WORKS"])
 
-# ── Weekly Macro Bias Banner ───────────────────────────────────────────────
 render_weekly_bias_banner()
 
 with tab1:
@@ -6550,10 +6774,7 @@ with tab1:
         cands_quick, tfs_quick = build_multi_tf_candidates(selected_ticker, toggles, account_size, risk_pct, dte_quick, "quick", atr=atr)
         cands_swing, tfs_swing = build_multi_tf_candidates(selected_ticker, toggles, account_size, risk_pct, dte_swing, "swing", atr=atr)
 
-        # ── Run precision_score on SIGNALS tab candidates ─────────────────────
         # Replaces score_setup's 5-factor system with the full 6-signal engine.
-        # Data is already fetched — just pipe through precision_score once per candidate.
-        # Use neutral market/sector bias — single ticker view, don't penalize vs broad market.
         def _enrich_with_precision(cands, tfs, style, dte_used):
             pri_key = "15min" if style == "quick" else "1hr"  # quick primary = 15min
             con_key = "5min" if style == "quick" else ("4hr" if "4hr" in tfs else "daily")
@@ -6622,7 +6843,6 @@ with tab1:
                                     htf_trend, htf_rsi, htf_ema, liq_ok)
 
 with tab2:
-    # ── Detect patterns for annotation ────────────────────────────────────────
     chart_db    = [s for s in detect_double_bottom(df, selected_ticker, rr_min=2.0) if s.confirmed]
     chart_dt    = [s for s in detect_double_top(df, selected_ticker, rr_min=2.0)    if s.confirmed]
     chart_br    = [s for s in detect_break_and_retest(df, selected_ticker, rr_min=2.0) if s.confirmed]
@@ -6631,7 +6851,6 @@ with tab2:
     chart_setups = sorted(chart_setups_all,
         key=lambda s: getattr(s, "confidence", 0), reverse=True)[:1]
 
-    # ── Build candle + volume data for Lightweight Charts ────────────────────
     try:
         import json as _json
         _df = df.copy()
@@ -6673,7 +6892,6 @@ with tab2:
             for i, (_, row) in enumerate(_df.iterrows())
         ]
 
-        # ── Pattern markers (circles on key candles) ─────────────────────────
         markers = []
         for s in chart_setups[:3]:
             is_bull  = s.direction == "bullish"
@@ -6734,7 +6952,6 @@ with tab2:
                     "text":     "ENTRY %s" % pat_name
                 })
 
-        # ── Price lines for entry / target / stop ─────────────────────────────
         price_lines = []
         for s in chart_setups[:1]:  # show lines for best setup only
             is_bull = s.direction == "bullish"
@@ -6750,7 +6967,6 @@ with tab2:
                  "title": "Stop $%.2f" % s.stop_loss},
             ]
 
-        # ── Render via inline HTML (TradingView Lightweight Charts CDN) ───────
         chart_html = """
 <!DOCTYPE html>
 <html>
@@ -6853,7 +7069,6 @@ window.addEventListener('resize', () => chart.resize(chartEl.offsetWidth, 480));
     ticker    = selected_ticker,
 )
 
-        # ── Pattern signal cards ───────────────────────────────────────────────
         if chart_setups:
             st.markdown(
                 "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px'>",
@@ -6881,7 +7096,7 @@ window.addEventListener('resize', () => chart.resize(chartEl.offsetWidth, 480));
         else:
             st.caption("No confirmed patterns detected on current timeframe.")
 
-        st.components.v1.html(chart_html, height=490, scrolling=False)
+        st.iframe(chart_html, height=490, scrolling=False)
 
         # Legend
         st.markdown(
@@ -6900,7 +7115,6 @@ window.addEventListener('resize', () => chart.resize(chartEl.offsetWidth, 480));
 with tab4:
     st.markdown("<div class='section-title'>MARKET SCANNER</div>", unsafe_allow_html=True)
 
-    # ── Watchlist Manager ─────────────────────────────────────────────────────
     _uid = st.session_state.get("user_id", "local")
     _db_active = bool(SUPABASE_URL and SUPABASE_KEY)
     _wl_label  = "📋 My Watchlist (%s tickers)%s" % (
@@ -6990,7 +7204,6 @@ with tab4:
         on_deck  = st.session_state.auto_scan_on_deck
         mkt_bias = st.session_state.auto_scan_mkt
 
-        # ── Staleness filter — re-check entry status on cached GO NOW signals ──
         # If entry flipped AGAINST or EXTENDED since last scan, drop to WATCHING
         _stale_drop = []
         _valid_go   = []
@@ -7026,8 +7239,6 @@ with tab4:
                 st.rerun()
     else:
         st.caption(f"Scanning {len(scan_list)} tickers through full precision stack")
-        # ── Live scan status from background thread ──────────────────────
-        # ── Inline scan - runs directly in Streamlit, results stored in session state
         # Background thread doesn't work on Railway multi-worker deployments
         # (each worker has its own memory space, results never reach the page)
 
@@ -7036,7 +7247,6 @@ with tab4:
         on_deck  = st.session_state.get("scan_on_deck",  [])
         mkt_bias = st.session_state.get("scan_mkt",      "neutral")
 
-        # ── Staleness filter — same as auto-scan path ──────────────────────────
         _valid_go2 = []
         for _r in go_now:
             try:
@@ -7144,14 +7354,12 @@ with tab4:
             paper_check_exits()
 
             # Fire Telegram + paper trades for GO NOW signals
-            # ── Telegram fires ONLY for highest conviction signals
             # Telegram is now manual — admin hits "Send to Telegram" button on each card
             # Auto-firing removed to give full control over what gets alerted
             for r in go_now:
                 try: save_signal_history(r)
                 except: pass
 
-            # ── REGIME DETECTION ENGINE ───────────────────────────────────────
             try:
                 # Layer 1: Breadth
                 _breadth_score, _bull_pct, _bear_pct = calculate_breadth_score(go_now, watching, on_deck)
@@ -7186,7 +7394,12 @@ with tab4:
 
             save_scan_state(go_now, watching, on_deck)
 
-            # ── Inline news alerts — same process as page render ──────────
+            # Update outcome records for OPEN signals older than 1 day
+            try:
+                update_signal_outcomes()
+            except Exception:
+                pass
+
             # Background thread alerts fail on Railway multi-worker (different worker)
             # This inline call reliably reaches Telegram on the same worker.
             try:
@@ -7195,7 +7408,6 @@ with tab4:
             except Exception:
                 pass
 
-    # ── show completion banner
     _last_run = st.session_state.get("scan_last_run")
     if _last_run:
         elapsed = int((datetime.now() - _last_run).total_seconds())
@@ -7209,7 +7421,6 @@ with tab4:
                 unsafe_allow_html=True
             )
 
-    # ── REGIME DISPLAY BANNER ──────────────────────────────────────────────────
     _regime = st.session_state.get("market_regime")
     if _regime and _regime.get("regime") not in ["UNKNOWN", None]:
         _rc     = _regime.get("color", "#A1A1A6")
@@ -7252,18 +7463,14 @@ with tab4:
             unsafe_allow_html=True
         )
 
-    # ── Debug: show why tickers were rejected ──────────────────────────────────
     rejected = [r for r in on_deck if r.get("_rejected")]
     real_on_deck = [r for r in on_deck if not r.get("_rejected")]
     on_deck = real_on_deck
 
     last_run = st.session_state.get("scan_last_run") or st.session_state.get("auto_scan_last_run")
 
-    # ── Temp diagnostic - shows why signals landed in ON DECK vs GO NOW ────────
     # Signal breakdown removed — internal data stays internal
-    # ──────────────────────────────────────────────────────────────────────────
 
-    # ── Win Rate Badge ─────────────────────────────────────────────────────────
     _all_trades   = st.session_state.get("paper_trades", [])
     _closed       = [t for t in _all_trades if t.get("status") not in ["OPEN", None]]
     _wins         = [t for t in _closed if t.get("is_win") or t.get("status") == "WIN"]
@@ -7305,7 +7512,6 @@ with tab4:
             unsafe_allow_html=True
         )
 
-    # ── Paper Trade Log ────────────────────────────────────────────────────────
     if _all_trades:
         with st.expander("📊 Paper Trade Log (%s trades)" % len(_all_trades), expanded=False):
             # Open trades first
@@ -7398,7 +7604,6 @@ with tab4:
         </div>
         """, unsafe_allow_html=True)
 
-        # ── Mobile-first card renderer ───────────────────────────────────────
         def conf_color(c):
             return "#D4AF37" if c>=90 else "#40d080" if c>=80 else "#F6E27A" if c>=70 else "#6699aa"
         def conf_label(c):
@@ -7589,6 +7794,62 @@ with tab4:
                         tcol = "#F5F5F5" if good else "#A1A1A6"
                         dot  = "●" if good else "○"
                         st.markdown("<div style='font-size:0.71rem;color:%s;padding:1px 0'><span style='color:%s'>%s</span> %s</div>" % (tcol, col, dot, reason), unsafe_allow_html=True)
+                try:
+                    _d    = r.get("detail", {}) or {}
+                    _mav  = _d.get("ma200_val")
+                    _maa  = _d.get("ma200_above")
+                    _mar  = _d.get("ma200_rising")
+                    _map  = _d.get("ma200_pct")
+                    if _maa is not None and _mav:
+                        _is_bull_mc = r.get("direction") == "bullish"
+                        _mc = (
+                            "#D4AF37" if ((_maa and _mar and _is_bull_mc) or (not _maa and not _mar and not _is_bull_mc))
+                            else "#F6E27A" if ((_maa and _is_bull_mc) or (not _maa and not _is_bull_mc))
+                            else "#C1121F"
+                        )
+                        _ms  = "Above Rising" if (_maa and _mar) else "Above Flat" if (_maa and not _mar) else "Below Falling" if (not _maa and not _mar) else "Below Rising"
+                        _mp  = " (%+.1f%%)" % _map if _map is not None else ""
+                        st.markdown(
+                            "<div style='background:#1A1A1D;border:1px solid %s44;border-radius:6px;"
+                            "padding:8px 12px;margin:4px 0'>"
+                            "<div style='font-size:0.62rem;color:#A1A1A6;letter-spacing:1px;margin-bottom:2px'>200-DAY MA</div>"
+                            "<div style='font-size:0.78rem;font-weight:700;color:%s'>%s%s</div>"
+                            "<div style='font-size:0.7rem;color:#A1A1A6'>$%.2f</div>"
+                            "</div>" % (_mc, _mc, _ms, _mp, _mav),
+                            unsafe_allow_html=True
+                        )
+                except Exception:
+                    pass
+
+                try:
+                    _d  = r.get("detail", {}) or {}
+                    _sr = _d.get("sr_data", {})
+                    if _sr and _sr.get("label") not in ("S/R Unavailable", "S/R Error", "No Key S/R Nearby", ""):
+                        _sc = (
+                            "#D4AF37" if _sr.get("conf_boost", 0) >= 8 else
+                            "#22C55E" if _sr.get("conf_boost", 0) > 0 else
+                            "#C1121F" if _sr.get("conf_boost", 0) < 0 else
+                            "#A1A1A6"
+                        )
+                        _sup_s = "$%.2f" % _sr["nearest_support"]  if _sr.get("nearest_support")  else "—"
+                        _res_s = "$%.2f" % _sr["nearest_resistance"] if _sr.get("nearest_resistance") else "—"
+                        st.markdown(
+                            "<div style='background:#1A1A1D;border:1px solid %s44;border-radius:6px;"
+                            "padding:8px 12px;margin:4px 0'>"
+                            "<div style='font-size:0.62rem;color:#A1A1A6;letter-spacing:1px;margin-bottom:2px'>S/R LEVELS</div>"
+                            "<div style='font-size:0.78rem;font-weight:700;color:%s'>%s</div>"
+                            "<div style='font-size:0.7rem;color:#A1A1A6;margin-top:2px'>%s</div>"
+                            "<div style='font-size:0.7rem;margin-top:4px'>"
+                            "<span style='color:#22C55E'>Sup %s</span>"
+                            " &nbsp;·&nbsp; "
+                            "<span style='color:#C1121F'>Res %s</span>"
+                            "</div>"
+                            "</div>" % (_sc, _sc, _sr.get("label",""), _sr.get("detail",""), _sup_s, _res_s),
+                            unsafe_allow_html=True
+                        )
+                except Exception:
+                    pass
+
                 # Watch button — adds to Watch Queue directly from scan card
                 _wkey_scan = "%s_%s" % (r["ticker"], r.get("direction","bullish"))
                 _in_queue  = _wkey_scan in st.session_state.get("watch_queue", {})
@@ -7693,55 +7954,103 @@ with tab8:
                 elif c == "red":   candle_html += "<span style='color:#C1121F;font-size:1rem'>&#9660;</span> "
                 else:              candle_html += "<span style='color:#A1A1A6;font-size:0.8rem'>&#9644;</span> "
 
-            status = item["status"]
-            is_bull_w  = item["direction"] == "bullish"
-            dir_color_w = "#D4AF37" if is_bull_w else "#C1121F"
-            action_w    = "CALL" if is_bull_w else "PUT"
+            status         = item["status"]
+            breakout_state = item.get("breakout_state", "WAITING")
+            is_bull_w      = item["direction"] == "bullish"
+            dir_color_w    = "#D4AF37" if is_bull_w else "#C1121F"
+            action_w       = "CALL" if is_bull_w else "PUT"
+            key_level      = item.get("key_level")
+            vol_mult       = item.get("vol_mult")
+
+            # ── Style profile per breakout state ────────────────────────
+            if breakout_state == "MOMENTUM_ENTRY":
+                bg_clr     = "#0A1F0A"
+                border_clr = "#22C55E"
+                tag_clr    = "#22C55E"
+                tag_label  = "⚡ MOMENTUM ENTRY — GET IN NOW"
+            elif breakout_state == "RETEST_READY":
+                bg_clr     = "#1A1500"
+                border_clr = "#D4AF37"
+                tag_clr    = "#D4AF37"
+                tag_label  = "🟢 RETEST HOLDING — ENTER NOW"
+            elif breakout_state == "WEAK_BREAK":
+                bg_clr     = "#1A1700"
+                border_clr = "#FFD600"
+                tag_clr    = "#FFD600"
+                tag_label  = "⚠️ WEAK BREAK — CAUTION ENTRY OR WAIT FOR RETEST"
+            elif breakout_state == "WAITING_BREAKOUT":
+                bg_clr     = "#1A1A1D"
+                border_clr = "#F6E27A"
+                tag_clr    = "#F6E27A"
+                tag_label  = "⏳ WAITING FOR BREAKOUT"
+            elif status == "CONFIRMED":
+                bg_clr     = "#1A1500"
+                border_clr = "#D4AF37"
+                tag_clr    = "#D4AF37"
+                tag_label  = "✅ ENTRY CONFIRMED — GET IN NOW"
+            else:
+                bg_clr     = "#1A1A1D"
+                border_clr = "#F6E27A" if status == "WAITING" else "#C1121F"
+                tag_clr    = border_clr
+                tag_label  = "👁 WATCHING" if status == "WAITING" else "⏳ STANDBY"
+
+            # Build S/R context line
+            sr_line = ""
+            if key_level:
+                _vm = ("vol %.1fx" % vol_mult) if vol_mult else ""
+                sr_line = "<div style='color:#A1A1A6;font-size:0.72rem;font-family:monospace;margin-top:4px'>Key Level: <span style='color:%s'>$%.2f</span> %s</div>" % (
+                    tag_clr, key_level, ("· " + _vm) if _vm else ""
+                )
 
             wq_col, dismiss_col = st.columns([6,1])
             with wq_col:
-                if status == "CONFIRMED":
+                # Big confirmed-style card for actionable states
+                if breakout_state in ("MOMENTUM_ENTRY", "RETEST_READY") or status == "CONFIRMED":
                     st.markdown("""
-                    <div style='background:#1A1500;border:2px solid #D4AF37;border-radius:10px;padding:14px 16px;margin:4px 0'>
-                        <div style='color:#D4AF37;font-family:monospace;font-size:0.72rem;letter-spacing:2px'>✅ ENTRY CONFIRMED - GET IN NOW</div>
-                        <div style='font-size:1.1rem;font-weight:700;color:{dc}'>BUY {act} - {tk}</div>
+                    <div style='background:{bg};border:2px solid {bc};border-radius:10px;padding:14px 16px;margin:4px 0'>
+                        <div style='color:{tc};font-family:monospace;font-size:0.72rem;letter-spacing:2px;font-weight:700'>{tag}</div>
+                        <div style='font-size:1.1rem;font-weight:700;color:{dc};margin-top:4px'>BUY {act} — {tk}</div>
                         <div style='color:#A1A1A6;font-size:0.82rem'>{pat}</div>
+                        {sr}
+                        <div style='color:#F5F5F5;font-size:0.8rem;margin-top:6px'>{msg}</div>
                         <div style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;font-size:0.85rem;margin-top:10px'>
                             <div><div style='color:#A1A1A6;font-size:0.7rem'>STRIKE</div><div style='font-weight:700;color:{dc}'>${stk:.2f}</div></div>
                             <div><div style='color:#A1A1A6;font-size:0.7rem'>ENTRY</div><div style='font-weight:700'>${ent:.2f}</div></div>
                             <div><div style='color:#A1A1A6;font-size:0.7rem'>TARGET</div><div style='font-weight:700;color:#D4AF37'>${tgt:.2f}</div></div>
                             <div><div style='color:#A1A1A6;font-size:0.7rem'>STOP</div><div style='font-weight:700;color:#C1121F'>${stp:.2f}</div></div>
                         </div>
-                        <div style='margin-top:8px;color:#F5F5F5;font-size:0.78rem'>Candles: {cnd} &nbsp; <span style='color:#F6E27A'>{remain_mins}m {remain_secs}s remaining{last_chk}</span></div>
+                        <div style='margin-top:8px;color:#F5F5F5;font-size:0.78rem'>Candles: {cnd} &nbsp; <span style='color:#F6E27A'>{rm}m {rs}s remaining{lc}</span></div>
                     </div>
                     """.format(
+                        bg=bg_clr, bc=border_clr, tc=tag_clr, tag=tag_label,
                         dc=dir_color_w, act=action_w, tk=item["ticker"],
-                        pat=item["pattern"], stk=item["strike"],
-                        ent=item["entry"], tgt=item["target"], stp=item["stop"],
-                        cnd=candle_html, elapsed_mins=elapsed_mins,
-                        elapsed_secs=elapsed_secs, last_chk=last_chk
+                        pat=item["pattern"], sr=sr_line, msg=item["message"],
+                        stk=item["strike"], ent=item["entry"], tgt=item["target"], stp=item["stop"],
+                        cnd=candle_html, rm=remain_mins, rs=remain_secs, lc=last_chk
                     ), unsafe_allow_html=True)
+                # Compact-style card for waiting/weak states
                 else:
-                    border_clr = "#F6E27A" if status == "WAITING" else "#C1121F"
-                    icon = "👁" if status == "WAITING" else "⏳"
                     st.markdown("""
-                    <div style='background:#1A1A1D;border:2px solid {bc};border-radius:8px;padding:12px 16px;margin:4px 0'>
+                    <div style='background:{bg};border:2px solid {bc};border-radius:8px;padding:12px 16px;margin:4px 0'>
                         <div style='display:flex;justify-content:space-between;align-items:center'>
                             <div>
-                                <span style='font-size:1.1rem'>{ic}</span>
-                                <b style='margin-left:6px;color:{dc}'>{tk} {act}</b>
-                                <span style='color:#A1A1A6;font-size:0.82rem;margin-left:8px'>{pat} | Strike ${stk:.2f}</span>
+                                <span style='color:{tc};font-family:monospace;font-size:0.7rem;font-weight:700;letter-spacing:1px'>{tag}</span>
                             </div>
-                            <div style='color:#F6E27A;font-size:0.75rem;font-family:monospace'>{rm}m {rs}s left{lc}</div>
+                            <div style='color:#F6E27A;font-size:0.72rem;font-family:monospace'>{rm}m {rs}s{lc}</div>
                         </div>
+                        <div style='margin-top:6px'>
+                            <b style='color:{dc};font-size:0.95rem'>{tk} {act}</b>
+                            <span style='color:#A1A1A6;font-size:0.78rem;margin-left:8px'>{pat} · Strike ${stk:.2f}</span>
+                        </div>
+                        {sr}
+                        <div style='color:#F5F5F5;font-size:0.8rem;margin-top:4px;line-height:1.5'>{msg}</div>
                         <div style='margin-top:6px'>{cnd}</div>
-                        <div style='color:#F5F5F5;font-size:0.82rem;margin-top:4px'>{msg}</div>
                     </div>
                     """.format(
-                        bc=border_clr, ic=icon, dc=dir_color_w,
-                        tk=item["ticker"], act=action_w, pat=item["pattern"],
-                        stk=item["strike"], em=elapsed_mins, es=elapsed_secs, rm=remain_mins, rs=remain_secs,
-                        lc=last_chk, cnd=candle_html, msg=item["message"]
+                        bg=bg_clr, bc=border_clr, tc=tag_clr, tag=tag_label,
+                        dc=dir_color_w, tk=item["ticker"], act=action_w, pat=item["pattern"],
+                        stk=item["strike"], rm=remain_mins, rs=remain_secs, lc=last_chk,
+                        sr=sr_line, msg=item["message"], cnd=candle_html
                     ), unsafe_allow_html=True)
 
             with dismiss_col:
@@ -7859,190 +8168,76 @@ with tab7:
 <style>
 .hiw-section { background:#0B0B0C; border-radius:12px; padding:20px 24px;
                margin-bottom:16px; border-left:3px solid #2A2A2D; }
-.hiw-title   { font-size:1.1rem; font-weight:700; color:#F5F5F5;
-               margin-bottom:8px; letter-spacing:0.5px; }
+.hiw-title   { font-size:1.1rem; font-weight:700; color:#F5F5F5; margin-bottom:8px; }
 .hiw-body    { font-size:0.8rem; color:#A1A1A6; line-height:1.8; }
 .hiw-badge   { display:inline-block; padding:2px 10px; border-radius:20px;
                font-size:0.7rem; font-weight:700; margin:2px; }
 </style>
 """, unsafe_allow_html=True)
 
-    st.markdown("""
-<div style='text-align:center;padding:16px 0 24px'>
-  <div style='font-size:1.5rem;font-weight:700;color:#F5F5F5;letter-spacing:2px'>
-    📡 HOW IT WORKS
-  </div>
-  <div style='font-size:0.75rem;color:#A1A1A6;margin-top:6px'>
-    PaidButPressured — Setup Intelligence + Execution Intelligence
-  </div>
-</div>
-""", unsafe_allow_html=True)
+    _hiw_sections = [
+        ("#2A2A2D", "🎯 What Is This?",
+         "PaidButPressured is a real-time options screener built for active traders who want high-conviction setups with clear execution timing — not just signals, but the exact moment to act on them.<br><br>"
+         "The engine runs two layers: a <b style='color:#F5F5F5'>Setup Layer</b> (7-point gate system, 7-signal precision scoring) and an <b style='color:#F5F5F5'>Execution Layer</b> (1-minute candle analysis, Sniper Strip, execution score 0–100)."),
+        ("#D4AF37", "🎯 The Sniper Strip — Read This First",
+         "<span class='hiw-badge' style='background:#00C85322;color:#00C853;border:1px solid #00C853'>🟢 ENTER NOW</span> Trigger active. Price in entry zone. Act.<br><br>"
+         "<span class='hiw-badge' style='background:#FFD60022;color:#FFD600;border:1px solid #FFD600'>🟡 WAIT — PULLBACK FORMING</span> Setup valid, not at entry zone yet.<br><br>"
+         "<span class='hiw-badge' style='background:#FF174422;color:#FF1744;border:1px solid #FF1744'>🔴 EXTENDED — DO NOT CHASE</span> Price too far from entry zone. Wait.<br><br>"
+         "<span class='hiw-badge' style='background:#1A1A1D;color:#A1A1A6;border:1px solid #A1A1A6'>⚪ NO ENTRY — MONITOR</span> No active trigger. Watch for setup."),
+        ("#00C853", "⚡ Micro Triggers — 1-Minute Signal",
+         "<b style='color:#F5F5F5'>VWAP RECLAIM</b> — Price crossed above VWAP (calls) or below (puts) on 1-min. Highest conviction trigger.<br><br>"
+         "<b style='color:#F5F5F5'>PULLBACK HOLD</b> — Price pulled back to VWAP/EMA8 and held. Enter on next push.<br><br>"
+         "<b style='color:#F5F5F5'>MOMENTUM BREAK</b> — Broke recent 1-min high/low with volume. Momentum entry — move happening now.<br><br>"
+         "<b style='color:#FF1744'>EXTENDED</b> — Price too far from VWAP. Do not chase. Wait for pullback."),
+        ("#D4AF37", "📊 Two Scores — Setup vs Execution",
+         "<b style='color:#F5F5F5'>Setup Score (Confidence %)</b> — How strong is the pattern? 7-signal precision score: trend, volume, exhaustion, squeeze, RSI divergence, Fibonacci, 200MA.<br><br>"
+         "<b style='color:#F5F5F5'>Execution Score (0–100%)</b> — How good is the TIMING right now? Trigger quality, 1-min volume, extension from entry zone.<br><br>"
+         "<b style='color:#00C853'>Strong (75%+)</b> — Clean timing. Enter if setup agrees. &nbsp;"
+         "<b style='color:#FFD600'>Moderate (50–74%)</b> — Watch closely. &nbsp;"
+         "<b style='color:#FF1744'>Weak (below 50%)</b> — Not the moment."),
+        ("#D4AF37", "🚦 Signal Tiers",
+         "<span class='hiw-badge' style='background:#22C55E22;color:#22C55E;border:1px solid #22C55E'>🟢 GO NOW</span> 85%+ conf, 5/7 gates, 4/7 signals, CONFIRMED entry. Act.<br><br>"
+         "<span class='hiw-badge' style='background:#D4AF3722;color:#D4AF37;border:1px solid #D4AF37'>🟡 WATCHING</span> Strong setup, waiting on confirmation. Add to Watch Queue.<br><br>"
+         "<span class='hiw-badge' style='background:#1A1A1D;color:#A1A1A6;border:1px solid #A1A1A6'>📋 ON DECK</span> Setup developing. Not ready. Monitor."),
+        ("#9966ff", "⚙️ The 7-Point Gate System",
+         "<b>Volatility</b> — IV Rank below 60%.<br>"
+         "<b>Volume</b> — 1.2x average minimum.<br>"
+         "<b>Momentum</b> — RSI divergence detected.<br>"
+         "<b>Entry Timing</b> — Price within 3% of entry level.<br>"
+         "<b>Risk/Reward</b> — 2:1 swing, 1.5:1 quick minimum.<br>"
+         "<b>Expiration</b> — DTE meets pattern timeframe.<br>"
+         "<b>Earnings</b> — No earnings within 7 days.<br><br>"
+         "5/7 minimum for GO NOW. 6–7/7 = PRIME SETUP badge."),
+        ("#C1121F", "📰 News Sentiment Engine",
+         "Every signal card includes live news sentiment. Philosophy: news is directional data, not a blocker.<br><br>"
+         "Hard blocks: trading halt and delisted only. Everything else is PUT/CALL intel.<br><br>"
+         "Confidence adj: aligned news +8, opposing -12. Reuters/Bloomberg 3x weight vs Seeking Alpha 0.8x.<br><br>"
+         "💡 NEWS SUGGESTS PUT/CALL — shows when news strongly contradicts signal direction."),
+        ("#D4AF37", "📡 Market Regime Engine",
+         "🟢 BULL CONFIRMED — Broad participation, CALL signals elevated.<br>"
+         "🔴 BEAR CONFIRMED — Sustained downtrend, PUT signals elevated.<br>"
+         "⚠️ BULL TRAP — Fake rally, CALL signals penalized.<br>"
+         "📉 DISTRIBUTION — Smart money selling into strength.<br>"
+         "💰 CAPITULATION — Extreme fear, watch for reversal.<br>"
+         "↔️ CHOPPY — No clear edge. Reduce size. Wait."),
+        ("#D4AF37", "📡 200-Day MA + Support/Resistance (NEW)",
+         "<b style='color:#F5F5F5'>200MA</b> — Signal 7 in precision engine. Above rising 200MA for CALLs = +8 pts structural alignment. Below 200MA for CALLs = -6 pts headwind. Shown on every signal card.<br><br>"
+         "<b style='color:#F5F5F5'>S/R Levels</b> — Swing highs/lows, 52-week H/L, and round numbers clustered and scored. At support for CALL = +8 pts. At resistance = -6 pts. Nearest sup/res shown on every card."),
+        ("#22C55E", "📋 The Rules — Simple Version",
+         "<b>1.</b> Sniper strip first — EXTENDED or NO ENTRY = skip regardless of confidence.<br><br>"
+         "<b>2.</b> Never enter on WAITING — wait for CONFIRMED.<br><br>"
+         "<b>3.</b> Setup Score + Execution Score must both be strong.<br><br>"
+         "<b>4.</b> Never fight the daily trend — Trend Opposing = cut size in half.<br><br>"
+         "<b>5.</b> Respect the stop — when price hits stop, exit. No hoping.<br><br>"
+         "<b>6.</b> Quick trades close same day — never hold overnight.<br><br>"
+         "<b style='color:#D4AF37'>One sentence:</b> Sniper strip ENTER NOW + execution ≥75% + CONFIRMED entry + 5/7 gates = execute. Everything else = wait."),
+    ]
 
-    st.markdown("""
-<div class='hiw-section'>
-  <div class='hiw-title'>🎯 What Is This?</div>
-  <div class='hiw-body'>
-    PaidButPressured is a real-time options screener built for everyday traders who want 
-    high-conviction setups with clear execution timing — not just signals, but the exact 
-    moment to act on them.<br><br>
-    The engine runs two layers simultaneously: a <b style='color:#F5F5F5'>Setup Layer</b> 
-    that finds high-probability patterns using a 7-point gate system and 6-signal precision 
-    scoring — and an <b style='color:#F5F5F5'>Execution Layer</b> that analyzes 1-minute 
-    candles in real time to tell you exactly when to pull the trigger.
-  </div>
-</div>
-
-<div class='hiw-section' style='border-left-color:#D4AF37'>
-  <div class='hiw-title'>🎯 The Sniper Strip — Read This First</div>
-  <div class='hiw-body'>
-    The gold bar at the top of every signal card is the most important thing on the screen.
-    It tells you what to DO right now, not just what the setup looks like.<br><br>
-    <span class='hiw-badge' style='background:#00C85322;color:#00C853;border:1px solid #00C853'>🟢 ENTER NOW</span>
-    Trigger is active. Price is in the entry zone. 1-2 candle window. Act.<br><br>
-    <span class='hiw-badge' style='background:#FFD60022;color:#FFD600;border:1px solid #FFD600'>🟡 WAIT — PULLBACK FORMING</span>
-    Setup is valid but not yet at the entry zone. Monitor.<br><br>
-    <span class='hiw-badge' style='background:#FF174422;color:#FF1744;border:1px solid #FF1744'>🔴 EXTENDED — DO NOT CHASE</span>
-    Price has moved too far from the entry zone. Wait for a pullback.<br><br>
-    <span class='hiw-badge' style='background:#1A1A1D;color:#A1A1A6;border:1px solid #A1A1A6'>⚪ NO ENTRY — MONITOR</span>
-    No active trigger. Watch for one to develop.
-  </div>
-</div>
-
-<div class='hiw-section' style='border-left-color:#00C853'>
-  <div class='hiw-title'>⚡ Micro Triggers — The 1-Minute Signal</div>
-  <div class='hiw-body'>
-    The trigger type tells you WHY the sniper strip fired. These are detected on 1-minute candles in real time.<br><br>
-    <b style='color:#F5F5F5'>VWAP RECLAIM</b> — Price just crossed above VWAP (calls) or below VWAP (puts) on the 1-min chart. 
-    Highest conviction trigger. Institutional traders use VWAP as their benchmark — when price crosses it with force, the session bias shifts.<br><br>
-    <b style='color:#F5F5F5'>PULLBACK HOLD</b> — Price pulled back to VWAP or EMA8 on 1-min and is holding above it (calls) or below it (puts). 
-    Buyers or sellers stepped in at that level. Enter on the next push in signal direction.<br><br>
-    <b style='color:#F5F5F5'>MOMENTUM BREAK</b> — Price broke the recent 1-min high (calls) or low (puts) with above-average volume. 
-    Momentum entry — the move is happening now.<br><br>
-    <b style='color:#F5F5F5'>REJECTION WICK</b> — Warning signal. Long wick against your direction. Sellers rejecting higher prices (calls) 
-    or buyers rejecting lower prices (puts). Wait for the wick to resolve before entering.<br><br>
-    <b style='color:#FF1744'>EXTENDED</b> — Price has moved too far from VWAP. Do not chase. Wait for a pullback to the entry zone.
-  </div>
-</div>
-
-<div class='hiw-section' style='border-left-color:#D4AF37'>
-  <div class='hiw-title'>📊 Two Scores — Setup vs Execution</div>
-  <div class='hiw-body'>
-    The screener now shows two separate scores. They measure different things.<br><br>
-    <b style='color:#F5F5F5'>Setup Score (Confidence %)</b> — How strong is the pattern? 
-    This is the 6-signal precision score covering trend, volume, exhaustion, squeeze, RSI divergence, 
-    and Fibonacci confluence. High confidence means the technical setup is solid.<br><br>
-    <b style='color:#F5F5F5'>Execution Score (0–100%)</b> — How good is the TIMING right now? 
-    This measures trigger quality, 1-min volume, extension from entry zone, and momentum on the last 3 1-min candles. 
-    A setup can be 97% confidence but 30% execution if price is far from the entry zone — meaning the setup is great 
-    but right now is not the moment to enter.<br><br>
-    <b style='color:#00C853'>Strong execution (75%+)</b> — Clean timing. Enter if setup agrees.<br>
-    <b style='color:#FFD600'>Moderate execution (50–74%)</b> — Timing developing. Watch closely.<br>
-    <b style='color:#FF1744'>Weak execution (below 50%)</b> — Not the moment. Wait.
-  </div>
-</div>
-
-<div class='hiw-section' style='border-left-color:#F6E27A'>
-  <div class='hiw-title'>📍 Entry Zone — Not Just a Price</div>
-  <div class='hiw-body'>
-    Every signal now shows an entry zone instead of a single entry price. 
-    This is the range where the setup is valid. Enter anywhere inside it.<br><br>
-    <b style='color:#F5F5F5'>BREAKOUT ZONE</b> — For breakout patterns. Enter as price pushes through the level.<br>
-    <b style='color:#F5F5F5'>PULLBACK ZONE</b> — For pullback patterns. Enter as price dips into the zone and holds.<br>
-    <b style='color:#F5F5F5'>RECLAIM ZONE</b> — For VWAP reclaim patterns. Enter on the first candle that closes above VWAP.<br>
-    <b style='color:#F5F5F5'>RETEST ZONE</b> — For break-and-retest patterns. Enter as price comes back to test the broken level.<br><br>
-    The execution script below the zone tells you exactly what to do:<br>
-    <i style='color:#A1A1A6'>"Enter between $X – $Y on push. If price breaks above $Y → wait for pullback. If price loses $X → setup invalid."</i><br><br>
-    <b style='color:#D4AF37'>Missed the entry?</b> The missed entry plan tells you where to re-enter if you weren't watching.
-  </div>
-</div>
-
-<div class='hiw-section' style='border-left-color:#D4AF37'>
-  <div class='hiw-title'>🚦 Signal Tiers</div>
-  <div class='hiw-body'>
-    Every signal is scored and placed into one of three buckets:<br><br>
-    <span class='hiw-badge' style='background:#22C55E22;color:#22C55E;border:1px solid #22C55E'>🟢 GO NOW</span>
-    Highest conviction. 85%+ confidence, 5/7 gates, 4/6 signals, CONFIRMED entry. Act on these.<br><br>
-    <span class='hiw-badge' style='background:#D4AF3722;color:#D4AF37;border:1px solid #D4AF37'>🟡 WATCHING</span>
-    Strong setup, waiting on final confirmation. Add to Watch Queue.<br><br>
-    <span class='hiw-badge' style='background:#1A1A1D;color:#A1A1A6;border:1px solid #A1A1A6'>📋 ON DECK</span>
-    Setup developing. Not ready. Monitor.
-  </div>
-</div>
-
-<div class='hiw-section' style='border-left-color:#9966ff'>
-  <div class='hiw-title'>⚙️ The 7-Point Gate System</div>
-  <div class='hiw-body'>
-    Before any signal reaches you it passes 7 independent checks. Each is a hard filter.<br><br>
-    <b style='color:#F5F5F5'>Volatility Environment</b> — IV Rank must be below 60%. Avoids expensive premium.<br>
-    <b style='color:#F5F5F5'>Volume Confirmation</b> — Options volume must be 1.2x average. Confirms institutional interest.<br>
-    <b style='color:#F5F5F5'>Momentum Divergence</b> — RSI divergence detected. Signals exhaustion of prior move.<br>
-    <b style='color:#F5F5F5'>Entry Timing</b> — Price within 3% of entry level. Ensures you're not chasing.<br>
-    <b style='color:#F5F5F5'>Risk/Reward</b> — Minimum 2:1 R:R on swing, 1.5:1 on quick. Math must work.<br>
-    <b style='color:#F5F5F5'>Expiration</b> — DTE meets the pattern's timeframe requirement.<br>
-    <b style='color:#F5F5F5'>Earnings Risk</b> — No earnings within 7 days of expiration.<br><br>
-    5/7 minimum for GO NOW. 6/7 or 7/7 = PRIME SETUP badge.
-  </div>
-</div>
-
-<div class='hiw-section' style='border-left-color:#C1121F'>
-  <div class='hiw-title'>📰 News Sentiment Engine</div>
-  <div class='hiw-body'>
-    Every signal card now includes a live news sentiment block pulled from financial news feeds.<br><br>
-    <b style='color:#F5F5F5'>Philosophy:</b> News is directional data, not a blocker. Negative news on a bullish signal 
-    doesn't kill the signal — it surfaces a PUT opportunity instead.<br><br>
-    <b style='color:#F5F5F5'>Hard blocks (only 2 exist):</b> Trading halt and delisted. Those are the only situations 
-    where options literally can't be traded.<br><br>
-    <b style='color:#F5F5F5'>Confidence adjustments:</b> News aligned with signal direction adds +8 to confidence. 
-    News opposing subtracts -12. Source credibility is weighted — Reuters/Bloomberg articles 
-    score 3x versus Seeking Alpha at 0.8x.<br><br>
-    <b style='color:#D4AF37'>💡 NEWS SUGGESTS PUT/CALL</b> — When news sentiment strongly contradicts your signal direction 
-    (score ≥ 50 opposing), the card shows a flip suggestion. You can see both setups simultaneously and choose.
-    <br><br>
-    <b style='color:#FF1744'>🔴 BREAKING</b> badge appears when 3+ articles hit in 15 minutes — signals a developing catalyst.
-  </div>
-</div>
-
-<div class='hiw-section' style='border-left-color:#D4AF37'>
-  <div class='hiw-title'>📡 Market Regime Engine</div>
-  <div class='hiw-body'>
-    Every scan runs a 5-layer market analysis classifying current conditions across 8 regime types.<br><br>
-    <span style='color:#22C55E'>🟢 BULL CONFIRMED</span> — Broad participation. CALL signals elevated.<br>
-    <span style='color:#C1121F'>🔴 BEAR CONFIRMED</span> — Sustained downtrend. PUT signals elevated.<br>
-    <span style='color:#C1121F'>⚠️ BULL TRAP</span> — Fake rally. CALL signals penalized.<br>
-    <span style='color:#F6E27A'>⚡ BEAR TRAP</span> — Oversold bounce. Proceed with caution.<br>
-    <span style='color:#F6E27A'>📉 DISTRIBUTION</span> — Smart money selling into strength.<br>
-    <span style='color:#D4AF37'>💀 CAPITULATION</span> — Extreme fear. Watch for CALL setups at key support.<br>
-    <span style='color:#F6E27A'>🔍 SUSPECT RALLY</span> — Rally showing weakness signals.<br>
-    <span style='color:#A1A1A6'>↔️ CHOPPY</span> — No clear edge. Reduce size. Wait for clarity.<br><br>
-    Macro news triggers (tariffs, rate cuts, trade deals) appear above the tabs after every scan.
-  </div>
-</div>
-
-<div class='hiw-section' style='border-left-color:#D4AF37'>
-  <div class='hiw-title'>🎯 Sniper Mode Tab</div>
-  <div class='hiw-body'>
-    The 🎯 SNIPER tab is a pure execution feed. It shows only GO NOW signals that have:<br><br>
-    — An active 1-minute trigger (VWAP RECLAIM, PULLBACK HOLD, or MOMENTUM BREAK)<br>
-    — Execution score of 75% or higher<br><br>
-    Everything else is hidden. No noise. When you see a setup in Sniper Mode, 
-    the system is telling you the moment is now. Check it during market hours for 
-    your highest-conviction entry opportunities.<br><br>
-    <b style='color:#D4AF37'>How to use it:</b> Run a scan → switch to Sniper tab → 
-    if setups appear, flip to the SIGNALS tab for the full card and execute from there.
-  </div>
-</div>
-
-<div class='hiw-section' style='border-left-color:#22C55E'>
-  <div class='hiw-title'>📋 The Rules — Simple Version</div>
-  <div class='hiw-body'>
-    <b style='color:#F5F5F5'>1. Sniper strip first</b> — if it says EXTENDED or NO ENTRY, skip it regardless of confidence score.<br><br>
-    <b style='color:#F5F5F5'>2. Never enter on WAITING</b> — wait for entry timing to show CONFIRMED.<br><br>
-    <b style='color:#F5F5F5'>3. Setup Score + Execution Score must both be strong</b> — a 97% setup with 30% execution is not the moment.<br><br>
-    <b style='color:#F5F5F5'>4. Never fight the daily trend</b> — if it says Trend Opposing, cut size minimum in half.<br><br>
-    <b style='color:#F5F5F5'>5. Respect the stop</b> — when price hits the stop level, exit. No hoping.<br><br>
-    <b style='color:#F5F5F5'>6. Quick trades close same day</b> — never hold overnight.<br><br>
-    <b style='color:#D4AF37'>One sentence:</b> Sniper strip says ENTER NOW + execution ≥75% + CONFIRMED entry + 5/7 gates = execute.
-    Everything else = wait.
-  </div>
-</div>
-""", unsafe_allow_html=True)
+    for border_color, title, body in _hiw_sections:
+        st.markdown(
+            "<div class='hiw-section' style='border-left-color:%s'>"
+            "<div class='hiw-title'>%s</div>"
+            "<div class='hiw-body'>%s</div>"
+            "</div>" % (border_color, title, body),
+            unsafe_allow_html=True
+        )
