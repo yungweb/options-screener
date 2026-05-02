@@ -112,8 +112,9 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 APP_PASSWORD       = os.environ.get("APP_PASSWORD", "")
-SUPABASE_URL       = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY       = os.environ.get("SUPABASE_KEY", "")
+SUPABASE_URL         = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY         = os.environ.get("SUPABASE_KEY", "")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
 TOS_TEXT = """
 **TERMS OF SERVICE & RISK DISCLOSURE**
@@ -5989,14 +5990,40 @@ def get_bg_results():
 
 # SUPABASE PERSISTENCE ENGINE
 
-def get_supabase():
-    """Returns a Supabase client if configured, else None."""
-    if not SUPABASE_URL or not SUPABASE_KEY:
+def get_supabase(service=False):
+    """
+    Returns a Supabase client.
+      service=True  -> uses SUPABASE_SERVICE_KEY (bypasses RLS, server-side use)
+      service=False -> uses SUPABASE_KEY + attaches user session token (RLS-aware)
+    """
+    if not SUPABASE_URL:
         return None
     try:
         from supabase import create_client
-        return create_client(SUPABASE_URL, SUPABASE_KEY)
-    except Exception:
+        if service:
+            # Service key bypasses RLS — use for cross-user writes (signal_outcomes, etc)
+            if not SUPABASE_SERVICE_KEY:
+                # Fallback to anon key if service key not configured — will fail RLS
+                if not SUPABASE_KEY:
+                    return None
+                client = create_client(SUPABASE_URL, SUPABASE_KEY)
+            else:
+                client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+            return client
+        # Regular client — attach user session for RLS
+        if not SUPABASE_KEY:
+            return None
+        client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        try:
+            _at = st.session_state.get("_access_token", "")
+            _rt = st.session_state.get("_refresh_token", "")
+            if _at and _rt:
+                client.auth.set_session(_at, _rt)
+        except Exception:
+            pass  # fall through with anon client
+        return client
+    except Exception as _ge:
+        print("[get_supabase] error: %s" % str(_ge)[:120])
         return None
 
 def get_user_id():
@@ -6010,8 +6037,11 @@ def get_user_id():
 
 def load_user_data(user_id):
     """Load all user data from Supabase user_data table."""
-    sb = get_supabase()
-    if not sb or not user_id: return {}
+    if not user_id:
+        return {}
+    sb = get_supabase(service=True)
+    if not sb:
+        return {}
     try:
         import json as _j
         res = sb.table("user_data").select("*").eq("user_id", user_id).execute()
@@ -6022,24 +6052,31 @@ def load_user_data(user_id):
                 "watch_queue": _j.loads(row.get("watch_queue", "{}")),
                 "preferences": _j.loads(row.get("preferences", "{}")),
             }
-    except Exception:
-        pass
+    except Exception as _le:
+        print("[load_user_data] error: %s" % str(_le)[:200])
     return {}
 
 def save_user_data(user_id, watchlist=None, watch_queue=None, preferences=None):
-    """Save user data to Supabase."""
-    sb = get_supabase()
-    if not sb or not user_id: return False
+    """Save user data to Supabase. Uses service key to bypass RLS upsert quirks."""
+    if not user_id:
+        print("[save_user_data] skipped — no user_id")
+        return False
+    sb = get_supabase(service=True)
+    if not sb:
+        print("[save_user_data] skipped — no supabase client")
+        return False
     try:
         import json as _j
         row = {"user_id": str(user_id), "updated_at": datetime.now(tz=pytz.UTC).isoformat()}
         if watchlist   is not None: row["watchlist"]   = _j.dumps(watchlist)
         if watch_queue is not None: row["watch_queue"] = _j.dumps(watch_queue)
         if preferences is not None: row["preferences"] = _j.dumps(preferences)
-        sb.table("user_data").upsert(row).execute()
+        resp = sb.table("user_data").upsert(row, on_conflict="user_id").execute()
+        if not resp.data:
+            print("[save_user_data] upsert returned no data for user_id=%s" % user_id)
         return True
     except Exception as e:
-        print("save_user_data error:", str(e))
+        print("[save_user_data] FAILED: %s" % str(e)[:200])
         return False
 
 # Keep old names as aliases for compatibility
@@ -8006,52 +8043,52 @@ with tab8:
             with wq_col:
                 # Big confirmed-style card for actionable states
                 if breakout_state in ("MOMENTUM_ENTRY", "RETEST_READY") or status == "CONFIRMED":
-                    st.markdown("""
-                    <div style='background:{bg};border:2px solid {bc};border-radius:10px;padding:14px 16px;margin:4px 0'>
-                        <div style='color:{tc};font-family:monospace;font-size:0.72rem;letter-spacing:2px;font-weight:700'>{tag}</div>
-                        <div style='font-size:1.1rem;font-weight:700;color:{dc};margin-top:4px'>BUY {act} — {tk}</div>
-                        <div style='color:#A1A1A6;font-size:0.82rem'>{pat}</div>
-                        {sr}
-                        <div style='color:#F5F5F5;font-size:0.8rem;margin-top:6px'>{msg}</div>
-                        <div style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;font-size:0.85rem;margin-top:10px'>
-                            <div><div style='color:#A1A1A6;font-size:0.7rem'>STRIKE</div><div style='font-weight:700;color:{dc}'>${stk:.2f}</div></div>
-                            <div><div style='color:#A1A1A6;font-size:0.7rem'>ENTRY</div><div style='font-weight:700'>${ent:.2f}</div></div>
-                            <div><div style='color:#A1A1A6;font-size:0.7rem'>TARGET</div><div style='font-weight:700;color:#D4AF37'>${tgt:.2f}</div></div>
-                            <div><div style='color:#A1A1A6;font-size:0.7rem'>STOP</div><div style='font-weight:700;color:#C1121F'>${stp:.2f}</div></div>
-                        </div>
-                        <div style='margin-top:8px;color:#F5F5F5;font-size:0.78rem'>Candles: {cnd} &nbsp; <span style='color:#F6E27A'>{rm}m {rs}s remaining{lc}</span></div>
-                    </div>
-                    """.format(
-                        bg=bg_clr, bc=border_clr, tc=tag_clr, tag=tag_label,
-                        dc=dir_color_w, act=action_w, tk=item["ticker"],
-                        pat=item["pattern"], sr=sr_line, msg=item["message"],
-                        stk=item["strike"], ent=item["entry"], tgt=item["target"], stp=item["stop"],
-                        cnd=candle_html, rm=remain_mins, rs=remain_secs, lc=last_chk
-                    ), unsafe_allow_html=True)
+                    _big_html = (
+                        "<div style='background:%s;border:2px solid %s;border-radius:10px;padding:14px 16px;margin:4px 0'>"
+                        "<div style='color:%s;font-family:monospace;font-size:0.72rem;letter-spacing:2px;font-weight:700'>%s</div>"
+                        "<div style='font-size:1.1rem;font-weight:700;color:%s;margin-top:4px'>BUY %s — %s</div>"
+                        "<div style='color:#A1A1A6;font-size:0.82rem'>%s</div>"
+                        "%s"
+                        "<div style='color:#F5F5F5;font-size:0.8rem;margin-top:6px'>%s</div>"
+                        "<div style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;font-size:0.85rem;margin-top:10px'>"
+                        "<div><div style='color:#A1A1A6;font-size:0.7rem'>STRIKE</div><div style='font-weight:700;color:%s'>$%.2f</div></div>"
+                        "<div><div style='color:#A1A1A6;font-size:0.7rem'>ENTRY</div><div style='font-weight:700'>$%.2f</div></div>"
+                        "<div><div style='color:#A1A1A6;font-size:0.7rem'>TARGET</div><div style='font-weight:700;color:#D4AF37'>$%.2f</div></div>"
+                        "<div><div style='color:#A1A1A6;font-size:0.7rem'>STOP</div><div style='font-weight:700;color:#C1121F'>$%.2f</div></div>"
+                        "</div>"
+                        "<div style='margin-top:8px;color:#F5F5F5;font-size:0.78rem'>Candles: %s &nbsp; <span style='color:#F6E27A'>%sm %ss remaining%s</span></div>"
+                        "</div>"
+                    ) % (
+                        bg_clr, border_clr, tag_clr, tag_label,
+                        dir_color_w, action_w, item["ticker"],
+                        item["pattern"], sr_line, item["message"],
+                        dir_color_w, item["strike"], item["entry"], item["target"], item["stop"],
+                        candle_html, remain_mins, remain_secs, last_chk
+                    )
+                    st.markdown(_big_html, unsafe_allow_html=True)
                 # Compact-style card for waiting/weak states
                 else:
-                    st.markdown("""
-                    <div style='background:{bg};border:2px solid {bc};border-radius:8px;padding:12px 16px;margin:4px 0'>
-                        <div style='display:flex;justify-content:space-between;align-items:center'>
-                            <div>
-                                <span style='color:{tc};font-family:monospace;font-size:0.7rem;font-weight:700;letter-spacing:1px'>{tag}</span>
-                            </div>
-                            <div style='color:#F6E27A;font-size:0.72rem;font-family:monospace'>{rm}m {rs}s{lc}</div>
-                        </div>
-                        <div style='margin-top:6px'>
-                            <b style='color:{dc};font-size:0.95rem'>{tk} {act}</b>
-                            <span style='color:#A1A1A6;font-size:0.78rem;margin-left:8px'>{pat} · Strike ${stk:.2f}</span>
-                        </div>
-                        {sr}
-                        <div style='color:#F5F5F5;font-size:0.8rem;margin-top:4px;line-height:1.5'>{msg}</div>
-                        <div style='margin-top:6px'>{cnd}</div>
-                    </div>
-                    """.format(
-                        bg=bg_clr, bc=border_clr, tc=tag_clr, tag=tag_label,
-                        dc=dir_color_w, tk=item["ticker"], act=action_w, pat=item["pattern"],
-                        stk=item["strike"], rm=remain_mins, rs=remain_secs, lc=last_chk,
-                        sr=sr_line, msg=item["message"], cnd=candle_html
-                    ), unsafe_allow_html=True)
+                    _compact_html = (
+                        "<div style='background:%s;border:2px solid %s;border-radius:8px;padding:12px 16px;margin:4px 0'>"
+                        "<div style='display:flex;justify-content:space-between;align-items:center'>"
+                        "<div><span style='color:%s;font-family:monospace;font-size:0.7rem;font-weight:700;letter-spacing:1px'>%s</span></div>"
+                        "<div style='color:#F6E27A;font-size:0.72rem;font-family:monospace'>%sm %ss%s</div>"
+                        "</div>"
+                        "<div style='margin-top:6px'>"
+                        "<b style='color:%s;font-size:0.95rem'>%s %s</b>"
+                        "<span style='color:#A1A1A6;font-size:0.78rem;margin-left:8px'>%s · Strike $%.2f</span>"
+                        "</div>"
+                        "%s"
+                        "<div style='color:#F5F5F5;font-size:0.8rem;margin-top:4px;line-height:1.5'>%s</div>"
+                        "<div style='margin-top:6px'>%s</div>"
+                        "</div>"
+                    ) % (
+                        bg_clr, border_clr, tag_clr, tag_label,
+                        remain_mins, remain_secs, last_chk,
+                        dir_color_w, item["ticker"], action_w, item["pattern"], item["strike"],
+                        sr_line, item["message"], candle_html
+                    )
+                    st.markdown(_compact_html, unsafe_allow_html=True)
 
             with dismiss_col:
                 if st.button("✕", key="wq_dismiss_%s" % _wkey, help="Remove from queue"):
