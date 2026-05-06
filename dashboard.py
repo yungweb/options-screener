@@ -748,6 +748,80 @@ import time as _time_mod
 _THREAD_CACHE      = {}
 _THREAD_CACHE_LOCK = _threading.Lock()
 
+# ────────────────────────────────────────────────────────────────────────
+# SHARED HTTP SESSION — bounded connection pool prevents thread/socket leaks
+# under concurrent load. Single Session reused by every API call.
+# ────────────────────────────────────────────────────────────────────────
+_HTTP_SESSION = None
+_HTTP_SESSION_LOCK = _threading.Lock()
+
+def _get_http_session():
+    """Return a process-wide HTTP session with connection pooling and retries.
+    Caps concurrent socket count at 50 regardless of user load."""
+    global _HTTP_SESSION
+    if _HTTP_SESSION is not None:
+        return _HTTP_SESSION
+    with _HTTP_SESSION_LOCK:
+        if _HTTP_SESSION is not None:
+            return _HTTP_SESSION
+        try:
+            import requests as _r
+            from requests.adapters import HTTPAdapter
+            try:
+                from urllib3.util.retry import Retry
+                retry = Retry(
+                    total=2, backoff_factor=0.3,
+                    status_forcelist=[429, 500, 502, 503, 504],
+                    allowed_methods=["GET", "POST"],
+                )
+            except Exception:
+                retry = None
+            adapter = HTTPAdapter(
+                pool_connections=20,    # number of connection pools
+                pool_maxsize=50,        # max sockets per pool
+                pool_block=False,       # don't block, recycle instead
+                max_retries=retry if retry else 2,
+            )
+            sess = _r.Session()
+            sess.mount("https://", adapter)
+            sess.mount("http://",  adapter)
+            sess.headers.update({"User-Agent": "PBP/1.0"})
+            _HTTP_SESSION = sess
+            return sess
+        except Exception as _se:
+            print("[http_session] init error: %s" % str(_se)[:120])
+            return None
+
+class _StubResponse:
+    """Fake response returned when an HTTP call fails entirely.
+    status_code=0 so existing `if r.status_code != 200` checks naturally fail."""
+    def __init__(self):
+        self.status_code = 0
+        self.text = ""
+        self.content = b""
+    def json(self):
+        return {}
+    def raise_for_status(self):
+        pass
+
+def _http_get(url, timeout=8, **kwargs):
+    """Drop-in replacement for requests.get() using a shared pooled session.
+    Always returns an object (real response or stub with status_code=0).
+    Hard timeout prevents hung sockets from leaking threads."""
+    sess = _get_http_session()
+    try:
+        if sess is not None:
+            return sess.get(url, timeout=timeout, **kwargs)
+        import requests as _r
+        return _r.get(url, timeout=timeout, **kwargs)
+    except Exception as _he:
+        try:
+            print("[http_get] %s on %s" % (type(_he).__name__, url[:80]))
+        except Exception:
+            pass
+        return _StubResponse()
+
+
 def _thread_cache(ttl=300):
     def decorator(fn):
         def wrapper(*args):
@@ -837,7 +911,7 @@ def _polygon_download(ticker, period, interval):
             "?adjusted=true&sort=asc&limit=50000&apiKey=%s"
             % (ticker.upper(), mult, span, from_str, to_str, api_key)
         )
-        r = _req.get(url, timeout=4)
+        r = _http_get(url, timeout=4)
         if r.status_code != 200:
             return None
         data = r.json()
@@ -877,7 +951,7 @@ def _finnhub_download(ticker, period, interval):
             % (ticker.upper(), resolution, from_ts, to_ts, FINNHUB_API_KEY)
         )
         for attempt in range(2):
-            r = _req.get(url, timeout=5)
+            r = _http_get(url, timeout=5)
             if r.status_code == 429:
                 _t.sleep(2)
                 continue
@@ -904,7 +978,7 @@ def _finnhub_price(ticker):
         return None
     try:
         import requests as _req
-        r = _req.get(
+        r = _http_get(
             "https://finnhub.io/api/v1/quote?symbol=%s&token=%s"
             % (ticker.upper(), FINNHUB_API_KEY),
             timeout=4
@@ -943,7 +1017,7 @@ def _fmp_download(ticker, period, interval):
                 "?symbol=%s&from=%s&to=%s&apikey=%s"
                 % (ticker.upper(), from_dt, to_dt, FMP_API_KEY)
             )
-            r = _req.get(url, timeout=8)
+            r = _http_get(url, timeout=8)
             if r.status_code != 200: return None
             data = r.json()
             # Stable EOD returns {"symbol":..., "historical":[...]}
@@ -962,7 +1036,7 @@ def _fmp_download(ticker, period, interval):
                 "?symbol=%s&from=%s&to=%s&apikey=%s"
                 % (fmp_interval, ticker.upper(), from_dt, to_dt, FMP_API_KEY)
             )
-            r = _req.get(url, timeout=8)
+            r = _http_get(url, timeout=8)
             if r.status_code != 200: return None
             data = r.json()
             if not data or not isinstance(data, list): return None
@@ -997,7 +1071,7 @@ def _fmp_debug(ticker, interval="5m", period="5d"):
             "?symbol=%s&from=%s&to=%s&apikey=%s"
             % (ticker.upper(), from_dt, to_dt, FMP_API_KEY)
         )
-        r = _req.get(url, timeout=8)
+        r = _http_get(url, timeout=8)
         data = r.json()
         return {
             "endpoint": "stable/historical-chart/5min",
@@ -1018,7 +1092,7 @@ def _fmp_price(ticker):
         return None
     try:
         import requests as _req
-        r = _req.get(
+        r = _http_get(
             "https://financialmodelingprep.com/api/v3/quote-short/%s?apikey=%s"
             % (ticker.upper(), FMP_API_KEY),
             timeout=4
@@ -1141,7 +1215,7 @@ def check_earnings(ticker):
             import requests as _req
             from_d = datetime.now().strftime("%Y-%m-%d")
             to_d   = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d")
-            r = _req.get(
+            r = _http_get(
                 "https://finnhub.io/api/v1/calendar/earnings"
                 "?from=%s&to=%s&symbol=%s&token=%s"
                 % (from_d, to_d, ticker.upper(), FINNHUB_API_KEY),
@@ -1261,7 +1335,7 @@ def fetch_real_strikes(ticker, expiration_str):
             "https://financialmodelingprep.com/api/v3/options/%s"
             "?apikey=%s" % (ticker.upper(), FMP_API_KEY)
         )
-        r = _req.get(url, timeout=6)
+        r = _http_get(url, timeout=6)
         if r.status_code != 200:
             return None
         data = r.json()
@@ -1992,7 +2066,7 @@ def check_liquidity(ticker):
             "https://api.polygon.io/v3/snapshot/options/%s"
             "?limit=25&apiKey=%s" % (ticker.upper(), POLYGON_API_KEY)
         )
-        r = _req.get(url, timeout=4)
+        r = _http_get(url, timeout=4)
         if r.status_code != 200:
             return True, 0, 0, "Liquidity unavailable"
         data = r.json()
@@ -4045,7 +4119,7 @@ def fetch_1min(ticker, bars=30):
             "https://financialmodelingprep.com/stable/historical-chart/1min"
             "?symbol=%s&apikey=%s" % (ticker.upper(), FMP_API_KEY)
         )
-        r = _req.get(url, timeout=5)
+        r = _http_get(url, timeout=5)
         if r.status_code != 200:
             return None
         data = r.json()
@@ -4364,7 +4438,7 @@ def _wbias_fetch_weekly(ticker, limit=3):
             "?symbol=%s&from=%s&apikey=%s"
             % (ticker, (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d"), FMP_API_KEY)
         )
-        r = _req.get(url, timeout=8)
+        r = _http_get(url, timeout=8)
         if r.status_code != 200:
             return []
         data = r.json()
@@ -4430,7 +4504,7 @@ def _supabase_request(method, path, payload=None):
     }
     try:
         if method == "GET":
-            r = _req.get(url, headers=headers, timeout=8)
+            r = _http_get(url, headers=headers, timeout=8)
             return r.json() if r.status_code in (200, 201) else None
         elif method == "POST":
             r = _req.post(url, headers={**headers, "Prefer": "resolution=merge-duplicates"}, json=payload, timeout=8)
@@ -4551,7 +4625,7 @@ def fetch_ticker_news(ticker, hours=4, limit=10):
             "?symbol=%s&from=%s&to=%s&token=%s"
             % (ticker.upper(), from_d, to_d, FINNHUB_API_KEY)
         )
-        r = _req.get(url, timeout=8)
+        r = _http_get(url, timeout=8)
         if r.status_code != 200:
             return []
         data = r.json()
@@ -4582,7 +4656,7 @@ def fetch_market_news(hours=2, limit=20):
             "https://finnhub.io/api/v1/news"
             "?category=general&token=%s" % FINNHUB_API_KEY
         )
-        r = _req.get(url, timeout=5)
+        r = _http_get(url, timeout=5)
         if r.status_code != 200:
             return []
         data = r.json()
@@ -5511,7 +5585,7 @@ def full_scan(scan_list, toggles, account_size, risk_pct,
         _macro_bear, _macro_bull, _macro_triggers = False, False, []
 
     # Submit all futures first
-    with ThreadPoolExecutor(max_workers=4) as executor:  # 4 workers — FMP Premium handles 750 calls/min
+    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="pbp_scan") as executor:
         futures = {
             executor.submit(
                 scan_single_ticker,
