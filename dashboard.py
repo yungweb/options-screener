@@ -4612,12 +4612,12 @@ def render_weekly_bias_banner():
     )
 
 
+@_thread_cache(ttl=900)
 def fetch_ticker_news(ticker, hours=4, limit=10):
-    """Fetch ticker news from Finnhub."""
+    """Fetch ticker news from Finnhub. 15-min cache prevents rate-limit spam."""
     if not FINNHUB_API_KEY:
         return []
     try:
-        import requests as _req
         from_d = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
         to_d   = datetime.now().strftime("%Y-%m-%d")
         url = (
@@ -4626,7 +4626,7 @@ def fetch_ticker_news(ticker, hours=4, limit=10):
             % (ticker.upper(), from_d, to_d, FINNHUB_API_KEY)
         )
         r = _http_get(url, timeout=8)
-        if r.status_code != 200:
+        if r is None or r.status_code != 200:
             return []
         data = r.json()
         if not isinstance(data, list):
