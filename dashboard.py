@@ -23,18 +23,7 @@ st.set_page_config(page_title="PaidButPressured", page_icon="📡", layout="cent
 
 # Supabase puts access_token in the URL hash which Streamlit can't read.
 # This JS detects it and converts it to a query param so Python can handle it.
-st.markdown("""
-<script>
-(function() {
-    var hash = window.location.hash;
-    if (hash && hash.includes('access_token')) {
-        var params = hash.substring(1);
-        var newUrl = window.location.pathname + '?' + params;
-        window.location.replace(newUrl);
-    }
-})();
-</script>
-""", unsafe_allow_html=True)
+st.components.v1.html("<div></div>", height=0)
 
 st.markdown("""
 <link rel="manifest" href="data:application/json;charset=utf-8,%7B%22name%22%3A%22PaidButPressured%22%2C%22short_name%22%3A%22PBP%22%2C%22description%22%3A%22Options%20Screener%20by%20PaidButPressured%22%2C%22start_url%22%3A%22%2F%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23060c14%22%2C%22theme_color%22%3A%22%2300e5aa%22%2C%22orientation%22%3A%22portrait%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22https%3A%2F%2Fraw.githubusercontent.com%2Fyungweb%2Foptions-screener%2Fmain%2Ficon-192.png%22%2C%22sizes%22%3A%22192x192%22%2C%22type%22%3A%22image%2Fpng%22%7D%2C%7B%22src%22%3A%22https%3A%2F%2Fraw.githubusercontent.com%2Fyungweb%2Foptions-screener%2Fmain%2Ficon-512.png%22%2C%22sizes%22%3A%22512x512%22%2C%22type%22%3A%22image%2Fpng%22%7D%5D%7D">
@@ -165,10 +154,11 @@ def check_auth():
     # Supabase sends access_token + type=recovery or type=invite in the URL hash
     # Streamlit doesn't expose hash params directly — check query params for token
     _qp = st.query_params
-    _token_type = _qp.get("type", "")
-    _access_tok = _qp.get("access_token", "")
+    _token_type  = _qp.get("type", "")
+    _access_tok  = _qp.get("access_token", "")
+    _token_hash  = _qp.get("token_hash", "")
 
-    if _token_type in ("recovery", "invite", "signup") and _access_tok:
+    if _token_type in ("recovery", "invite", "signup") and (_access_tok or _token_hash):
         st.markdown("""
 <div style='max-width:400px;margin:60px auto;padding:32px 36px;
 background:#1A1A1D;border:1px solid #2A2A2D;border-radius:16px;text-align:center'>
@@ -187,30 +177,54 @@ background:#1A1A1D;border:1px solid #2A2A2D;border-radius:16px;text-align:center
                     st.error("Passwords don't match")
                 else:
                     try:
+                        import requests as _req
                         from supabase import create_client
-                        sb = create_client(SUPABASE_URL, SUPABASE_KEY)
-                        # Set session using the recovery token
-                        resp = sb.auth.set_session(_access_tok, "")
-                        if resp and resp.user:
-                            # Update password
-                            sb.auth.update_user({"password": new_pw})
-                            st.session_state.authenticated       = True
-                            st.session_state.tos_agreed          = True
-                            st.session_state.user_email          = resp.user.email
-                            st.session_state.user_id             = resp.user.id
-                            st.session_state.is_admin            = (resp.user.email == ADMIN_EMAIL)
-                            st.session_state.watchlist_loaded    = False
-                            st.session_state._access_token       = resp.session.access_token if resp.session else ""
-                            st.session_state._refresh_token      = resp.session.refresh_token if resp.session else ""
-                            st.session_state._last_token_refresh = datetime.now()
-                            # Clear the token from URL
-                            st.query_params.clear()
-                            st.success("Password set! Welcome to PaidButPressured.")
-                            st.rerun()
+                        sb  = create_client(SUPABASE_URL, SUPABASE_KEY)
+                        _at = _access_tok
+
+                        if not _at:
+                            st.error("Reset link missing token. Please request a new one.")
                         else:
-                            st.error("Reset link expired. Request a new one from the login screen.")
+                            _pw_resp = _req.put(
+                                "%s/auth/v1/user" % SUPABASE_URL,
+                                json={"password": new_pw},
+                                headers={
+                                    "apikey":        SUPABASE_KEY,
+                                    "Authorization": "Bearer %s" % _at,
+                                    "Content-Type":  "application/json",
+                                },
+                                timeout=10,
+                            )
+                            if _pw_resp.status_code == 200:
+                                _udata = _pw_resp.json()
+                                _email = _udata.get("email", "")
+                                _uid   = _udata.get("id", "")
+                                _resp2 = sb.auth.sign_in_with_password(
+                                    {"email": _email, "password": new_pw}
+                                )
+                                _user2 = getattr(_resp2, "user", None)
+                                _sess2 = getattr(_resp2, "session", None)
+                                if _user2:
+                                    st.session_state.authenticated       = True
+                                    st.session_state.tos_agreed          = True
+                                    st.session_state.user_email          = _email
+                                    st.session_state.user_id             = _uid
+                                    st.session_state.is_admin            = (_email == ADMIN_EMAIL)
+                                    st.session_state.watchlist_loaded    = False
+                                    st.session_state._access_token       = getattr(_sess2, "access_token", "") if _sess2 else ""
+                                    st.session_state._refresh_token      = getattr(_sess2, "refresh_token", "") if _sess2 else ""
+                                    st.session_state._last_token_refresh = datetime.now()
+                                    st.query_params.clear()
+                                    st.success("Password set! Logging you in...")
+                                    st.rerun()
+                                else:
+                                    st.warning("Password updated. Please log in manually.")
+                            elif _pw_resp.status_code == 401:
+                                st.error("Reset link expired. Please request a new one.")
+                            else:
+                                st.error("Error updating password (%s). Request a new reset link." % _pw_resp.status_code)
                     except Exception as e:
-                        st.error("Error: %s" % str(e)[:100])
+                        st.error("Error: %s" % str(e)[:150])
         st.stop()
         return
 
@@ -517,13 +531,16 @@ def check_onboarding():
             st.markdown("""
 <div class='ob-wrap'>
   <div class='ob-step'>STEP 4 OF 4</div>
-  <div class='ob-title'>Watch Queue 👁</div>
+  <div class='ob-title'>Confluence Intel 🎯</div>
   <div class='ob-body'>
-    See a WATCHING signal you like?<br><br>
-    Hit the <b style='color:#D4AF37'>Watch button</b> on the signal card and we'll 
-    track the entry timing for you.<br><br>
-    Check the <b style='color:#F5F5F5'>WATCH QUEUE tab</b> to see when your 
-    signal confirms — and get ready to enter.<br><br>
+    Every signal card now shows a <b style='color:#D4AF37'>Confluence Intel</b> block 
+    with the exact game plan.<br><br>
+    Look for the <b style='color:#F5F5F5'>Sweet Spot Zone</b> — the price range where 
+    multiple trend lines cluster. That's your best risk/reward entry area.<br><br>
+    The <b style='color:#22C55E'>GAME PLAN</b> tells you exactly when to enter. The 
+    <b style='color:#C1121F'>WHEN TO BAIL</b> tells you exactly where the setup breaks.<br><br>
+    Trust the <b style='color:#F5F5F5'>Summary Line</b> at the top of each card — it 
+    tells you how aligned the full stack is.<br><br>
     <b style='color:#D4AF37'>You're ready. Let's find some setups.</b>
   </div>
 </div>
@@ -1826,64 +1843,8 @@ def _save_watch_queue_db():
         serializable[k] = _item
     save_user_data(user_id, watch_queue=serializable)
 
-def add_to_watch_queue(ticker, direction, sig, opt):
-    init_watch_queue()
-    key = f"{ticker}_{direction}"
-    if key not in st.session_state.watch_queue:
-        # Pull S/R levels from wherever they live in the signal payload
-        _detail = sig.get("detail", {}) or {}
-        _sr     = _detail.get("sr_data", {}) or sig.get("sr_data", {}) or {}
-        sr_resistance = _sr.get("nearest_resistance")
-        sr_support    = _sr.get("nearest_support")
-        # Last resort: compute fresh if missing
-        if not sr_resistance and not sr_support:
-            try:
-                _price_now = opt.get("entry") or sig.get("price") or 0
-                if _price_now:
-                    _fresh_sr = detect_sr_levels(ticker, float(_price_now), direction)
-                    sr_resistance = _fresh_sr.get("nearest_resistance")
-                    sr_support    = _fresh_sr.get("nearest_support")
-            except Exception:
-                pass
 
-        st.session_state.watch_queue[key] = {
-            "ticker":    ticker,
-            "direction": direction,
-            "action":    "CALL" if direction == "bullish" else "PUT",
-            "style":     sig.get("trade_style", "swing"),
-            "strike":    opt.get("strike", 0),
-            "entry":     opt.get("entry", 0),
-            "target":    opt.get("target", 0),
-            "stop":      opt.get("stop", 0),
-            "pattern":   sig.get("pattern_label", sig.get("pattern", "Signal")),
-            "confidence":sig.get("confidence", 0),
-            "added_at":  datetime.now(),
-            "last_checked": None,
-            "status":    "WAITING",
-            "message":   "Initializing breakout monitor...",
-            "alerted":   False,
-            # S/R context for breakout-aware monitoring
-            "sr_resistance": sr_resistance,
-            "sr_support":    sr_support,
-            "breakout_state":"WAITING",
-            "vol_mult":      None,
-            "key_level":     None,
-        }
-        _save_watch_queue_db()
 
-def remove_from_watch_queue(key):
-    init_watch_queue()
-    if key in st.session_state.watch_queue:
-        del st.session_state.watch_queue[key]
-    # Always save even if key wasn't found — clears any stale Supabase data
-    _save_watch_queue_db()
-
-def clear_watch_queue():
-    """Nuke entire watch queue from session and Supabase."""
-    st.session_state.watch_queue = {}
-    user_id = st.session_state.get("user_id")
-    if user_id:
-        save_user_data(user_id, watch_queue={})
 
 def run_background_watch_checks(tf_mult, tf_span, tf_days):
     """
@@ -2507,45 +2468,7 @@ def load_journal():
     if "trade_journal" not in st.session_state: st.session_state.trade_journal = []
     return st.session_state.trade_journal
 
-def log_trade(ticker, sig, opt, gates_passed, gates_total, elevate):
-    journal = load_journal()
-    journal.append({
-        "Date":        datetime.now().strftime("%m/%d %H:%M"),
-        "Ticker":      ticker,
-        "Action":      "CALL" if sig["direction"]=="bullish" else "PUT",
-        "Pattern":     sig["pattern_label"],
-        "Strike":      f"${opt['strike']:.2f}",
-        "Entry":       f"${opt['entry']:.2f}",
-        "Target":      f"${opt['target']:.2f}",
-        "Stop":        f"${opt['stop']:.2f}",
-        "Premium":     f"${opt['premium']:.2f}",
-        "Contracts":   opt["contracts"],
-        "Max Loss":    f"${opt['max_loss']:.0f}",
-        "Pot. Profit": f"${opt['profit_at_target']:,.0f}",
-        "Confidence":  f"{sig['confidence']}%",
-        "Gate Score":  f"{gates_passed}/{gates_total}",
-        "Elevated":    "YES" if elevate else "no",
-        "Expiry":      opt["expiration"],
-        "Result":      "Open",
-        "P&L $":       "",
-    })
-    st.session_state.trade_journal = journal[-200:]
 
-def get_journal_stats():
-    journal = load_journal()
-    if not journal: return {}
-    stats = {}
-    for t in journal:
-        tk = t["Ticker"]
-        if tk not in stats: stats[tk] = {"total":0,"wins":0,"losses":0,"open":0,"calls":0,"puts":0}
-        stats[tk]["total"] += 1
-        r = t.get("Result","Open")
-        if r=="Open":          stats[tk]["open"]   += 1
-        elif "Win"  in r:      stats[tk]["wins"]   += 1
-        elif "Loss" in r:      stats[tk]["losses"] += 1
-        if t["Action"]=="CALL": stats[tk]["calls"] += 1
-        else:                   stats[tk]["puts"]  += 1
-    return stats
 
 def build_share_text(ticker, sig, opt, gates_passed, gates_total, elevate, market_status):
     direction = "CALL" if sig["direction"]=="bullish" else "PUT"
@@ -2748,33 +2671,7 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
             session_name = {"pre": "Pre-Market", "after": "After-Hours", "closed": "Market Closed"}.get(mstatus, "Extended Hours")
             quick_warn_html = "<div style='background:#1a150a;border:1px solid #F6E27A;border-radius:6px;padding:8px 12px;margin-bottom:6px;color:#F6E27A;font-size:0.8rem'>⚡ %s - Quick trade levels based on latest price. Use for planning only.</div>" % session_name
 
-        _sniper_html = ""
-        try:
-            _df1m = fetch_1min(ticker)
-            _trig_type, _trig_active, _entry_win, _trig_detail = detect_micro_trigger(_df1m, sig["direction"])
-            _vol_1m_ok = False
-            if _df1m is not None and len(_df1m) > 5:
-                _v1m_avg = float(_df1m["volume"].iloc[-10:].mean())
-                _v1m_cur = float(_df1m["volume"].iloc[-1])
-                _vol_1m_ok = _v1m_cur > _v1m_avg * 1.2
-            _exec_score = calc_execution_score(
-                _trig_type, _trig_active, _vol_1m_ok,
-                sig.get("entry_timing", {}).get("status", "WAITING"),
-                sig["direction"], _df1m, current_price, atr
-            )
-            _zone_low, _zone_high, _entry_type, _exec_script, _missed = build_entry_zone(
-                sig["entry"], sig["direction"], sig["pattern_label"], atr, _trig_type
-            )
-            _e_status, _e_color, _e_emoji = get_sniper_entry_status(
-                _trig_type, _trig_active, current_price, _zone_low, _zone_high, _exec_score
-            )
-            _sniper_html = render_sniper_strip_html(
-                ticker, sig["direction"], _trig_type, _trig_active,
-                _entry_win, _trig_detail, _e_status, _e_color, _e_emoji,
-                _exec_score, _zone_low, _zone_high, _entry_type, _exec_script, _missed
-            )
-        except Exception:
-            _sniper_html = ""
+        _sniper_html = ""  # Sniper Strip moved to Sniper tab only
 
         dots_html = ""
         _sig_detail = sig.get("signal_detail") or sig.get("detail", {}).get("signal_detail", [])
@@ -2879,6 +2776,40 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
             st.markdown(gate_html, unsafe_allow_html=True)
 
             try:
+                _summary_r = {
+                    "direction":     sig["direction"],
+                    "signals_hit":   sig.get("signals_hit", sig.get("detail", {}).get("signals_hit", 0)),
+                    "detail":        sig.get("detail", {}),
+                    "macro_bias_label": sig.get("macro_bias_label", ""),
+                    "regime_alignment": sig.get("regime_alignment", ""),
+                    "confluence":    sig.get("confluence", sig.get("detail", {}).get("confluence", {})),
+                }
+                st.markdown(render_summary_line_html(_summary_r), unsafe_allow_html=True)
+            except Exception:
+                pass
+
+            try:
+                _cfl = sig.get("confluence", sig.get("detail", {}).get("confluence", {}))
+                if _cfl and _cfl.get("available"):
+                    st.markdown(render_confluence_block_html(_cfl, sig["direction"]), unsafe_allow_html=True)
+            except Exception:
+                pass
+
+            try:
+                _mw = st.session_state.get('macro_warning', {})
+                if _mw and _mw.get('level') in ('PRE_EVENT', 'POST_EVENT'):
+                    _mwc = '#FF6B35' if _mw['level'] == 'PRE_EVENT' else '#F6E27A'
+                    _mwt = 'Macro event upcoming — lower confidence signal' if _mw['level'] == 'PRE_EVENT' else 'Macro data just printed — wait for market to digest'
+                    st.markdown(
+                        "<div style='background:#1a0f00;border-left:3px solid " + _mwc + ";"
+                        "border-radius:4px;padding:5px 10px;margin:4px 0;font-size:0.7rem;color:" + _mwc + "'>"
+                        "⚠️ " + _mwt + "</div>",
+                        unsafe_allow_html=True
+                    )
+            except Exception:
+                pass
+
+            try:
                 _, _, _sig_news, _sig_adj, _sig_flip, _sig_flip_reason = run_news_check(ticker, sig["direction"])
                 st.markdown(render_news_sentiment_html(
                     _sig_news, ticker,
@@ -2917,25 +2848,6 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                     "📡 WEEKLY MACRO: %s</div>" % (_mb_col, _mb_col, _mb_label),
                     unsafe_allow_html=True
                 )
-
-            tr_color = "#D4AF37" if opt["target_realistic"]=="Likely" else "#F6E27A" if opt["target_realistic"]=="Possible" else "#C1121F"
-            atr_txt  = (str(opt["atr_multiples"]) + "x ATR needed") if opt["atr_multiples"] else ""
-            move_html = (
-                "<div style='background:#1A1A1D;border:1px solid #2A2A2D;border-radius:8px;padding:10px 14px;margin-top:6px'>"
-                "<div style='display:flex;justify-content:space-between;align-items:center'>"
-                "<span style='color:#A1A1A6;font-family:monospace;font-size:0.72rem'>MOVE REQUIRED</span>"
-                "<span style='color:" + tr_color + ";font-weight:700;font-size:0.85rem'>" + opt["target_realistic"].upper() + "</span>"
-                "</div>"
-                "<div style='margin-top:4px;font-size:0.82rem'>"
-                "Price needs to move <b style='color:#F5F5F5'>" + str(opt["move_pct"]) + "%</b>"
-                + (" &nbsp;|&nbsp; <span style='color:#A1A1A6'>" + atr_txt + "</span>" if atr_txt else "") +
-                "</div>"
-                "<div style='color:#A1A1A6;font-size:0.75rem;margin-top:2px'>"
-                + ("Likely = &le;2x ATR &nbsp; Possible = 2-4x ATR &nbsp; Ambitious = 4x+ ATR" if opt["atr_multiples"] else "") +
-                "</div>"
-                "</div>"
-            )
-            st.markdown(move_html, unsafe_allow_html=True)
 
             if not opt["delta_ok"]:
                 st.markdown(f"<div style='background:#1a150a;border:1px solid #F6E27A;border-radius:6px;padding:8px 12px;margin-top:6px;color:#F6E27A;font-size:0.8rem'>Delta {opt['delta']:.2f} outside 0.35-0.85 ideal range</div>", unsafe_allow_html=True)
@@ -3044,30 +2956,10 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                         # Only auto-enter paper trade if signal meets conviction threshold
                         _auto_conf  = sig.get("confidence", 0) >= 85
                         _auto_gates = gates_passed >= 5
-                        if st.session_state.get("paper_auto_enabled", True) and _auto_conf and _auto_gates:
-                            paper_enter_trade(_signal_r)
                 elif "WAITING" in conf_status:
                     conf_bg = "#1A1A1D"; conf_border = "#F6E27A"; conf_color = "#F6E27A"; conf_icon = "👁"
                 else:
                     conf_bg = "#1a0a0a"; conf_border = "#C1121F"; conf_color = "#C1121F"; conf_icon = "⏳"
-
-                candle_html = ""
-                for c in conf_result.get("candles", []):
-                    if c == "green":   candle_html += "<span style='color:#D4AF37'>&#9650;</span> "
-                    elif c == "red":   candle_html += "<span style='color:#C1121F'>&#9660;</span> "
-                    else:              candle_html += "<span style='color:#A1A1A6'>&#9644;</span> "
-
-                st.markdown(f"""
-                <div style='background:{conf_bg};border:1px solid {conf_border};border-radius:8px;padding:10px 14px;margin-top:8px'>
-                    <div style='color:{conf_color};font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:4px'>ENTRY TIMING CHECK</div>
-                    <div style='display:flex;align-items:center;gap:10px'>
-                        <span style='font-size:1.1rem'>{conf_icon}</span>
-                        <span style='font-weight:700;color:{conf_color}'>{conf_status}</span>
-                        <span style='color:#A1A1A6;font-size:0.82rem'>Recent candles: {candle_html}</span>
-                    </div>
-                    <div style='color:#F5F5F5;font-size:0.82rem;margin-top:4px'>{conf_result["message"]}</div>
-                </div>
-                """, unsafe_allow_html=True)
 
                 # Fibonacci confluence display in signals tab
                 if _fib_sig.get("confirmed"):
@@ -3163,12 +3055,6 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                 except Exception:
                     pass
 
-                # Show Watch button prominently for strong setups — no auto-adding
-                if elevate and not already_watching and conf_status != "CONFIRMED":
-                    st.markdown(f"<div style='background:#1A1A1D;border:1px solid #D4AF37;border-radius:6px;padding:6px 12px;margin-top:4px;color:#D4AF37;font-size:0.8rem'>🚨 {gates_passed}/7 gates — elite setup. Hit Watch to track entry timing.</div>", unsafe_allow_html=True)
-                elif gates_passed >= 5 and not already_watching and conf_status != "CONFIRMED":
-                    st.markdown(f"<div style='background:#1A1A1D;border:1px solid #F6E27A;border-radius:6px;padding:6px 12px;margin-top:4px;color:#F6E27A;font-size:0.8rem'>⚡ {gates_passed}/7 gates - strong setup. Hit Watch to track entry timing.</div>", unsafe_allow_html=True)
-
 
             if True:  # AI brief available in all sessions
                 if ANTHROPIC_API_KEY:
@@ -3203,28 +3089,10 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                 else:
                     st.markdown("<div class='ai-placeholder'>🤖 AI Trade Brief - Add ANTHROPIC_API_KEY in Railway to enable</div>", unsafe_allow_html=True)
 
-            bcol1, bcol2 = st.columns(2)
-            with bcol1:
-                share_text = build_share_text(ticker,sig,opt,gates_passed,7,elevate,mtext)
-                st.download_button(f"📤 Share #{i+1}", data=share_text,
-                    file_name=f"{ticker}_signal_{datetime.now().strftime('%m%d_%H%M')}.txt",
-                    mime="text/plain", key=f"{key_prefix}_share_{i}")
-            with bcol2:
-                if not already_watching:
-                    if st.button(f"👁 Watch #{i+1}", key=f"{key_prefix}_watch_{i}", use_container_width=True):
-                        add_to_watch_queue(ticker, sig["direction"], sig, opt)
-                        st.success("✅ Added to Watch Queue!")
-                        # Don't rerun - keeps signal visible with success message
-                else:
-                    st.markdown(
-                        "<div style='background:#1A1500;border:1px solid #D4AF37;border-radius:6px;"
-                        "padding:6px 12px;font-size:0.75rem;color:#D4AF37;text-align:center'>"
-                        "✅ In Watch Queue</div>",
-                        unsafe_allow_html=True
-                    )
-                    if st.button(f"Remove #{i+1}", key=f"{key_prefix}_unwatch_{i}", use_container_width=True):
-                        remove_from_watch_queue(watch_key)
-                        st.rerun()
+            share_text = build_share_text(ticker,sig,opt,gates_passed,7,elevate,mtext)
+            st.download_button(f"📤 Share #{i+1}", data=share_text,
+                file_name=f"{ticker}_signal_{datetime.now().strftime('%m%d_%H%M')}.txt",
+                mime="text/plain", key=f"{key_prefix}_share_{i}")
 
         if i < len(candidates) - 1:
             st.markdown("<hr style='border-color:#2A2A2D;margin:12px 0'>", unsafe_allow_html=True)
@@ -4765,7 +4633,6 @@ def score_news_sentiment(articles, ticker=""):
         "recent_count":       recent_count,
     }
 
-
 def check_macro_sentiment():
     articles   = fetch_market_news(hours=2, limit=20)
     macro_bear = False
@@ -4841,6 +4708,1199 @@ def run_news_check(ticker, direction):
         }
         return False, "", empty, 0, False, ""
 
+
+@_thread_cache(ttl=3600)
+def fetch_400ma_daily(ticker):
+    """Daily 400 SMA — the long-term trend line."""
+    try:
+        df = _fmp_download(ticker, "1y", "1d")
+        if df is None or len(df) < 50:
+            return None, None, None
+        close   = df["close"].astype(float)
+        period  = min(400, len(close))
+        ma      = close.rolling(period).mean().dropna()
+        if ma.empty:
+            return None, None, None
+        ma_now    = float(ma.iloc[-1])
+        ma_prior  = float(ma.iloc[-6]) if len(ma) >= 6 else ma_now
+        cur_price = float(close.iloc[-1])
+        above     = cur_price > ma_now
+        rising    = ma_now > ma_prior
+        return above, round(ma_now, 2), rising
+    except Exception:
+        return None, None, None
+
+@_thread_cache(ttl=300)
+def fetch_400ma_5min(ticker):
+    """5-min 400 SMA - intraday long-term reference."""
+    try:
+        df = _fmp_download(ticker, "5d", "5m")
+        if df is None or len(df) < 50:
+            return None, None
+        close  = df["close"].astype(float)
+        period = min(400, len(close))
+        ma     = close.rolling(period).mean().dropna()
+        if ma.empty:
+            return None, None
+        ma_now    = float(ma.iloc[-1])
+        cur_price = float(close.iloc[-1])
+        above     = cur_price > ma_now
+        return above, round(ma_now, 2)
+    except Exception:
+        return None, None
+
+def _calc_vwap_now(df):
+    try:
+        if df is None or len(df) < 5:
+            return None
+        h = df["high"].astype(float)
+        l = df["low"].astype(float)
+        c = df["close"].astype(float)
+        v = df["volume"].astype(float)
+        tp = (h + l + c) / 3
+        cv = (tp * v).cumsum()
+        cu = v.cumsum().replace(0, 1)
+        return round(float((cv / cu).iloc[-1]), 2)
+    except Exception:
+        return None
+
+def _calc_9ema_now(df):
+    try:
+        if df is None or len(df) < 9:
+            return None
+        return round(float(df["close"].astype(float).ewm(span=9).mean().iloc[-1]), 2)
+    except Exception:
+        return None
+
+def detect_confluence_setup(ticker, current_price, direction, atr=None):
+    """Confluence Intel: VWAP + 9EMA + 400SMA stack with plain-English game plan."""
+    out = {
+        "available":        False,
+        "daily_bias":       None,
+        "daily_400ma":      None,
+        "daily_400ma_rising": None,
+        "intraday_trend":   None,
+        "intraday_400ma":   None,
+        "vwap":             None,
+        "ema9":             None,
+        "zone_low":         None,
+        "zone_high":        None,
+        "game_plan":        "",
+        "invalidation":     "",
+        "timestamp":        "",
+        "alignment_count":  0,
+    }
+    try:
+        df_5m = _fmp_download(ticker, "5d", "5m")
+        if df_5m is not None and "datetime" in df_5m.columns:
+            df_5m = df_5m.sort_values("datetime").reset_index(drop=True)
+
+        vwap = _calc_vwap_now(df_5m)
+        ema9 = _calc_9ema_now(df_5m)
+        d_above, d_400, d_rising = fetch_400ma_daily(ticker)
+        i_above, i_400           = fetch_400ma_5min(ticker)
+
+        is_bull = direction == "bullish"
+
+        out["vwap"]               = vwap
+        out["ema9"]               = ema9
+        out["daily_bias"]         = d_above
+        out["daily_400ma"]        = d_400
+        out["daily_400ma_rising"] = d_rising
+        out["intraday_trend"]     = i_above
+        out["intraday_400ma"]     = i_400
+
+        align = 0
+        if d_above is not None:
+            if (is_bull and d_above) or (not is_bull and not d_above):
+                align += 1
+        if i_above is not None:
+            if (is_bull and i_above) or (not is_bull and not i_above):
+                align += 1
+        if vwap is not None and current_price:
+            above_vwap = current_price > vwap
+            if (is_bull and above_vwap) or (not is_bull and not above_vwap):
+                align += 1
+        if ema9 is not None and current_price:
+            above_9 = current_price > ema9
+            if (is_bull and above_9) or (not is_bull and not above_9):
+                align += 1
+        out["alignment_count"] = align
+
+        if vwap and ema9 and current_price:
+            zone_lo = round(min(vwap, ema9), 2)
+            zone_hi = round(max(vwap, ema9), 2)
+            out["zone_low"]  = zone_lo
+            out["zone_high"] = zone_hi
+
+            if is_bull:
+                if current_price >= zone_lo and current_price <= zone_hi:
+                    out["game_plan"] = (
+                        "Price is in the sweet spot zone. "
+                        "If it pushes above $%.2f on the next 5-min candle, "
+                        "that is your entry signal." % zone_hi
+                    )
+                elif current_price > zone_hi:
+                    out["game_plan"] = (
+                        "Price already above the sweet spot. Don't chase. "
+                        "Wait for a pullback into $%.2f - $%.2f before entering." % (zone_lo, zone_hi)
+                    )
+                else:
+                    out["game_plan"] = (
+                        "Price below the sweet spot. Wait for it to climb back into "
+                        "$%.2f - $%.2f and hold there before entering." % (zone_lo, zone_hi)
+                    )
+                out["invalidation"] = (
+                    "If price closes below $%.2f on a 5-min candle, "
+                    "the setup is broken. Stay out." % zone_lo
+                )
+            else:
+                if current_price >= zone_lo and current_price <= zone_hi:
+                    out["game_plan"] = (
+                        "Price is in the sweet spot zone. "
+                        "If it drops below $%.2f on the next 5-min candle, "
+                        "that is your entry signal for a put." % zone_lo
+                    )
+                elif current_price < zone_lo:
+                    out["game_plan"] = (
+                        "Price already dropped past the sweet spot. Don't chase. "
+                        "Wait for a bounce back to $%.2f - $%.2f before entering." % (zone_lo, zone_hi)
+                    )
+                else:
+                    out["game_plan"] = (
+                        "Price above the sweet spot. Wait for it to drop into "
+                        "$%.2f - $%.2f and reject before entering." % (zone_lo, zone_hi)
+                    )
+                out["invalidation"] = (
+                    "If price closes above $%.2f on a 5-min candle, "
+                    "the setup is broken. Stay out." % zone_hi
+                )
+
+        try:
+            et = pytz.timezone("America/New_York")
+            out["timestamp"] = datetime.now(et).strftime("%I:%M:%S %p ET")
+        except Exception:
+            out["timestamp"] = datetime.now().strftime("%H:%M:%S")
+
+        out["available"] = (vwap is not None and ema9 is not None)
+        return out
+    except Exception:
+        return out
+
+def get_time_of_day_context():
+    """Returns trading window + plain-English meaning for current time."""
+    try:
+        et = pytz.timezone("America/New_York")
+        now = datetime.now(et)
+        wd  = now.weekday()
+        if wd >= 5:
+            return {"window":"WEEKEND","label":"Market Closed","color":"#A1A1A6","icon":"🌙",
+                    "meaning":"Market opens Monday at 9:30 AM ET. Use this time to plan, not trade."}
+        from datetime import time as dtime
+        t = now.time()
+        if t < dtime(9, 30):
+            return {"window":"PRE","label":"Pre-Market","color":"#F6E27A","icon":"⏰",
+                    "meaning":"Market hasn't opened yet. Levels can shift hard at 9:30. Wait for the open before entering."}
+        if t < dtime(10, 30):
+            return {"window":"OPEN","label":"Opening Hour","color":"#FF6B35","icon":"🚨",
+                    "meaning":"First hour. Volatility is highest. Moves are fast and can reverse hard. Tight stops or wait until 10:30."}
+        if t < dtime(12, 0):
+            return {"window":"MORNING","label":"Morning Trend","color":"#22C55E","icon":"📈",
+                    "meaning":"Best window of the day. Morning trend is usually most reliable. If signals fire here, take them seriously."}
+        if t < dtime(14, 0):
+            return {"window":"LUNCH","label":"Lunch Chop","color":"#A1A1A6","icon":"⏸",
+                    "meaning":"Volume drops off. Lots of fakeouts. Save your bullets for after 2 PM unless the setup is exceptional."}
+        if t < dtime(15, 30):
+            return {"window":"AFTERNOON","label":"Afternoon Trend","color":"#22C55E","icon":"🎯",
+                    "meaning":"Real trend of the day usually shows up here. Best window for swing entries — what closes here often follows through tomorrow."}
+        if t < dtime(16, 0):
+            return {"window":"POWER","label":"Power Hour","color":"#D4AF37","icon":"🔥",
+                    "meaning":"Final 30 minutes. Big moves common. Stick with the established trend — don't chase reversals here."}
+        return {"window":"AFTER","label":"After-Hours","color":"#A1A1A6","icon":"🌙",
+                "meaning":"Market is closed. Anything you see here is for tomorrow's plan. Don't trade options after-hours."}
+    except Exception:
+        return {"window":"UNKNOWN","label":"-","color":"#A1A1A6","icon":"-","meaning":"Time context unavailable."}
+
+def build_confluence_summary(r):
+    """One-line synthesis verdict across the entire signal stack."""
+    detail = r.get("detail", {}) or {}
+    direction = r.get("direction", "bullish")
+    is_bull   = direction == "bullish"
+
+    aligned = 0
+    total   = 0
+    factors = []
+    against = []
+
+    sig_hit = r.get("signals_hit", detail.get("signals_hit", 0))
+    if sig_hit >= 5:
+        aligned += 2
+        factors.append("Most setup signals confirmed (%s of 7)" % sig_hit)
+    elif sig_hit >= 3:
+        aligned += 1
+        factors.append("Some setup signals confirmed (%s of 7)" % sig_hit)
+    else:
+        against.append("Few setup signals confirmed (%s of 7)" % sig_hit)
+    total += 2
+
+    ma200_above  = detail.get("ma200_above")
+    ma200_rising = detail.get("ma200_rising")
+    if ma200_above is not None:
+        if is_bull and ma200_above and ma200_rising:
+            aligned += 1; factors.append("Long-term trend up")
+        elif not is_bull and not ma200_above and not ma200_rising:
+            aligned += 1; factors.append("Long-term trend down")
+        else:
+            against.append("Long-term trend not aligned")
+        total += 1
+
+    mb_label = r.get("macro_bias_label", "")
+    if "ALIGNED" in mb_label:
+        aligned += 1; factors.append("Big-picture macro on your side"); total += 1
+    elif "HEADWIND" in mb_label:
+        against.append("Big-picture macro against you"); total += 1
+
+    align_state = r.get("regime_alignment", "")
+    if align_state == "CONFIRMED":
+        aligned += 1; factors.append("Market regime backs the trade"); total += 1
+    elif align_state == "COUNTER":
+        against.append("Trading against current market regime"); total += 1
+    elif align_state == "BLOCKED":
+        against.append("Market regime blocks this direction"); total += 1
+
+    sr = detail.get("sr_data", {}) or {}
+    sr_boost = sr.get("conf_boost", 0)
+    if sr_boost >= 8:
+        aligned += 1; factors.append(("At support" if is_bull else "At resistance") + " - clean entry"); total += 1
+    elif sr_boost > 0:
+        aligned += 1; factors.append("Near key level"); total += 1
+    elif sr_boost < 0:
+        against.append("Buying into resistance" if is_bull else "Shorting into support"); total += 1
+
+    cfl = r.get("confluence", {}) or {}
+    if cfl.get("available"):
+        cfl_align = cfl.get("alignment_count", 0)
+        if cfl_align >= 3:
+            aligned += 1; factors.append("Trend lines stacked correctly")
+        elif cfl_align >= 2:
+            aligned += 1; factors.append("Most trend lines aligned")
+        else:
+            against.append("Trend lines not aligned for this direction")
+        total += 1
+
+    news_sent = detail.get("news_sentiment", "neutral")
+    if (is_bull and news_sent == "bullish") or (not is_bull and news_sent == "bearish"):
+        aligned += 1; factors.append("News flow supports the trade"); total += 1
+    elif (is_bull and news_sent == "bearish") or (not is_bull and news_sent == "bullish"):
+        against.append("News flow goes the other way"); total += 1
+
+    against_bias = detail.get("against_market_bias", False)
+    if against_bias:
+        against.append("Trade goes against today's market bias"); total += 1
+
+    pct = (aligned / max(total, 1)) * 100 if total else 0
+
+    if aligned >= 7 and pct >= 80:
+        tier = "ALL SYSTEMS GO"; color = "#22C55E"; icon = "🟢"
+        verdict = "Every layer points the same way. Highest-conviction setup. Trade with normal size."
+    elif aligned >= 5 and pct >= 60:
+        tier = "STRONG ALIGNMENT"; color = "#D4AF37"; icon = "✅"
+        verdict = "Most layers agree. Solid setup. Trade with normal size."
+    elif aligned >= 3 and pct >= 40:
+        tier = "MIXED SIGNALS"; color = "#F6E27A"; icon = "⚠️"
+        verdict = "Some layers agree, some don't. Reduce position size by half. Tight stop."
+    elif aligned >= 2:
+        tier = "WEAK ALIGNMENT"; color = "#FF6B35"; icon = "🟠"
+        verdict = "Most layers conflict. Consider sitting this one out or paper-trading it."
+    else:
+        tier = "CONFLICTING"; color = "#C1121F"; icon = "🔴"
+        verdict = "Stack disagrees with the trade direction. Skip — wait for a cleaner setup."
+
+    return {"tier":tier, "color":color, "icon":icon, "verdict":verdict,
+            "aligned":aligned, "total":total,
+            "factors":factors[:5], "against":against[:3]}
+
+@_thread_cache(ttl=3600)
+def get_todays_macro_events():
+    """Pull today's high-impact economic events from FMP.
+    Returns list of dicts with event name, time, impact level."""
+    if not FMP_API_KEY:
+        return []
+    try:
+        et   = pytz.timezone("America/New_York")
+        now  = datetime.now(et)
+        date = now.strftime("%Y-%m-%d")
+        url  = (
+            "https://financialmodelingprep.com/api/v3/economic_calendar"
+            "?from=%s&to=%s&apikey=%s" % (date, date, FMP_API_KEY)
+        )
+        r = _http_get(url, timeout=8)
+        if r is None or r.status_code != 200:
+            return []
+        data = r.json()
+        if not isinstance(data, list):
+            return []
+
+        HIGH_IMPACT = [
+            "cpi", "ppi", "inflation", "fed", "fomc", "interest rate",
+            "jobs", "nonfarm", "unemployment", "gdp", "retail sales",
+            "pce", "payroll", "consumer price", "producer price",
+            "core inflation", "housing starts", "ism manufacturing",
+            "ism services", "consumer confidence", "durable goods",
+        ]
+        events = []
+        for item in data:
+            if item.get("country", "").upper() != "US":
+                continue
+            impact = (item.get("impact") or "").lower()
+            name   = (item.get("event") or "").lower()
+            if impact not in ("high", "medium") and not any(k in name for k in HIGH_IMPACT):
+                continue
+            if impact == "low" and not any(k in name for k in HIGH_IMPACT):
+                continue
+            # Parse event time
+            event_time = item.get("date", "") or item.get("time", "")
+            events.append({
+                "name":   item.get("event", "Economic Event"),
+                "time":   event_time,
+                "impact": impact,
+                "actual": item.get("actual"),
+                "estimate": item.get("estimate"),
+                "previous": item.get("previous"),
+            })
+        return events
+    except Exception as _e:
+        print("[macro_events] error: %s" % str(_e)[:100])
+        return []
+
+def get_macro_event_warning():
+    """Returns warning dict if high-impact events are today.
+    Levels:
+      PRE_EVENT  = event coming up in next 3 hours, treat signals as lower confidence
+      POST_EVENT = event already printed, market may still be digesting
+      CLEAR      = no events or events are minor
+    """
+    try:
+        et      = pytz.timezone("America/New_York")
+        now     = datetime.now(et)
+        events  = get_todays_macro_events()
+        if not events:
+            return {"level": "CLEAR", "events": [], "message": ""}
+
+        HIGH_KEYWORDS = [
+            "cpi", "ppi", "fed", "fomc", "nonfarm", "unemployment",
+            "gdp", "interest rate", "core inflation", "pce", "payroll",
+        ]
+
+        warnings = []
+        for ev in events:
+            name   = ev["name"].lower()
+            is_key = any(k in name for k in HIGH_KEYWORDS)
+            if not is_key and ev["impact"] != "high":
+                continue
+
+            # Try to parse event time
+            ev_hour = None
+            try:
+                ev_time_str = ev["time"]
+                if ev_time_str:
+                    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%H:%M"):
+                        try:
+                            parsed = datetime.strptime(ev_time_str[:19], fmt[:len(ev_time_str[:19])])
+                            ev_hour = parsed.hour
+                            break
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+
+            warnings.append({
+                "name":    ev["name"],
+                "time":    ev.get("time", ""),
+                "hour":    ev_hour,
+                "actual":  ev.get("actual"),
+                "estimate":ev.get("estimate"),
+            })
+
+        if not warnings:
+            return {"level": "CLEAR", "events": [], "message": ""}
+
+        # Determine level based on timing
+        current_hour = now.hour
+        pre_events   = []
+        post_events  = []
+        unknown_time = []
+
+        for w in warnings:
+            h = w.get("hour")
+            if h is None:
+                unknown_time.append(w)
+            elif current_hour < h and (h - current_hour) <= 3:
+                pre_events.append(w)
+            elif current_hour >= h:
+                post_events.append(w)
+            else:
+                unknown_time.append(w)
+
+        if pre_events:
+            names = ", ".join(e["name"] for e in pre_events[:2])
+            return {
+                "level":   "PRE_EVENT",
+                "events":  pre_events,
+                "message": (
+                    "%s coming up. Signals carry elevated risk until data clears. "
+                    "Consider waiting for the print before entering." % names
+                ),
+            }
+        elif post_events:
+            # Check if actual vs estimate shows a surprise
+            surprises = [e for e in post_events if e.get("actual") and e.get("estimate")]
+            msg_parts = []
+            for e in surprises[:2]:
+                try:
+                    act = float(str(e["actual"]).replace("%","").replace("K","").replace("M",""))
+                    est = float(str(e["estimate"]).replace("%","").replace("K","").replace("M",""))
+                    if abs(act - est) / max(abs(est), 0.001) > 0.05:
+                        direction = "HIGHER" if act > est else "LOWER"
+                        msg_parts.append(
+                            "%s came in %s than expected (%.2f vs %.2f est)" % (
+                                e["name"], direction, act, est
+                            )
+                        )
+                except Exception:
+                    msg_parts.append("%s already printed" % e["name"])
+
+            names = ", ".join(e["name"] for e in post_events[:2])
+            base_msg = "%s already printed. " % names
+            if msg_parts:
+                base_msg += " ".join(msg_parts) + ". "
+            base_msg += "Market may still be digesting — signals in first 30-60 min post-print are noisier."
+            return {
+                "level":   "POST_EVENT",
+                "events":  post_events,
+                "message": base_msg,
+            }
+        else:
+            names = ", ".join(e["name"] for e in (unknown_time or warnings)[:2])
+            return {
+                "level":   "PRE_EVENT",
+                "events":  unknown_time or warnings,
+                "message": (
+                    "%s scheduled today. Treat signals as lower confidence "
+                    "until the data clears." % names
+                ),
+            }
+    except Exception as _e:
+        print("[macro_warning] error: %s" % str(_e)[:100])
+        return {"level": "CLEAR", "events": [], "message": ""}
+
+@_thread_cache(ttl=900)
+def get_market_stress_monitor():
+    out = {
+        "available":      False,
+        "spy_price":      None,
+        "spy_rsi_1d":     None,
+        "spy_rsi_1w":     None,
+        "spy_pct_5d":     None,
+        "spy_vol_ratio":  None,
+        "qqq_rsi_1d":     None,
+        "iwm_rsi_1d":     None,
+        "iwm_new_low":    None,
+        "spy_new_low":    None,
+        "at_support":     False,
+        "support_level":  None,
+        "dist_to_sup":    None,
+        "def_holding":    0,
+        "vix_est":        None,
+        "note":           "",
+    }
+    try:
+        def _rsi(close, period=14):
+            d = close.diff()
+            g = d.clip(lower=0).rolling(period).mean()
+            l = (-d.clip(upper=0)).rolling(period).mean()
+            return round(float((100 - 100 / (1 + g / l.replace(0, 0.001))).iloc[-1]), 1)
+
+        # SPY daily
+        df_spy = _fmp_download("SPY", "60d", "1d")
+        if df_spy is None or len(df_spy) < 15:
+            return out
+        df_spy = df_spy.sort_values("datetime").reset_index(drop=True)
+        spy_cl = df_spy["close"].astype(float)
+        spy_vol = df_spy["volume"].astype(float)
+
+        out["spy_price"]    = round(float(spy_cl.iloc[-1]), 2)
+        out["spy_rsi_1d"]   = _rsi(spy_cl)
+        out["spy_pct_5d"]   = round((float(spy_cl.iloc[-1]) - float(spy_cl.iloc[-6])) / float(spy_cl.iloc[-6]) * 100, 1) if len(spy_cl) >= 6 else None
+        avg_vol             = float(spy_vol.iloc[-20:].mean())
+        out["spy_vol_ratio"] = round(float(spy_vol.iloc[-1]) / avg_vol, 2) if avg_vol > 0 else None
+
+        # SPY weekly RSI
+        try:
+            df_wk = _fmp_download("SPY", "2y", "1wk")
+            if df_wk is not None and len(df_wk) >= 14:
+                out["spy_rsi_1w"] = _rsi(df_wk["close"].astype(float))
+        except Exception:
+            pass
+
+        # New low check (20-day)
+        spy_20d_low = float(spy_cl.iloc[-20:].min())
+        out["spy_new_low"] = float(spy_cl.iloc[-1]) <= spy_20d_low * 1.005
+
+        # QQQ and IWM
+        try:
+            df_qqq = _fmp_download("QQQ", "30d", "1d")
+            if df_qqq is not None and len(df_qqq) >= 14:
+                out["qqq_rsi_1d"] = _rsi(df_qqq["close"].astype(float).sort_values().reset_index(drop=True))
+        except Exception:
+            pass
+
+        try:
+            df_iwm = _fmp_download("IWM", "30d", "1d")
+            if df_iwm is not None and len(df_iwm) >= 14:
+                iwm_cl = df_iwm["close"].astype(float)
+                out["iwm_rsi_1d"]  = _rsi(iwm_cl)
+                out["iwm_new_low"] = float(iwm_cl.iloc[-1]) <= float(iwm_cl.iloc[-20:].min()) * 1.005
+        except Exception:
+            pass
+
+        # Support level
+        try:
+            sr = detect_sr_levels("SPY", out["spy_price"], "bearish")
+            sup = sr.get("nearest_support")
+            if sup:
+                dist = round((out["spy_price"] - sup) / out["spy_price"] * 100, 1)
+                out["at_support"]    = sr.get("at_support", False) or dist < 1.0
+                out["support_level"] = round(sup, 2)
+                out["dist_to_sup"]   = dist
+        except Exception:
+            pass
+
+        # Defensive sectors holding
+        def_count = 0
+        for etf in ("XLU", "XLP", "XLV"):
+            try:
+                df_d = _fmp_download(etf, "20d", "1d")
+                if df_d is not None and len(df_d) >= 5:
+                    r = _rsi(df_d["close"].astype(float))
+                    if r > 42:
+                        def_count += 1
+            except Exception:
+                pass
+        out["def_holding"] = def_count
+
+        # VIX approximation via VIXY (flagged as proxy, not spot)
+        try:
+            df_vx = _fmp_download("VIXY", "10d", "1d")
+            if df_vx is not None and len(df_vx) >= 2:
+                out["vix_est"] = round(float(df_vx["close"].astype(float).iloc[-1]), 2)
+        except Exception:
+            pass
+
+        # Plain note based on what we see — no prediction, just description
+        notes = []
+        rsi_d = out["spy_rsi_1d"]
+        rsi_w = out["spy_rsi_1w"]
+        if rsi_d and rsi_d < 30:
+            notes.append("SPY daily RSI deeply oversold (%.0f)" % rsi_d)
+        elif rsi_d and rsi_d < 38:
+            notes.append("SPY daily RSI oversold (%.0f)" % rsi_d)
+        if rsi_w and rsi_w < 35:
+            notes.append("weekly RSI also oversold (%.0f) — selling broad" % rsi_w)
+        if out["spy_new_low"] and out["iwm_new_low"] is False:
+            notes.append("IWM not making new lows with SPY — selling may be narrowing")
+        if out["at_support"]:
+            notes.append("sitting at key support $%.2f" % out["support_level"])
+        elif out["dist_to_sup"] and out["dist_to_sup"] < 2.5:
+            notes.append("%.1f%% above key support $%.2f" % (out["dist_to_sup"], out["support_level"]))
+        if out["def_holding"] >= 2:
+            notes.append("%d/3 defensive sectors holding (rotation signal)" % out["def_holding"])
+        if out["spy_pct_5d"] and out["spy_pct_5d"] < -4:
+            notes.append("down %.1f%% in 5 days — pace of selling elevated" % out["spy_pct_5d"])
+
+        out["note"]      = " · ".join(notes) if notes else ""
+        out["available"] = rsi_d is not None and rsi_d < 45
+        return out
+    except Exception as _e:
+        print("[stress] error: %s" % str(_e)[:150])
+        return out
+
+@_thread_cache(ttl=300)
+def get_pattern_win_rate(pattern, style=None, direction=None):
+    min_sample = 10
+    """Win rate for a specific pattern.
+    Returns dict with win_rate, sample_size, avg_winner, avg_loser, expectancy."""
+    sb = get_supabase(service=True)
+    if not sb:
+        return None
+    try:
+        q = sb.table("signal_outcomes").select("*").eq("pattern", pattern).neq("result", "OPEN")
+        if style:
+            q = q.eq("style", style)
+        if direction:
+            q = q.eq("direction", direction)
+        res = q.limit(500).execute()
+        rows = res.data or []
+        if len(rows) < min_sample:
+            return {"win_rate": None, "sample_size": len(rows), "min_sample": min_sample,
+                    "avg_winner": None, "avg_loser": None, "expectancy": None,
+                    "ready": False}
+
+        wins   = [float(r.get("outcome_5d") or r.get("outcome_3d") or r.get("outcome_1d") or 0)
+                  for r in rows if r.get("result") == "WIN"]
+        losses = [float(r.get("outcome_5d") or r.get("outcome_3d") or r.get("outcome_1d") or 0)
+                  for r in rows if r.get("result") == "LOSS"]
+        n_total = len(wins) + len(losses)
+        if n_total == 0:
+            return {"win_rate": None, "sample_size": 0, "min_sample": min_sample,
+                    "ready": False}
+
+        win_rate   = len(wins) / n_total
+        avg_winner = sum(wins) / len(wins) if wins else 0
+        avg_loser  = sum(losses) / len(losses) if losses else 0
+        expectancy = (win_rate * avg_winner) + ((1 - win_rate) * avg_loser)
+
+        return {
+            "win_rate":    round(win_rate * 100, 1),
+            "sample_size": n_total,
+            "min_sample":  min_sample,
+            "avg_winner":  round(avg_winner, 2),
+            "avg_loser":   round(avg_loser, 2),
+            "expectancy":  round(expectancy, 2),
+            "ready":       True,
+        }
+    except Exception as _e:
+        print("[analytics] pattern win rate error: %s" % str(_e)[:120])
+        return None
+
+@_thread_cache(ttl=300)
+def get_regime_win_rates():
+    min_sample = 5
+    """Win rates grouped by market regime.
+    Returns list of dicts so you can see which regimes the screener works in."""
+    sb = get_supabase(service=True)
+    if not sb:
+        return []
+    try:
+        res = sb.table("signal_outcomes").select("*").neq("result", "OPEN").limit(1000).execute()
+        rows = res.data or []
+        buckets = {}
+        for row in rows:
+            regime = row.get("market_regime") or "UNKNOWN"
+            buckets.setdefault(regime, {"wins": 0, "losses": 0})
+            if row.get("result") == "WIN":
+                buckets[regime]["wins"] += 1
+            elif row.get("result") == "LOSS":
+                buckets[regime]["losses"] += 1
+        out = []
+        for regime, d in buckets.items():
+            n = d["wins"] + d["losses"]
+            if n < min_sample:
+                continue
+            wr = d["wins"] / n if n else 0
+            out.append({
+                "regime":      regime,
+                "sample":      n,
+                "wins":        d["wins"],
+                "losses":      d["losses"],
+                "win_rate":    round(wr * 100, 1),
+            })
+        return sorted(out, key=lambda x: x["win_rate"], reverse=True)
+    except Exception as _e:
+        print("[analytics] regime win rates error: %s" % str(_e)[:120])
+        return []
+
+@_thread_cache(ttl=300)
+def get_confluence_correlation():
+    min_sample = 5
+    """Does confluence alignment correlate with wins?
+    Returns win rates grouped by confluence_alignment count (0-4)."""
+    sb = get_supabase(service=True)
+    if not sb:
+        return []
+    try:
+        res = sb.table("signal_outcomes").select("*").neq("result", "OPEN").limit(1000).execute()
+        rows = res.data or []
+        buckets = {0: {"w":0,"l":0}, 1: {"w":0,"l":0}, 2: {"w":0,"l":0},
+                   3: {"w":0,"l":0}, 4: {"w":0,"l":0}}
+        for row in rows:
+            try:
+                ca = int(row.get("confluence_alignment") or 0)
+            except Exception:
+                ca = 0
+            ca = max(0, min(4, ca))
+            if row.get("result") == "WIN":
+                buckets[ca]["w"] += 1
+            elif row.get("result") == "LOSS":
+                buckets[ca]["l"] += 1
+        out = []
+        for ca, d in sorted(buckets.items()):
+            n = d["w"] + d["l"]
+            if n < min_sample:
+                out.append({"alignment": ca, "sample": n, "win_rate": None, "ready": False})
+            else:
+                wr = d["w"] / n if n else 0
+                out.append({"alignment": ca, "sample": n,
+                            "win_rate": round(wr * 100, 1), "ready": True})
+        return out
+    except Exception as _e:
+        print("[analytics] confluence correlation error: %s" % str(_e)[:120])
+        return []
+
+@_thread_cache(ttl=300)
+def get_overall_stats():
+    """Total stats across all signals - top of dashboard summary."""
+    sb = get_supabase(service=True)
+    if not sb:
+        return None
+    try:
+        res = sb.table("signal_outcomes").select("result").limit(2000).execute()
+        rows = res.data or []
+        n_open = sum(1 for r in rows if r.get("result") == "OPEN")
+        n_win  = sum(1 for r in rows if r.get("result") == "WIN")
+        n_loss = sum(1 for r in rows if r.get("result") == "LOSS")
+        n_resolved = n_win + n_loss
+        wr = (n_win / n_resolved * 100) if n_resolved else None
+        return {
+            "total":      len(rows),
+            "open":       n_open,
+            "wins":       n_win,
+            "losses":     n_loss,
+            "resolved":   n_resolved,
+            "win_rate":   round(wr, 1) if wr is not None else None,
+        }
+    except Exception:
+        return None
+
+def render_sniper_card_html(r, sh):
+    dc = "#D4AF37" if r.get("direction") == "bullish" else "#C1121F"
+    act = "BUY CALL" if r.get("direction") == "bullish" else "BUY PUT"
+    conf = str(r.get("confidence", 0))
+    gates = str(r.get("gates_passed", 0))
+    entry = "%.2f" % (r.get("price", 0) or 0)
+    stop  = "%.2f" % ((r.get("opt", {}) or {}).get("stop", 0) or 0)
+    return (
+        "<div style='background:linear-gradient(135deg,#0f0f12,#1a1a1d);"
+        "border:2px solid " + dc + ";border-radius:10px;"
+        "padding:16px 20px;margin-bottom:12px'>"
+        "<div style='display:flex;justify-content:space-between;"
+        "align-items:center;margin-bottom:10px'>"
+        "<div>"
+        "<span style='font-family:Barlow Condensed,Arial Black,sans-serif;"
+        "font-size:1.3rem;font-weight:900;color:" + dc + "'>"
+        + str(r["ticker"]) + "</span>"
+        "<span style='color:#A1A1A6;font-size:0.82rem;margin-left:10px'>"
+        + act + " - " + str(r.get("pattern", "Signal")) + "</span>"
+        "</div>"
+        "<div style='text-align:right'>"
+        "<div style='font-size:0.65rem;color:#A1A1A6'>EXECUTION</div>"
+        "<div style='font-size:1.1rem;font-weight:700;color:#00C853'>"
+        + str(sh["exec"]) + "%</div>"
+        "</div></div>"
+        "<div style='font-size:0.8rem;color:#F5F5F5;font-weight:700'>"
+        "! " + str(sh["trigger"]) + " -> " + str(sh["window"]) + "</div>"
+        "<div style='font-size:0.72rem;color:#A1A1A6;margin-top:4px'>"
+        + str(sh["detail"]) + "</div>"
+        "<div style='display:flex;gap:20px;margin-top:10px;font-size:0.78rem'>"
+        "<span style='color:#A1A1A6'>Conf: <b style='color:#F5F5F5'>" + conf + "%</b></span>"
+        "<span style='color:#A1A1A6'>Gates: <b style='color:#F5F5F5'>" + gates + "/7</b></span>"
+        "<span style='color:#A1A1A6'>Entry: <b style='color:#D4AF37'>$" + entry + "</b></span>"
+        "<span style='color:#A1A1A6'>Stop: <b style='color:#FF1744'>$" + stop + "</b></span>"
+        "</div></div>"
+    )
+
+def section_hdr(label, color, count):
+    _plural = "s" if count != 1 else ""
+    _html = (
+        "<div style='display:flex;align-items:center;"
+        "gap:10px;margin:20px 0 8px'>"
+        "<div style='width:3px;height:16px;background:"
+        + color +
+        ";border-radius:2px;flex-shrink:0'></div>"
+        "<span style='font-size:0.65rem;letter-spacing:3px;color:"
+        + color +
+        ";font-weight:700'>"
+        + label +
+        "</span>"
+        "<div style='flex:1;height:1px;background:#2A2A2D'></div>"
+        "<span style='font-size:0.62rem;color:#A1A1A6'>"
+        + str(count) +
+        " signal" + _plural +
+        "</span></div>"
+    )
+    st.markdown(_html, unsafe_allow_html=True)
+
+def empty_bkt(msg):
+    st.markdown(
+        "<div style='padding:14px;color:#A1A1A6;font-size:0.78rem;"
+        "background:#1A1A1D;border-radius:10px;text-align:center'>"
+        + str(msg) + "</div>",
+        unsafe_allow_html=True
+    )
+
+def render_summary_line_html(r):
+    """Top-of-card alignment verdict block."""
+    s = build_confluence_summary(r)
+    factors_html = ""
+    for f in s["factors"]:
+        factors_html += "<div style='font-size:0.72rem;color:#22C55E;margin:1px 0'>✅ " + f + "</div>"
+    against_html = ""
+    for a in s["against"]:
+        against_html += "<div style='font-size:0.72rem;color:#C1121F;margin:1px 0'>⚠️ " + a + "</div>"
+
+    return (
+        "<div style='background:#0d0d0f;border:2px solid " + s["color"] + ";border-radius:10px;"
+        "padding:12px 16px;margin:8px 0'>"
+        "<div style='display:flex;justify-content:space-between;align-items:center'>"
+        "<div>"
+        "<span style='font-family:Barlow Condensed,Arial Black,sans-serif;"
+        "font-size:1rem;font-weight:900;letter-spacing:0.05em;color:" + s["color"] + "'>"
+        + s["icon"] + " " + s["tier"] + "</span>"
+        "<span style='color:#A1A1A6;font-size:0.7rem;margin-left:8px'>"
+        "(" + str(s["aligned"]) + " of " + str(s["total"]) + " factors aligned)</span>"
+        "</div></div>"
+        "<div style='font-size:0.78rem;color:#F5F5F5;margin-top:4px;line-height:1.5'>" + s["verdict"] + "</div>"
+        "<div style='margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px'>"
+        "<div>" + (factors_html or "<div style='color:#4a5568;font-size:0.7rem'>No strong positives</div>") + "</div>"
+        "<div>" + (against_html or "<div style='color:#4a5568;font-size:0.7rem'>No major issues</div>") + "</div>"
+        "</div>"
+        "</div>"
+    )
+
+def render_confluence_block_html(cfl, direction):
+    """Confluence Intel display block - VWAP + 9EMA + 400SMA stack."""
+    if not cfl or not cfl.get("available"):
+        return ""
+
+    is_bull = direction == "bullish"
+    d_above = cfl.get("daily_bias")
+    i_above = cfl.get("intraday_trend")
+    d_400   = cfl.get("daily_400ma")
+    i_400   = cfl.get("intraday_400ma")
+    vwap    = cfl.get("vwap")
+    ema9    = cfl.get("ema9")
+    z_lo    = cfl.get("zone_low")
+    z_hi    = cfl.get("zone_high")
+    plan    = cfl.get("game_plan", "")
+    invalid = cfl.get("invalidation", "")
+    ts      = cfl.get("timestamp", "")
+
+    if d_above is None:
+        d_chip = ""
+    elif (is_bull and d_above) or (not is_bull and not d_above):
+        d_chip = (
+            "<div style='font-size:0.72rem'>"
+            "<span style='color:#22C55E'>✅ Big-Picture Trend</span>: "
+            "Price is " + ("above" if d_above else "below") + " the long-term trend line ($" + ("%.2f" % d_400) + ") - good for this trade."
+            "</div>"
+        )
+    else:
+        d_chip = (
+            "<div style='font-size:0.72rem'>"
+            "<span style='color:#C1121F'>⚠️ Big-Picture Trend</span>: "
+            "Price is " + ("above" if d_above else "below") + " the long-term trend line ($" + ("%.2f" % d_400) + ") - working against this trade."
+            "</div>"
+        )
+
+    if i_above is None:
+        i_chip = ""
+    elif (is_bull and i_above) or (not is_bull and not i_above):
+        i_chip = (
+            "<div style='font-size:0.72rem;margin-top:3px'>"
+            "<span style='color:#22C55E'>✅ Today's Trend</span>: "
+            "Price is " + ("above" if i_above else "below") + " the intraday trend line ($" + ("%.2f" % i_400) + ") - momentum on your side."
+            "</div>"
+        )
+    else:
+        i_chip = (
+            "<div style='font-size:0.72rem;margin-top:3px'>"
+            "<span style='color:#C1121F'>⚠️ Today's Trend</span>: "
+            "Price is " + ("above" if i_above else "below") + " the intraday trend line ($" + ("%.2f" % i_400) + ") - momentum against you."
+            "</div>"
+        )
+
+    lines_html = (
+        "<div style='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;"
+        "background:#111115;border-radius:6px;padding:8px 10px'>"
+        "<div>"
+        "<div style='font-size:0.6rem;color:#A1A1A6;letter-spacing:1px'>TODAY'S AVG PRICE (VWAP)</div>"
+        "<div style='font-size:0.95rem;font-weight:700;color:#F5F5F5'>$" + ("%.2f" % vwap) + "</div>"
+        "</div>"
+        "<div>"
+        "<div style='font-size:0.6rem;color:#A1A1A6;letter-spacing:1px'>RECENT TREND LINE (9 EMA)</div>"
+        "<div style='font-size:0.95rem;font-weight:700;color:#F5F5F5'>$" + ("%.2f" % ema9) + "</div>"
+        "</div>"
+        "</div>"
+    )
+
+    zone_html = ""
+    if z_lo and z_hi:
+        zone_html = (
+            "<div style='background:#1A1500;border:1px solid #D4AF37;border-radius:6px;"
+            "padding:8px 10px;margin-top:8px'>"
+            "<div style='font-size:0.6rem;color:#D4AF37;letter-spacing:1px'>SWEET SPOT ZONE</div>"
+            "<div style='font-size:0.95rem;font-weight:700;color:#D4AF37'>$" + ("%.2f" % z_lo) + " - $" + ("%.2f" % z_hi) + "</div>"
+            "<div style='font-size:0.7rem;color:#A1A1A6;margin-top:2px'>"
+            "Where the trend lines cluster. Best risk/reward entry area.</div>"
+            "</div>"
+        )
+
+    plan_html = ""
+    if plan:
+        plan_html = (
+            "<div style='background:#0a1a0a;border-left:3px solid #22C55E;border-radius:4px;"
+            "padding:8px 12px;margin-top:8px'>"
+            "<div style='font-size:0.6rem;color:#22C55E;letter-spacing:1px'>GAME PLAN</div>"
+            "<div style='font-size:0.78rem;color:#F5F5F5;margin-top:3px;line-height:1.5'>" + plan + "</div>"
+            "</div>"
+        )
+
+    invalid_html = ""
+    if invalid:
+        invalid_html = (
+            "<div style='background:#1a0a0a;border-left:3px solid #C1121F;border-radius:4px;"
+            "padding:8px 12px;margin-top:6px'>"
+            "<div style='font-size:0.6rem;color:#C1121F;letter-spacing:1px'>WHEN TO BAIL</div>"
+            "<div style='font-size:0.78rem;color:#F5F5F5;margin-top:3px;line-height:1.5'>" + invalid + "</div>"
+            "</div>"
+        )
+
+    return (
+        "<div style='background:#0B0B0C;border:1px solid #2A2A2D;border-radius:10px;"
+        "padding:12px 14px;margin-top:10px'>"
+        "<div style='display:flex;justify-content:space-between;align-items:center;"
+        "margin-bottom:6px'>"
+        "<span style='color:#D4AF37;font-family:monospace;font-size:0.68rem;"
+        "letter-spacing:2px;font-weight:700'>🎯 CONFLUENCE INTEL</span>"
+        "<span style='color:#4a5568;font-size:0.62rem'>Levels as of " + ts + "</span>"
+        "</div>"
+        + d_chip + i_chip + lines_html + zone_html + plan_html + invalid_html +
+        "</div>"
+    )
+
+def render_time_of_day_banner_html():
+    """Top-of-page banner showing what time-of-day means for trading."""
+    t = get_time_of_day_context()
+    return (
+        "<div style='background:#0d0d0f;border:1px solid " + t["color"] + "44;border-left:3px solid " + t["color"] + ";"
+        "border-radius:8px;padding:8px 14px;margin-bottom:8px'>"
+        "<div style='display:flex;justify-content:space-between;align-items:center'>"
+        "<div>"
+        "<span style='font-size:0.95rem'>" + t["icon"] + "</span>"
+        "<span style='color:" + t["color"] + ";font-weight:700;font-size:0.78rem;margin-left:8px'>" + t["label"] + "</span>"
+        "</div>"
+        "</div>"
+        "<div style='font-size:0.72rem;color:#A1A1A6;margin-top:4px;line-height:1.4'>" + t["meaning"] + "</div>"
+        "</div>"
+    )
+
+def render_perf_chip_html(pattern, style, direction):
+    """Small chip showing historical win rate for this pattern.
+    Only renders if we have enough sample size."""
+    try:
+        stats = get_pattern_win_rate(pattern, style=style, direction=direction)
+        if not stats:
+            return ""
+        if not stats.get("ready"):
+            n = stats.get("sample_size", 0)
+            need = stats.get("min_sample", 10)
+            return (
+                "<div style='background:#1A1A1D;border:1px dashed #4a5568;border-radius:6px;"
+                "padding:6px 12px;margin:6px 0;font-size:0.7rem;color:#A1A1A6'>"
+                "* Building dataset for this pattern (" + str(n) + " of " + str(need) + " trades). "
+                "Win rate unlocks at " + str(need) + "+."
+                "</div>"
+            )
+
+        wr   = stats["win_rate"]
+        n    = stats["sample_size"]
+        exp  = stats["expectancy"]
+        avgW = stats["avg_winner"]
+        avgL = stats["avg_loser"]
+
+        if wr >= 60:    color = "#22C55E"; tier = "Strong edge"
+        elif wr >= 50:  color = "#D4AF37"; tier = "Slight edge"
+        elif wr >= 40:  color = "#F6E27A"; tier = "Coin flip"
+        else:           color = "#C1121F"; tier = "Negative edge"
+
+        return (
+            "<div style='background:#0d0d0f;border:1px solid " + color + ";border-radius:8px;"
+            "padding:8px 12px;margin:6px 0'>"
+            "<div style='display:flex;justify-content:space-between;align-items:center'>"
+            "<span style='color:" + color + ";font-family:monospace;font-size:0.66rem;"
+            "letter-spacing:1.5px;font-weight:700'>* HISTORICAL EDGE</span>"
+            "<span style='color:" + color + ";font-weight:700;font-size:0.78rem'>"
+            + str(wr) + "% wins (" + str(n) + " trades)</span>"
+            "</div>"
+            "<div style='font-size:0.7rem;color:#F5F5F5;margin-top:3px'>"
+            + tier + " * Avg winner +" + str(avgW) + "% * Avg loser " + str(avgL) + "% * "
+            "Expected per trade: " + ("+" if exp >= 0 else "") + str(exp) + "%"
+            "</div>"
+            "</div>"
+        )
+    except Exception:
+        return ""
+
+def render_market_stress_html(s):
+    if not s or not s.get("available"):
+        return ""
+
+    rsi_d = s.get("spy_rsi_1d")
+    rsi_w = s.get("spy_rsi_1w")
+    pct5  = s.get("spy_pct_5d")
+    sup   = s.get("support_level")
+    dist  = s.get("dist_to_sup")
+    vix   = s.get("vix_est")
+    def_h = s.get("def_holding", 0)
+    iwm_nl= s.get("iwm_new_low")
+    spy_nl= s.get("spy_new_low")
+    note  = s.get("note", "")
+    price = s.get("spy_price")
+
+    def rsi_color(r):
+        if r is None: return "#A1A1A6"
+        if r < 25:    return "#C1121F"
+        if r < 35:    return "#FF6B35"
+        if r < 45:    return "#F6E27A"
+        return "#22C55E"
+
+    def stat_block(label, val, color, sub=""):
+        return (
+            "<div style='background:#111115;border-radius:6px;padding:8px 10px'>"
+            "<div style='font-size:0.58rem;color:#A1A1A6;letter-spacing:1px'>%s</div>"
+            "<div style='font-size:1.0rem;font-weight:700;color:%s'>%s</div>"
+            "%s"
+            "</div>"
+        ) % (label, color,
+             val if val is not None else "-",
+             ("<div style='font-size:0.62rem;color:#A1A1A6;margin-top:1px'>%s</div>" % sub) if sub else "")
+
+    # RSI blocks
+    rsi_d_str = ("%.0f" % rsi_d) if rsi_d else "-"
+    rsi_w_str = ("%.0f" % rsi_w) if rsi_w else "-"
+    rsi_d_sub = "Oversold" if rsi_d and rsi_d < 30 else "Approaching" if rsi_d and rsi_d < 38 else "Elevated"
+    rsi_w_sub = "Oversold" if rsi_w and rsi_w < 35 else "Elevated" if rsi_w and rsi_w < 45 else "OK"
+
+    # 5-day move
+    pct5_color = "#C1121F" if pct5 and pct5 < -3 else "#FF6B35" if pct5 and pct5 < 0 else "#22C55E"
+    pct5_str = ("%+.1f%%" % pct5) if pct5 is not None else "-"
+
+    # Support
+    sup_color = "#22C55E" if s.get("at_support") else "#D4AF37" if dist and dist < 2 else "#A1A1A6"
+    sup_str   = ("$%.2f" % sup) if sup else "-"
+    sup_sub   = "AT SUPPORT" if s.get("at_support") else ("%.1f%% above" % dist if dist else "")
+
+    # VIX proxy
+    vix_color = "#C1121F" if vix and vix > 30 else "#F6E27A" if vix and vix > 20 else "#22C55E"
+    vix_str   = ("%.1f" % vix) if vix else "-"
+    vix_sub   = "proxy via VIXY"
+
+    # Breadth row
+    breadth_items = []
+    if iwm_nl is not None:
+        iwm_color = "#22C55E" if not iwm_nl else "#C1121F"
+        iwm_label = "IWM: no new low" if not iwm_nl else "IWM: new 20d low"
+        breadth_items.append("<span style='color:%s;font-size:0.72rem'>%s</span>" % (iwm_color, iwm_label))
+    if def_h > 0:
+        def_color = "#22C55E" if def_h >= 2 else "#F6E27A"
+        breadth_items.append("<span style='color:%s;font-size:0.72rem'>%d/3 defensives holding</span>" % (def_color, def_h))
+
+    breadth_html = ""
+    if breadth_items:
+        breadth_html = (
+            "<div style='display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;padding-top:8px;"
+            "border-top:1px solid #2A2A2D'>"
+            + "  ".join(breadth_items) +
+            "</div>"
+        )
+
+    note_html = ""
+    if note:
+        note_html = (
+            "<div style='font-size:0.72rem;color:#A1A1A6;margin-top:8px;"
+            "padding-top:8px;border-top:1px solid #2A2A2D;line-height:1.5'>"
+            + note +
+            "</div>"
+        )
+
+    spy_str = ("SPY $%.2f" % price) if price else "SPY"
+
+    return (
+        "<div style='background:#0d0d0f;border:1px solid #2A2A2D;border-left:3px solid #D4AF37;"
+        "border-radius:10px;padding:12px 16px;margin-bottom:10px'>"
+        "<div style='color:#D4AF37;font-family:monospace;font-size:0.68rem;"
+        "letter-spacing:2px;font-weight:700;margin-bottom:10px'>"
+        "MARKET STRESS MONITOR  "
+        "<span style='color:#4a5568;font-weight:400;font-size:0.62rem'>"
+        + spy_str +
+        "  |  no predictions, just data</span>"
+        "</div>"
+        "<div style='display:grid;grid-template-columns:repeat(5,1fr);gap:6px'>"
+        + stat_block("DAILY RSI", rsi_d_str, rsi_color(rsi_d), rsi_d_sub)
+        + stat_block("WEEKLY RSI", rsi_w_str, rsi_color(rsi_w), rsi_w_sub)
+        + stat_block("5-DAY MOVE", pct5_str, pct5_color, "SPY")
+        + stat_block("KEY SUPPORT", sup_str, sup_color, sup_sub)
+        + stat_block("VIX PROXY", vix_str, vix_color, vix_sub)
+        + "</div>"
+        + breadth_html
+        + note_html
+        + "</div>"
+    )
+
+def render_macro_event_warning_html(w):
+    """Renders a warning banner when high-impact events are today."""
+    if not w or w.get("level") == "CLEAR":
+        return ""
+    level   = w["level"]
+    message = w["message"]
+    events  = w["events"]
+
+    if level == "PRE_EVENT":
+        color  = "#FF6B35"
+        label  = "MACRO EVENT ALERT"
+        bg     = "#1a0f00"
+        border = "#FF6B35"
+        icon   = "!"
+    else:
+        color  = "#F6E27A"
+        label  = "MACRO EVENT PRINTED"
+        bg     = "#1a1800"
+        border = "#F6E27A"
+        icon   = "*"
+
+    event_chips = ""
+    for ev in events[:3]:
+        actual_str = ""
+        if ev.get("actual") and ev.get("estimate"):
+            try:
+                act = float(str(ev["actual"]).replace("%","").replace("K","").replace("M",""))
+                est = float(str(ev["estimate"]).replace("%","").replace("K","").replace("M",""))
+                surprise_color = "#C1121F" if act > est else "#22C55E"
+                actual_str = (
+                    " <span style='color:%s;font-size:0.65rem'>actual %.2f</span>"
+                    " <span style='color:#A1A1A6;font-size:0.65rem'>vs %.2f est</span>"
+                ) % (surprise_color, act, est)
+            except Exception:
+                pass
+        event_chips += (
+            "<div style='font-size:0.72rem;color:#F5F5F5;margin:2px 0'>"
+            "- " + ev["name"] + actual_str +
+            "</div>"
+        )
+
+    return (
+        "<div style='background:%s;border:1px solid %s;border-left:3px solid %s;"
+        "border-radius:8px;padding:10px 14px;margin-bottom:8px'>"
+        "<div style='color:%s;font-family:monospace;font-size:0.68rem;"
+        "letter-spacing:2px;font-weight:700;margin-bottom:6px'>"
+        "%s  %s"
+        "</div>"
+        "<div style='font-size:0.75rem;color:#F5F5F5;line-height:1.5;margin-bottom:6px'>"
+        + message +
+        "</div>"
+        + event_chips +
+        "</div>"
+    ) % (bg, border, border, color, icon, label)
 
 def render_news_sentiment_html(news_data, ticker, signal_direction=None,
                                 flip_signal=False, flip_reason="", conf_adj=0):
@@ -5260,6 +6320,20 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     except Exception:
         pass
 
+    # Confluence Intel scoring
+    _confluence_data = {}
+    try:
+        _confluence_data = detect_confluence_setup(
+            ticker, float(current_price) if current_price else 0, direction, atr=atr,
+        )
+        _cfl_align = _confluence_data.get("alignment_count", 0)
+        if _cfl_align >= 4:   score += 6
+        elif _cfl_align >= 3: score += 4
+        elif _cfl_align >= 2: score += 2
+    except Exception:
+        pass
+
+
 
     tf_agree = 0
     tf_total = 0
@@ -5342,6 +6416,7 @@ def precision_score(ticker, direction, df_primary, df_confirm,
         "ma200_pct":            _ma200_pct,
         "sr_data":              _sr_data,
         "sr_label":             _sr_label,
+        "confluence":           _confluence_data,
     }
 
 
@@ -5477,6 +6552,7 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                 "block_detected": block_detected,
                 "sq_state":       sq_state,
                 "sq_compression": sq_compression,
+                "confluence":     detail.get("confluence", {}),
             })
     except Exception as _e:
         results.append({"ticker": ticker, "_rejected": True, "_reason": "Exception: " + str(_e)[:80]})
@@ -6207,43 +7283,7 @@ def load_scan_state():
         pass
     return [], [], []
 
-def save_paper_trades(trades):
-    """Persist paper trades to Supabase so they survive redeploys."""
-    sb = get_supabase()
-    if not sb: return
-    try:
-        import json as _j
-        user_id = st.session_state.get("user_id")
-        if not user_id: return
-        serializable = []
-        for t in trades:
-            try:
-                _j.dumps(t)
-                serializable.append(t)
-            except Exception:
-                pass
-        sb.table("paper_trades_state").upsert({
-            "user_id":    str(user_id),
-            "trades":     _j.dumps(serializable),
-            "updated_at": datetime.now(tz=pytz.UTC).isoformat(),
-        }).execute()
-    except Exception:
-        pass
 
-def load_paper_trades():
-    """Load paper trades from Supabase on app start."""
-    sb = get_supabase()
-    if not sb: return []
-    try:
-        import json as _j
-        user_id = st.session_state.get("user_id")
-        if not user_id: return []
-        res = sb.table("paper_trades_state").select("trades").eq("user_id", str(user_id)).execute()
-        if res.data:
-            return _j.loads(res.data[0].get("trades", "[]"))
-    except Exception:
-        pass
-    return []
 
 
 def save_signal_history(r):
@@ -6287,8 +7327,44 @@ def log_signal_outcome(r):
         existing = sb.table("signal_outcomes")             .select("id")             .eq("ticker", ticker)             .eq("signal_type", signal_type)             .gte("logged_at", today_start)             .execute()
         if existing.data:
             return  # already logged this ticker+direction today
-        # Only insert columns that match the original schema
-        # signal_detail excluded — add it manually in Supabase if you want it
+        _regime_state = ""
+        try:
+            _regime_state = r.get("regime_alignment", "") or ""
+        except Exception:
+            pass
+        _macro_b = ""
+        try:
+            _mblbl = r.get("macro_bias_label", "") or ""
+            if "ALIGNED" in _mblbl:   _macro_b = "ALIGNED"
+            elif "HEADWIND" in _mblbl: _macro_b = "HEADWIND"
+            elif "NEUTRAL" in _mblbl:  _macro_b = "NEUTRAL"
+        except Exception:
+            pass
+        _cfl_align = 0
+        try:
+            _cfl = r.get("confluence", {}) or r.get("detail", {}).get("confluence", {}) or {}
+            _cfl_align = int(_cfl.get("alignment_count", 0) or 0)
+        except Exception:
+            pass
+        _tw = ""
+        try:
+            _tw = get_time_of_day_context().get("window", "")
+        except Exception:
+            pass
+
+        _delta = 0.5
+        try:
+            _delta = abs(float(opt.get("delta", 0.5) or 0.5))
+            _delta = max(0.1, min(0.9, _delta))
+        except Exception:
+            pass
+
+        _exp_str = ""
+        try:
+            _exp_str = opt.get("expiration", "") or ""
+        except Exception:
+            pass
+
         row = {
             "ticker":       ticker,
             "signal_type":  signal_type,
@@ -6303,86 +7379,184 @@ def log_signal_outcome(r):
             "stop":         round(float(opt.get("stop", 0) or 0), 2),
             "strike":       round(float(opt.get("strike", 0) or 0), 2),
             "premium":      round(float(opt.get("premium", 0) or 0), 2),
+            "delta":        round(_delta, 3),
+            "option_type":  opt.get("type", signal_type),
+            "expiration":   _exp_str,
             "outcome_1d":   None,
             "outcome_3d":   None,
             "outcome_5d":   None,
+            "peak_pnl_pct": None,
+            "exit_premium": None,
+            "exit_reason":  None,
             "result":       "OPEN",
             "logged_at":    datetime.now(tz=pytz.UTC).isoformat(),
             "resolved_at":  None,
+            "market_regime":        _regime_state,
+            "macro_bias":           _macro_b,
+            "confluence_alignment": _cfl_align,
+            "time_window":          _tw,
         }
         resp = sb.table("signal_outcomes").insert(row).execute()
         if not resp.data:
             print("[signal_outcomes] Insert returned no data for %s %s" % (ticker, signal_type))
     except Exception as _soe:
         print("[signal_outcomes] Insert failed: %s" % str(_soe)[:200])
-
-
 def update_signal_outcomes():
+    """Resolve open signal outcomes using same delta-adjusted P&L formula as paper trades.
+    WIN  = option P&L >= +20% at any check point OR stock hit target
+    LOSS = option P&L <= -20% at any check point OR stock hit stop
+    EXPIRED = past expiration date, close at current P&L
+    OPEN = still within thresholds and not expired"""
     sb = get_supabase(service=True)
     if not sb:
         return
+    WIN_THRESHOLD  =  20.0
+    LOSS_THRESHOLD = -20.0
     try:
-        cutoff = (datetime.now(tz=pytz.UTC) - timedelta(days=1)).isoformat()
-        res = sb.table("signal_outcomes")             .select("*")             .eq("result", "OPEN")             .lt("logged_at", cutoff)             .limit(20)             .execute()
+        cutoff = (datetime.now(tz=pytz.UTC) - timedelta(hours=16)).isoformat()
+        res = (sb.table("signal_outcomes")
+               .select("*")
+               .eq("result", "OPEN")
+               .lt("logged_at", cutoff)
+               .limit(30)
+               .execute())
         if not res.data:
             return
+        today = datetime.now(tz=pytz.UTC).date()
         for row in res.data:
             try:
-                ticker      = row["ticker"]
-                entry_price = float(row.get("entry_price") or 0)
-                direction   = row.get("direction", "bullish")
-                if entry_price <= 0:
+                ticker       = row["ticker"]
+                entry_price  = float(row.get("entry_price") or 0)
+                entry_premium= float(row.get("premium") or 0)
+                direction    = row.get("direction", "bullish")
+                target       = float(row.get("target") or 0)
+                stop         = float(row.get("stop") or 0)
+                delta        = float(row.get("delta") or 0.5)
+                delta        = max(0.1, min(0.9, delta))
+                is_bull      = direction == "bullish"
+                peak_pnl     = float(row.get("peak_pnl_pct") or 0)
+
+                if entry_price <= 0 or entry_premium <= 0:
                     continue
-                df = _fmp_download(ticker, "10d", "1d")
-                if df is None or len(df) < 2:
+
+                exp_str = row.get("expiration") or ""
+                is_expired = False
+                if exp_str:
+                    try:
+                        for fmt in ("%b %d, %Y", "%Y-%m-%d", "%m/%d/%y"):
+                            try:
+                                exp_date = datetime.strptime(exp_str, fmt).date()
+                                if today > exp_date:
+                                    is_expired = True
+                                break
+                            except ValueError:
+                                continue
+                    except Exception:
+                        pass
+
+                df = _fmp_download(ticker, "60d", "1d")
+                if df is None or len(df) < 1:
                     continue
-                df     = df.sort_values("datetime").reset_index(drop=True)
-                closes = df["close"].astype(float).tolist()
+                df = df.sort_values("datetime").reset_index(drop=True)
 
-                def pct_ret(idx):
-                    if len(closes) > idx:
-                        return round((closes[idx] - entry_price) / entry_price * 100, 2)
-                    return None
+                logged_at = row.get("logged_at", "")
+                try:
+                    log_date = datetime.fromisoformat(
+                        logged_at.replace("Z", "+00:00")
+                    ).date()
+                except Exception:
+                    log_date = (today - timedelta(days=30))
 
-                o1d = pct_ret(1)
-                o3d = pct_ret(3)
-                o5d = pct_ret(min(4, len(closes) - 1))
+                df["_date"] = df["datetime"].apply(
+                    lambda x: x.date() if hasattr(x, "date") else
+                    datetime.strptime(str(x)[:10], "%Y-%m-%d").date()
+                )
+                after_df = df[df["_date"] > log_date].reset_index(drop=True)
+                closes = after_df["close"].astype(float).tolist()
 
-                latest = o5d or o3d or o1d
-                if latest is not None:
-                    result = "WIN" if (
-                        (direction == "bullish" and latest > 0) or
-                        (direction == "bearish" and latest < 0)
-                    ) else "LOSS"
-                else:
-                    result = "OPEN"
+                if not closes:
+                    continue
 
-                sb.table("signal_outcomes").update({
-                    "outcome_1d":  o1d,
-                    "outcome_3d":  o3d,
-                    "outcome_5d":  o5d,
-                    "result":      result,
-                    "resolved_at": datetime.now(tz=pytz.UTC).isoformat() if result != "OPEN" else None,
-                }).eq("id", row["id"]).execute()
-            except Exception:
+                def option_pnl(stock_close):
+                    stock_move   = stock_close - entry_price
+                    premium_move = stock_move * delta if is_bull else -stock_move * delta
+                    cur_premium  = max(0.01, entry_premium + premium_move)
+                    return round((cur_premium - entry_premium) / entry_premium * 100, 2), round(cur_premium, 2)
+
+                o1d_pnl, _ = option_pnl(closes[0]) if len(closes) >= 1 else (None, None)
+                o3d_pnl, _ = option_pnl(closes[2]) if len(closes) >= 3 else (None, None)
+                o5d_pnl, o5d_prem = option_pnl(closes[4]) if len(closes) >= 5 else (None, None)
+
+                latest_close = closes[-1]
+                latest_pnl, latest_prem = option_pnl(latest_close)
+
+                all_pnls = [p for p in [o1d_pnl, o3d_pnl, o5d_pnl, latest_pnl] if p is not None]
+                if all_pnls:
+                    peak_pnl = max(peak_pnl, max(all_pnls))
+
+                result = "OPEN"
+                exit_reason = None
+                exit_premium = None
+
+                if target > 0 and stop > 0:
+                    for c in closes:
+                        if is_bull and c >= target:
+                            result = "WIN"; exit_reason = "TARGET HIT"
+                            _, exit_premium = option_pnl(c)
+                            break
+                        elif not is_bull and c <= target:
+                            result = "WIN"; exit_reason = "TARGET HIT"
+                            _, exit_premium = option_pnl(c)
+                            break
+                        elif is_bull and c <= stop:
+                            result = "LOSS"; exit_reason = "STOP HIT"
+                            _, exit_premium = option_pnl(c)
+                            break
+                        elif not is_bull and c >= stop:
+                            result = "LOSS"; exit_reason = "STOP HIT"
+                            _, exit_premium = option_pnl(c)
+                            break
+
+                if result == "OPEN":
+                    for pnl in all_pnls:
+                        if pnl >= WIN_THRESHOLD:
+                            result = "WIN"
+                            exit_reason = "+%.0f%% PROFIT TARGET" % WIN_THRESHOLD
+                            exit_premium = latest_prem
+                            break
+                        elif pnl <= LOSS_THRESHOLD:
+                            result = "LOSS"
+                            exit_reason = "%.0f%% STOP LOSS" % LOSS_THRESHOLD
+                            exit_premium = latest_prem
+                            break
+
+                if result == "OPEN" and is_expired:
+                    result = "WIN" if latest_pnl >= 0 else "LOSS"
+                    exit_reason = "EXPIRED"
+                    exit_premium = latest_prem
+
+                update_payload = {
+                    "outcome_1d":   o1d_pnl,
+                    "outcome_3d":   o3d_pnl,
+                    "outcome_5d":   o5d_pnl,
+                    "peak_pnl_pct": round(peak_pnl, 1),
+                    "result":       result,
+                }
+                if result != "OPEN":
+                    update_payload["exit_premium"] = exit_premium
+                    update_payload["exit_reason"]  = exit_reason
+                    update_payload["resolved_at"]  = datetime.now(tz=pytz.UTC).isoformat()
+
+                sb.table("signal_outcomes").update(update_payload).eq("id", row["id"]).execute()
+                print("[outcomes] %s %s -> %s (%s) pnl=%.1f%%" % (
+                    ticker, direction, result,
+                    exit_reason or "OPEN", latest_pnl or 0
+                ))
+            except Exception as _row_err:
+                print("[outcomes] row error %s: %s" % (row.get("ticker","?"), str(_row_err)[:120]))
                 continue
-    except Exception:
-        pass
-
-def load_signal_history(limit=50):
-    """Load recent signal history from Supabase."""
-    sb = get_supabase()
-    if not sb:
-        return []
-    try:
-        res = sb.table("signal_history") \
-                .select("*") \
-                .order("fired_at", desc=True) \
-                .limit(limit) \
-                .execute()
-        return res.data if res.data else []
-    except Exception:
-        return []
+    except Exception as _ue:
+        print("[outcomes] update error: %s" % str(_ue)[:200])
 
 def init_user_watchlist():
     user_id = st.session_state.get("user_id")
@@ -6427,14 +7601,7 @@ start_bg_scan_thread()  # start background scanner daemon
 
 # Load paper trades from Supabase now that functions are defined
 if st.session_state.get("authenticated") and not st.session_state.get("_paper_trades_loaded"):
-    _pt = load_paper_trades()
-    if _pt:
-        st.session_state.paper_trades = _pt
     st.session_state._paper_trades_loaded = True
-elif not st.session_state.paper_trades:
-    _pt = load_paper_trades()
-    if _pt:
-        st.session_state.paper_trades = _pt
 
 
 # TELEGRAM ALERT ENGINE
@@ -6520,127 +7687,8 @@ def send_telegram_alert(r, alert_type="GO NOW"):
 
 
 
-def send_telegram_exit_alert(t):
-    """Send paper trade exit alert to Discord."""
-    if not DISCORD_WEBHOOK_URL:
-        return
-    import urllib.request, json
-
-    is_win     = t["status"] == "WIN"
-    pnl_sign   = "+" if t["pnl_pct"] >= 0 else ""
-    color      = 0x00C853 if is_win else 0xC1121F
-    emoji      = "✅" if is_win else "❌"
-    sig_detail = t.get("signal_detail", [])
-    sig_lines  = "\n".join(sig_detail) if sig_detail else "Signal detail unavailable"
-
-    embed = {
-        "title": "%s PAPER TRADE CLOSED — %s %s" % (emoji, t.get("ticker","?"), t.get("action","CALL")),
-        "color": color,
-        "fields": [
-            {"name": "Pattern",    "value": "%s (%s)" % (t.get("pattern","Signal"), t.get("style","swing").upper()), "inline": True},
-            {"name": "Result",     "value": t["status"], "inline": True},
-            {"name": "Reason",     "value": t.get("exit_reason","—"), "inline": True},
-            {"name": "P&L",        "value": "%s%.1f%% ($%+.0f)" % (pnl_sign, t["pnl_pct"], t["pnl_dollar"]), "inline": True},
-            {"name": "Peak Gain",  "value": "+%.1f%%" % t["peak_pnl_pct"], "inline": True},
-            {"name": "Confidence", "value": "%s%% | %s/7 gates | %s/6 signals" % (t.get("confidence",0), t.get("gates_passed",0), t.get("signals_hit",0)), "inline": False},
-            {"name": "Entry → Exit", "value": "$%.2f → $%.2f" % (t["entry_price"], t.get("exit_price",0)), "inline": False},
-            {"name": "Signals at Entry", "value": sig_lines or "—", "inline": False},
-        ],
-        "footer": {"text": "PaidButPressured · Not financial advice"}
-    }
-    payload = json.dumps({"embeds": [embed]}).encode("utf-8")
-    try:
-        req = urllib.request.Request(
-            DISCORD_WEBHOOK_URL,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-        urllib.request.urlopen(req, timeout=10)
-    except Exception:
-        pass
 
 
-def paper_enter_trade(r):
-    """Auto-enter a paper trade from a GO NOW signal."""
-    trades = st.session_state.paper_trades
-    key = (r["ticker"], r["style"], r["direction"])
-    # Don't double-enter same ticker/direction
-    for t in trades:
-        if t["status"] == "OPEN" and t["ticker"] == r["ticker"] and t["direction"] == r["direction"]:
-            return
-    opt = r["opt"]
-    trade = {
-        "id":            len(trades) + 1,
-        "ticker":        r["ticker"],
-        "action":        r["action"],
-        "direction":     r["direction"],
-        "style":         r["style"],
-        "pattern":       r["pattern"],
-        "entry_price":   r["price"],          # stock price at entry
-        "entry_premium": opt["premium"],       # option premium at entry
-        "strike":        opt["strike"],
-        "expiration":    opt["expiration"],
-        "target":        opt["target"],        # stock price target
-        "stop":          opt["stop"],          # stock price stop
-        "contracts":     opt.get("contracts", 1),
-        "max_loss":      opt.get("max_loss", 0),
-        "profit_target": opt.get("profit_at_target", 0),
-        "confidence":    r["confidence"],
-        "gates_passed":  r["gates_passed"],
-        "signals_hit":   r.get("signals_hit", 0),
-        "entered_at":    datetime.now().strftime("%m/%d %I:%M%p"),
-        "entered_ts":    datetime.now().isoformat(),
-        "status":        "OPEN",
-        "exit_reason":   None,
-        "exit_price":    None,
-        "exit_premium":  None,
-        "exit_ts":       None,
-        "pnl_pct":       0.0,
-        "pnl_dollar":    0.0,
-        "peak_pnl_pct":  0.0,
-        "cycles_open":   0,
-        "signal_detail": r.get("signal_detail", []),
-    }
-    st.session_state.paper_trades.append(trade)
-    save_paper_trades(st.session_state.paper_trades)
-
-    # Fire Telegram entry alert
-    try:
-        if DISCORD_WEBHOOK_URL:
-            _sig_lines = "\n".join(["  " + s for s in r.get("signal_detail", [])]) or "  Signal data unavailable"
-            _entry_msg = (
-                "🚨 <b>PAPER TRADE ENTERED — %s %s</b>\n"
-                "━━━━━━━━━━━━━━━━━━━━\n"
-                "📊 Pattern: <b>%s</b>\n"
-                "🎯 Style: <b>%s</b>\n"
-                "🧠 Confidence: <b>%s%%</b> | Gates: <b>%s/7</b>\n"
-                "📶 Signals: <b>%s/6</b>\n"
-                "━━━━━━━━━━━━━━━━━━━━\n"
-                "💰 Entry:  <b>$%.2f</b>\n"
-                "🛑 Stop:   <b>$%.2f</b>\n"
-                "🎯 Target: <b>$%.2f</b>\n"
-                "💵 Premium: <b>$%.2f/sh</b>\n"
-                "━━━━━━━━━━━━━━━━━━━━\n"
-                "%s\n"
-                "<i>Paper trade only — not financial advice</i>"
-            ) % (
-                r.get("ticker", "?"),
-                "CALL" if r.get("direction") == "bullish" else "PUT",
-                r.get("pattern", "Signal"),
-                r.get("style", "swing").upper(),
-                r.get("confidence", 0),
-                r.get("gates_passed", 0),
-                r.get("signals_hit", 0),
-                r.get("price", 0),
-                opt.get("stop", 0),
-                opt.get("target", 0),
-                opt.get("premium", 0),
-                _sig_lines,
-            )
-            send_telegram_text(_entry_msg)
-    except Exception:
-        pass
 
 # Profit-taking thresholds by trade style
 PAPER_PROFIT_TARGET = {
@@ -6649,120 +7697,7 @@ PAPER_PROFIT_TARGET = {
 }
 PAPER_STOP_LOSS_PCT = -20  # exit any trade at -20% premium loss
 
-def paper_check_exits():
-    trades = st.session_state.paper_trades
-    for t in trades:
-        if t["status"] != "OPEN":
-            continue
-        t["cycles_open"] += 1
-        cur = fetch_current_price(t["ticker"])
-        if cur is None:
-            continue
-        cur = float(cur)
-        is_bull = t["direction"] == "bullish"
 
-        # Use actual delta from trade record for more accurate P&L
-        delta = abs(float(t.get("opt", {}).get("delta", 0.5) or 0.5))
-        delta = max(0.1, min(0.9, delta))
-
-        stock_move   = cur - t["entry_price"]
-        premium_move = stock_move * delta if is_bull else -stock_move * delta
-        cur_premium  = max(0.01, t["entry_premium"] + premium_move)
-        pnl_pct      = (cur_premium - t["entry_premium"]) / t["entry_premium"] * 100
-        pnl_dollar   = (cur_premium - t["entry_premium"]) * 100 * t["contracts"]
-
-        t["pnl_pct"]    = round(pnl_pct, 1)
-        t["pnl_dollar"] = round(pnl_dollar, 2)
-        t["cur_price"]  = round(cur, 2)
-        t["cur_premium"] = round(cur_premium, 2)
-        if pnl_pct > t["peak_pnl_pct"]:
-            t["peak_pnl_pct"] = round(pnl_pct, 1)
-
-        # Profit target threshold for this trade style
-        profit_threshold = PAPER_PROFIT_TARGET.get(t.get("style", "swing"), 50)
-
-        # Check exit conditions - ordered by priority
-        exit_reason = None
-        is_win      = False
-
-        if is_bull and cur >= t["target"]:
-            exit_reason = "TARGET HIT"
-            is_win = True
-        elif not is_bull and cur <= t["target"]:
-            exit_reason = "TARGET HIT"
-            is_win = True
-        elif pnl_pct >= profit_threshold:
-            exit_reason = "+%s%% PROFIT TARGET" % profit_threshold
-            is_win = True
-        elif is_bull and cur <= t["stop"]:
-            exit_reason = "STOP HIT"
-            is_win = False
-        elif not is_bull and cur >= t["stop"]:
-            exit_reason = "STOP HIT"
-            is_win = False
-        elif pnl_pct <= PAPER_STOP_LOSS_PCT:
-            exit_reason = "PREMIUM %s%%" % PAPER_STOP_LOSS_PCT
-            is_win = False
-        else:
-            try:
-                from datetime import date
-                exp_str  = t["expiration"]
-                exp_date = datetime.strptime(exp_str, "%%m/%%d/%%y").date() if "/" in exp_str else None
-                if exp_date and date.today() > exp_date:
-                    exit_reason = "EXPIRED"
-                    is_win = pnl_pct > 0
-            except Exception:
-                pass
-
-        if exit_reason:
-            t["status"]       = "WIN" if is_win else "LOSS"
-            t["is_win"]       = is_win  # save flag for win rate tracker
-            t["exit_reason"]  = exit_reason
-            t["exit_price"]   = round(cur, 2)
-            t["exit_premium"] = round(cur_premium, 2)
-            t["exit_ts"]      = datetime.now().strftime("%m/%d %I:%M%p")
-            t["pnl_pct"]      = round(pnl_pct, 1)
-            t["pnl_dollar"]   = round(pnl_dollar, 2)
-            send_telegram_exit_alert(t)
-            # Log to journal automatically
-            journal = load_journal()
-            journal.append({
-                "Ticker":      t["ticker"],
-                "Action":      t["action"],
-                "Pattern":     t["pattern"],
-                "Entry $":     t["entry_price"],
-                "Strike":      t["strike"],
-                "Premium":     t["entry_premium"],
-                "Exit Premium":t["exit_premium"],
-                "P&L %":        "%+.1f%%" % t["pnl_pct"],
-                "P&L $":       "%+.0f" % t["pnl_dollar"],
-                "Result":      t["status"],
-                "Exit Reason": exit_reason,
-                "Source":      "Paper Auto",
-                "Date":        t["entered_at"],
-            })
-            st.session_state.trade_journal = journal[-200:]
-
-def paper_close_trade(trade_id, reason="MANUAL CLOSE"):
-    """Manually close a paper trade."""
-    for t in st.session_state.paper_trades:
-        if t["id"] == trade_id and t["status"] == "OPEN":
-            cur = fetch_current_price(t["ticker"])
-            cur = float(cur) if cur else t["entry_price"]
-            is_bull = t["direction"] == "bullish"
-            stock_move   = cur - t["entry_price"]
-            premium_move = stock_move * 0.5 if is_bull else -stock_move * 0.5
-            cur_premium  = max(0.01, t["entry_premium"] + premium_move)
-            pnl_pct      = (cur_premium - t["entry_premium"]) / t["entry_premium"] * 100
-            pnl_dollar   = (cur_premium - t["entry_premium"]) * 100 * t["contracts"]
-            t["status"]       = "WIN" if pnl_pct >= 0 else "LOSS"
-            t["exit_reason"]  = reason
-            t["exit_price"]   = round(cur, 2)
-            t["exit_premium"] = round(cur_premium, 2)
-            t["exit_ts"]      = datetime.now().strftime("%m/%d %I:%M%p")
-            t["pnl_pct"]      = round(pnl_pct, 1)
-            t["pnl_dollar"]   = round(pnl_dollar, 2)
-            break
 
 def sync_bg_auto_scan():
     """Push current sidebar settings into bg engine and enable auto mode."""
@@ -6819,9 +7754,6 @@ for ng in _new_go_now:
     } catch(e){}
     </script>""", height=0)
     # Auto-enter paper trade for new GO NOW — 88%+ confidence, 5/7 gates minimum
-    if st.session_state.get("paper_auto_enabled", True):
-        if ng.get("confidence", 0) >= 85 and ng.get("gates_passed", 0) >= 5:
-            paper_enter_trade(ng)
 
 # auto_scan_poll removed - background thread runs independently,
 # no page refresh needed to trigger it.
@@ -6874,8 +7806,23 @@ if _mt:
         unsafe_allow_html=True
     )
 
-tab4,tab1,tab2,tab8,tab9,tab7 = st.tabs(["SCAN","SIGNALS","CHART","WATCH QUEUE","🎯 SNIPER","HOW IT WORKS"])
+tab4,tab1,tab2,tab9,tab7,tab_stats = st.tabs(["SCAN","SIGNALS","CHART","🎯 SNIPER","HOW IT WORKS","📊 STATS"])
 
+try:
+    _macro_w = get_macro_event_warning()
+    st.session_state['macro_warning'] = _macro_w
+    _macro_html = render_macro_event_warning_html(_macro_w)
+    if _macro_html:
+        st.markdown(_macro_html, unsafe_allow_html=True)
+except Exception:
+    pass
+st.markdown(render_time_of_day_banner_html(), unsafe_allow_html=True)
+try:
+    _stress = get_market_stress_monitor()
+    if _stress.get('available'):
+        st.markdown(render_market_stress_html(_stress), unsafe_allow_html=True)
+except Exception:
+    pass
 render_weekly_bias_banner()
 
 with tab1:
@@ -6915,6 +7862,7 @@ with tab1:
                         c["detail"]        = _ps_detail
                         c["signals_hit"]   = _ps_detail.get("signals_hit", 0)
                         c["signal_detail"] = _ps_detail.get("signal_detail", [])
+                        c["confluence"]    = _ps_detail.get("confluence", {})
                 except Exception:
                     pass
                 enriched.append(c)
@@ -7207,7 +8155,7 @@ window.addEventListener('resize', () => chart.resize(chartEl.offsetWidth, 480));
         else:
             st.caption("No confirmed patterns detected on current timeframe.")
 
-        st.iframe(chart_html, height=490, scrolling=False)
+        st.components.v1.html(chart_html, height=490, scrolling=False)
 
         # Legend
         st.markdown(
@@ -7462,7 +8410,6 @@ with tab4:
             st.session_state.scan_last_run = datetime.now()
             st.session_state.macro_triggers = _macro_triggers
 
-            paper_check_exits()
 
             # Fire Telegram + paper trades for GO NOW signals
             # Telegram is now manual — admin hits "Send to Telegram" button on each card
@@ -7665,7 +8612,6 @@ with tab4:
                     if st.button("🗑 Clear Open Positions", key="clear_open_trades", use_container_width=True):
                         closed_only = [t for t in st.session_state.paper_trades if t.get("status") != "OPEN"]
                         st.session_state.paper_trades = closed_only
-                        save_paper_trades(closed_only)
                         st.success("Open positions cleared. Closed trade history preserved.")
                         st.rerun()
 
@@ -7823,6 +8769,23 @@ with tab4:
             st.markdown("".join(parts), unsafe_allow_html=True)
 
             with st.expander(f"📊 {r['ticker']} full details"):
+                try:
+                    st.markdown(render_summary_line_html(r), unsafe_allow_html=True)
+                except Exception:
+                    pass
+
+                _chip_admin = (
+                    st.session_state.get("is_admin", False) or
+                    st.session_state.get("user_email", "").strip().lower() == ADMIN_EMAIL.strip().lower()
+                )
+                if bucket == "go_now" and _chip_admin:
+                    try:
+                        st.markdown(render_perf_chip_html(
+                            r.get("pattern", ""), r.get("style", ""), r.get("direction", "")
+                        ), unsafe_allow_html=True)
+                    except Exception:
+                        pass
+
                 # News sentiment block
                 st.markdown(render_news_sentiment_html(
                     r.get("news_data", {}), r["ticker"],
@@ -7831,6 +8794,13 @@ with tab4:
                     flip_reason=r.get("flip_reason", ""),
                     conf_adj=r.get("detail", {}).get("news_conf_adj", 0),
                 ), unsafe_allow_html=True)
+
+                try:
+                    _cfl_card = r.get("confluence", r.get("detail", {}).get("confluence", {}))
+                    if _cfl_card and _cfl_card.get("available"):
+                        st.markdown(render_confluence_block_html(_cfl_card, r.get("direction","bullish")), unsafe_allow_html=True)
+                except Exception:
+                    pass
                 c1, c2 = st.columns(2)
                 items_l = [("TARGET", f"${opt['target']:.2f}", "#D4AF37"),
                            ("PREMIUM", f"${opt['premium']:.2f}/sh", "#F5F5F5"),
@@ -8026,173 +8996,6 @@ with tab4:
         else:
             empty_bkt("No developing setups found.")
 
-with tab8:
-    st.markdown("<div class='section-title'>WATCH QUEUE</div>", unsafe_allow_html=True)
-    st.markdown("<div style='color:#A1A1A6;font-size:0.82rem;margin-bottom:12px'>Signals waiting for entry confirmation. Auto-checks on every refresh.</div>", unsafe_allow_html=True)
-
-    init_watch_queue()
-    _wq = st.session_state.watch_queue
-
-    if not _wq:
-        st.markdown("<div style='color:#4a5568;text-align:center;padding:40px;font-size:0.9rem'>No signals in queue. Add from the SIGNALS tab.</div>", unsafe_allow_html=True)
-    else:
-        for _wkey, item in list(_wq.items()):
-            elapsed_total = (datetime.now() - item["added_at"]).total_seconds()
-            elapsed_mins  = int(elapsed_total / 60)
-            elapsed_secs  = int(elapsed_total % 60)
-
-            # Timeout based on trade style
-            style        = item.get("style", "swing")
-            timeout_mins = 30 if style == "quick" else 240  # 30min quick, 4hr swing
-            remaining    = max(0, timeout_mins * 60 - elapsed_total)
-            remain_mins  = int(remaining / 60)
-            remain_secs  = int(remaining % 60)
-            is_expired   = remaining <= 0
-
-            # Auto-remove expired signals
-            if is_expired:
-                remove_from_watch_queue(_wkey)
-                continue
-
-            last_chk = ""
-            if item["last_checked"]:
-                secs_ago = int((datetime.now() - item["last_checked"]).total_seconds())
-                last_chk = " | checked %ds ago" % secs_ago
-
-            candle_html = ""
-            for c in item.get("candles", []):
-                if c == "green":   candle_html += "<span style='color:#D4AF37;font-size:1rem'>&#9650;</span> "
-                elif c == "red":   candle_html += "<span style='color:#C1121F;font-size:1rem'>&#9660;</span> "
-                else:              candle_html += "<span style='color:#A1A1A6;font-size:0.8rem'>&#9644;</span> "
-
-            status         = item["status"]
-            breakout_state = item.get("breakout_state", "WAITING")
-            is_bull_w      = item["direction"] == "bullish"
-            dir_color_w    = "#D4AF37" if is_bull_w else "#C1121F"
-            action_w       = "CALL" if is_bull_w else "PUT"
-            key_level      = item.get("key_level")
-            vol_mult       = item.get("vol_mult")
-
-            # ── Style profile per breakout state ────────────────────────
-            if breakout_state == "MOMENTUM_ENTRY":
-                bg_clr     = "#0A1F0A"
-                border_clr = "#22C55E"
-                tag_clr    = "#22C55E"
-                tag_label  = "⚡ MOMENTUM ENTRY — GET IN NOW"
-            elif breakout_state == "RETEST_READY":
-                bg_clr     = "#1A1500"
-                border_clr = "#D4AF37"
-                tag_clr    = "#D4AF37"
-                tag_label  = "🟢 RETEST HOLDING — ENTER NOW"
-            elif breakout_state == "WEAK_BREAK":
-                bg_clr     = "#1A1700"
-                border_clr = "#FFD600"
-                tag_clr    = "#FFD600"
-                tag_label  = "⚠️ WEAK BREAK — CAUTION ENTRY OR WAIT FOR RETEST"
-            elif breakout_state == "WAITING_BREAKOUT":
-                bg_clr     = "#1A1A1D"
-                border_clr = "#F6E27A"
-                tag_clr    = "#F6E27A"
-                tag_label  = "⏳ WAITING FOR BREAKOUT"
-            elif status == "CONFIRMED":
-                bg_clr     = "#1A1500"
-                border_clr = "#D4AF37"
-                tag_clr    = "#D4AF37"
-                tag_label  = "✅ ENTRY CONFIRMED — GET IN NOW"
-            else:
-                bg_clr     = "#1A1A1D"
-                border_clr = "#F6E27A" if status == "WAITING" else "#C1121F"
-                tag_clr    = border_clr
-                tag_label  = "👁 WATCHING" if status == "WAITING" else "⏳ STANDBY"
-
-            # Build S/R context line
-            sr_line = ""
-            if key_level:
-                _vm = ("vol %.1fx" % vol_mult) if vol_mult else ""
-                sr_line = "<div style='color:#A1A1A6;font-size:0.72rem;font-family:monospace;margin-top:4px'>Key Level: <span style='color:%s'>$%.2f</span> %s</div>" % (
-                    tag_clr, key_level, ("· " + _vm) if _vm else ""
-                )
-
-            wq_col, dismiss_col = st.columns([6,1])
-            with wq_col:
-                # Big confirmed-style card for actionable states
-                if breakout_state in ("MOMENTUM_ENTRY", "RETEST_READY") or status == "CONFIRMED":
-                    _big_html = (
-                        "<div style='background:%s;border:2px solid %s;border-radius:10px;padding:14px 16px;margin:4px 0'>"
-                        "<div style='color:%s;font-family:monospace;font-size:0.72rem;letter-spacing:2px;font-weight:700'>%s</div>"
-                        "<div style='font-size:1.1rem;font-weight:700;color:%s;margin-top:4px'>BUY %s — %s</div>"
-                        "<div style='color:#A1A1A6;font-size:0.82rem'>%s</div>"
-                        "%s"
-                        "<div style='color:#F5F5F5;font-size:0.8rem;margin-top:6px'>%s</div>"
-                        "<div style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;font-size:0.85rem;margin-top:10px'>"
-                        "<div><div style='color:#A1A1A6;font-size:0.7rem'>STRIKE</div><div style='font-weight:700;color:%s'>$%.2f</div></div>"
-                        "<div><div style='color:#A1A1A6;font-size:0.7rem'>ENTRY</div><div style='font-weight:700'>$%.2f</div></div>"
-                        "<div><div style='color:#A1A1A6;font-size:0.7rem'>TARGET</div><div style='font-weight:700;color:#D4AF37'>$%.2f</div></div>"
-                        "<div><div style='color:#A1A1A6;font-size:0.7rem'>STOP</div><div style='font-weight:700;color:#C1121F'>$%.2f</div></div>"
-                        "</div>"
-                        "<div style='margin-top:8px;color:#F5F5F5;font-size:0.78rem'>Candles: %s &nbsp; <span style='color:#F6E27A'>%sm %ss remaining%s</span></div>"
-                        "</div>"
-                    ) % (
-                        bg_clr, border_clr, tag_clr, tag_label,
-                        dir_color_w, action_w, item["ticker"],
-                        item["pattern"], sr_line, item["message"],
-                        dir_color_w, item["strike"], item["entry"], item["target"], item["stop"],
-                        candle_html, remain_mins, remain_secs, last_chk
-                    )
-                    st.markdown(_big_html, unsafe_allow_html=True)
-                # Compact-style card for waiting/weak states
-                else:
-                    _compact_html = (
-                        "<div style='background:%s;border:2px solid %s;border-radius:8px;padding:12px 16px;margin:4px 0'>"
-                        "<div style='display:flex;justify-content:space-between;align-items:center'>"
-                        "<div><span style='color:%s;font-family:monospace;font-size:0.7rem;font-weight:700;letter-spacing:1px'>%s</span></div>"
-                        "<div style='color:#F6E27A;font-size:0.72rem;font-family:monospace'>%sm %ss%s</div>"
-                        "</div>"
-                        "<div style='margin-top:6px'>"
-                        "<b style='color:%s;font-size:0.95rem'>%s %s</b>"
-                        "<span style='color:#A1A1A6;font-size:0.78rem;margin-left:8px'>%s · Strike $%.2f</span>"
-                        "</div>"
-                        "%s"
-                        "<div style='color:#F5F5F5;font-size:0.8rem;margin-top:4px;line-height:1.5'>%s</div>"
-                        "<div style='margin-top:6px'>%s</div>"
-                        "</div>"
-                    ) % (
-                        bg_clr, border_clr, tag_clr, tag_label,
-                        remain_mins, remain_secs, last_chk,
-                        dir_color_w, item["ticker"], action_w, item["pattern"], item["strike"],
-                        sr_line, item["message"], candle_html
-                    )
-                    st.markdown(_compact_html, unsafe_allow_html=True)
-
-            with dismiss_col:
-                if st.button("✕", key="wq_dismiss_%s" % _wkey, help="Remove from queue"):
-                    remove_from_watch_queue(_wkey)
-                    st.rerun()
-
-    # Manual refresh button
-    _wq_col1, _wq_col2 = st.columns(2)
-    with _wq_col1:
-        if st.button("🔄 Refresh Queue", key="wq_refresh", use_container_width=True):
-            st.rerun()
-    with _wq_col2:
-        if st.button("🗑 Clear All", key="wq_clear_all", use_container_width=True):
-            st.session_state.watch_queue = {}
-            st.session_state.wq_loaded = True  # prevent reload from Supabase
-            user_id = st.session_state.get("user_id")
-            if user_id:
-                try:
-                    sb = get_supabase()
-                    if sb:
-                        sb.table("user_data").update(
-                            {"watch_queue": "{}", "updated_at": datetime.now(tz=pytz.UTC).isoformat()}
-                        ).eq("user_id", str(user_id)).execute()
-                        st.success("Queue cleared!")
-                    else:
-                        st.error("Supabase unavailable")
-                except Exception as e:
-                    st.error("Error: %s" % str(e)[:80])
-            st.rerun()
-
 with tab9:
     st.markdown("""
     <div style='background:linear-gradient(135deg,#0a0a0d,#111115);border:1px solid #D4AF37;
@@ -8273,6 +9076,13 @@ with tab9:
                     <span style='color:#A1A1A6'>Stop: <b style='color:#FF1744'>${_r.get("opt",{}).get("stop",0):.2f}</b></span>
                 </div></div>
                 """, unsafe_allow_html=True)
+                # Show Confluence Intel block — same data as signal card
+                try:
+                    _s_cfl = _r.get("confluence", _r.get("detail", {}).get("confluence", {}))
+                    if _s_cfl and _s_cfl.get("available"):
+                        st.markdown(render_confluence_block_html(_s_cfl, _r.get("direction","bullish")), unsafe_allow_html=True)
+                except Exception:
+                    pass
 
 with tab7:
     st.markdown("""
@@ -8351,4 +9161,45 @@ with tab7:
             "<div class='hiw-body'>%s</div>"
             "</div>" % (border_color, title, body),
             unsafe_allow_html=True
+        )
+
+with tab_stats:
+    _stats_is_admin = (
+        st.session_state.get("is_admin", False) or
+        st.session_state.get("user_email", "").strip().lower() == ADMIN_EMAIL.strip().lower()
+    )
+    if _stats_is_admin:
+        overall = get_overall_stats()
+        _ov_w  = overall.get("wins", 0) if overall else 0
+        _ov_l  = overall.get("losses", 0) if overall else 0
+        _ov_o  = overall.get("open", 0) if overall else 0
+        _ov_wr = overall.get("win_rate") if overall else None
+        _wr_str = (str(_ov_wr) + "% win rate") if _ov_wr else "Building dataset"
+        st.markdown(
+            "<div style='background:#0d0d0f;border:1px solid #2A2A2D;"
+            "border-radius:10px;padding:16px 20px;margin-bottom:16px'>"
+            "<div style='color:#D4AF37;font-family:monospace;font-size:0.7rem;"
+            "letter-spacing:2px;margin-bottom:10px'>SIGNAL OUTCOMES</div>"
+            "<div style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px'>"
+            "<div><div style='font-size:1.3rem;font-weight:700;color:#F5F5F5'>"
+            + _wr_str + "</div><div style='color:#A1A1A6;font-size:0.7rem'>Win Rate</div></div>"
+            "<div><div style='font-size:1.3rem;font-weight:700;color:#22C55E'>"
+            + str(_ov_w) + "</div><div style='color:#A1A1A6;font-size:0.7rem'>Wins</div></div>"
+            "<div><div style='font-size:1.3rem;font-weight:700;color:#C1121F'>"
+            + str(_ov_l) + "</div><div style='color:#A1A1A6;font-size:0.7rem'>Losses</div></div>"
+            "<div><div style='font-size:1.3rem;font-weight:700;color:#A1A1A6'>"
+            + str(_ov_o) + "</div><div style='color:#A1A1A6;font-size:0.7rem'>Pending</div></div>"
+            "</div></div>",
+            unsafe_allow_html=True,
+        )
+        st.caption("Full analytics unlock after 30+ resolved trades.")
+    else:
+        st.markdown(
+            "<div style='padding:40px;text-align:center;color:#A1A1A6;"
+            "background:#1A1A1D;border-radius:10px;margin-top:20px'>"
+            "<div style='color:#D4AF37;font-weight:700;margin-bottom:6px'>"
+            "Performance Stats Coming Soon</div>"
+            "Analytics are being calibrated. Win rates and edge data "
+            "unlock once we have a meaningful dataset.</div>",
+            unsafe_allow_html=True,
         )
