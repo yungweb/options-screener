@@ -641,7 +641,7 @@ SCAN_UNIVERSE = [
     "AMD","INTC","AVGO","QCOM","MU","AMAT","LRCX","KLAC","MRVL","CRDO","SMCI","ARM","TSM",
     # Tech / Cloud / Cyber
     "PLTR","SNOW","DDOG","NET","CRWD","ZS","PANW","FTNT","OKTA","S","XYZ","COIN","VRT","WDC",
-    "APP","AXON","MSTR","NBIS","ZETA","AAOI",
+    "APP","AXON","MSTR","NBIS","ZETA","AAOI","CBRS","SPCX","SNDK","NTRA","BE",
     # Large cap growth
     "NFLX","UBER","LYFT","ABNB","SHOP","MELI","BABA","PDD","SE","GRAB",
     "RBLX","U","TTWO","EA",
@@ -692,7 +692,7 @@ SECTOR_LISTS = {
     "My Watchlist":     [],  # populated from session state at runtime
     "Tech & Semis":     ["NVDA","AMD","INTC","AVGO","QCOM","MU","AMAT","LRCX","KLAC","MRVL",
                          "ARM","TSM","PLTR","SNOW","DDOG","NET","CRWD","ZS","PANW","FTNT",
-                         "OKTA","S","APP","AXON","WDC","SMCI"],
+                         "OKTA","S","APP","AXON","WDC","SMCI","CBRS","SNDK"],
     "Mega Cap":         ["AAPL","MSFT","GOOGL","GOOG","AMZN","META","TSLA","NVDA","BRK-B","SPY","QQQ","IWM","DIA"],
     "Financials":       ["JPM","BAC","GS","MS","C","WFC","BLK","V","MA","PYPL","AXP","SOFI","AFRM","HOOD","XYZ","COIN"],
     "Healthcare":       ["UNH","JNJ","PFE","MRNA","BNTX","ABBV","LLY","BMY","GILD","REGN","BIIB"],
@@ -700,12 +700,12 @@ SECTOR_LISTS = {
     "Consumer":         ["WMT","TGT","COST","HD","LOW","NKE","LULU","MCD","SBUX","CMG","DKNG","CELH","HIMS"],
     "High Momentum":    ["PLTR","TSLA","COIN","MSTR","ASTS","NVDA","AMD","HOOD","SOFI","AFRM",
                          "RIVN","RDW","IREN","NBIS","ZETA","AAOI","CRDO","LCID","GRAB","SE",
-                         "BBAI","SOUN","MARA","RIOT","CLSK","UPST","RKLB","LUNR","NU","CVNA"],
+                         "BBAI","SOUN","MARA","RIOT","CLSK","UPST","RKLB","LUNR","NU","CVNA","CBRS","SPCX","SNDK","BE"],
     "Small/Mid AI & Tech": ["BBAI","SOUN","SERV","JOBY","ACHR","AMBA","CRSR","TOST","BRZE","GTLB",
                          "FROG","NCNO","JAMF","ALKT","RELY","CWAN","LSPD","TASK","NU","DAVE",
                          "MQ","UPST","LC","OPFI","NRDS","COOP","STEP","DUOL","SKIN","ELF"],
     "Biotech":          ["RXRX","ALNY","IONS","ACAD","HALO","ITCI","IMVT","VKTX","NUVL","ROIV",
-                         "KROS","ADMA","SAGE","MRNA","BNTX","GILD","REGN","BIIB","PFE"],
+                         "KROS","ADMA","SAGE","MRNA","BNTX","GILD","REGN","BIIB","PFE","NTRA"],
     "Crypto & Mining":  ["MARA","CLSK","RIOT","HUT","CORZ","BTDR","COIN","MSTR","IBIT"],
     "Defense & Space":  ["RKLB","LUNR","KTOS","AVAV","SPCE","LMT","RTX","BA","GE","AXON"],
     "Affordable Movers": ["BBAI","SOUN","SERV","JOBY","ACHR","AMBA","CRSR","TOST","MARA","CLSK",
@@ -725,6 +725,7 @@ SECTOR_ETF = {
     "PLTR":"XLK","SNOW":"XLK","DDOG":"XLK","NET":"XLK","CRWD":"XLK","ZS":"XLK",
     "PANW":"XLK","FTNT":"XLK","OKTA":"XLK","S":"XLK","NBIS":"XLK","VRT":"XLK",
     "AAOI":"XLK","ASTS":"XLK","ZETA":"XLK","IREN":"XLK",
+    "CBRS":"XLK","SNDK":"XLK","BE":"XLE",
     "XYZ":"XLF","COIN":"XLF","HOOD":"XLF","PYPL":"XLF","V":"XLF","MA":"XLF",
     "JPM":"XLF","BAC":"XLF","GS":"XLF","MS":"XLF","C":"XLF","WFC":"XLF",
     "BLK":"XLF","AXP":"XLF",
@@ -841,14 +842,14 @@ def _http_get(url, timeout=8, **kwargs):
 
 def _thread_cache(ttl=300):
     def decorator(fn):
-        def wrapper(*args):
-            key = (fn.__name__,) + args
+        def wrapper(*args, **kwargs):
+            key = (fn.__name__,) + args + tuple(sorted(kwargs.items()))
             now = _time_mod.time()
             with _THREAD_CACHE_LOCK:
                 entry = _THREAD_CACHE.get(key)
                 if entry and (now - entry[0]) < ttl:
                     return entry[1]
-            result = fn(*args)
+            result = fn(*args, **kwargs)
             with _THREAD_CACHE_LOCK:
                 _THREAD_CACHE[key] = (now, result)
             return result
@@ -1844,8 +1845,6 @@ def _save_watch_queue_db():
     save_user_data(user_id, watch_queue=serializable)
 
 
-
-
 def run_background_watch_checks(tf_mult, tf_span, tf_days):
     """
     Two-layer S/R-aware breakout monitor.
@@ -2796,6 +2795,31 @@ def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
                 pass
 
             try:
+                _ticker_s = sig.get("ticker", ticker)
+                _price_s  = sig.get("price", current_price) or 0
+                _dir_s    = sig.get("direction", "bullish")
+                _sty_s    = sig.get("style", trade_style or "swing")
+                _atr_s    = (sig.get("atr") or (float(atr) if atr else 0) or (_price_s * 0.015))
+                _vol_s    = sig.get("vol_class", sig.get("detail", {}).get("vol_class", {}))
+                _fib_s    = sig.get("fib_data",  sig.get("detail", {}).get("fib_data",  {}))
+                if not _vol_s.get("available") and _ticker_s:
+                    try: _vol_s = classify_stock_volatility(_ticker_s, _price_s)
+                    except Exception: pass
+                if not _fib_s.get("available") and _ticker_s:
+                    try: _fib_s = detect_multi_timeframe_fib(_ticker_s, _price_s, _dir_s, _sty_s)
+                    except Exception: pass
+                _pred_s   = calc_predicted_move(_ticker_s, _price_s, _dir_s, _atr_s,
+                    sig.get("sq_state","none"), sig.get("sq_compression",0) or 0,
+                    sig.get("block_detected",False), _sty_s)
+                _strike_s = calc_strike_guidance(_vol_s, _pred_s, _price_s, _dir_s)
+                _block_html = render_volatility_block_html(_vol_s, _pred_s, _strike_s, _fib_s,
+                    _pred_s.get("scan_time",""), style=_sty_s)
+                if _block_html:
+                    st.markdown(_block_html, unsafe_allow_html=True)
+            except Exception:
+                pass
+
+            try:
                 _mw = st.session_state.get('macro_warning', {})
                 if _mw and _mw.get('level') in ('PRE_EVENT', 'POST_EVENT'):
                     _mwc = '#FF6B35' if _mw['level'] == 'PRE_EVENT' else '#F6E27A'
@@ -3438,9 +3462,11 @@ def apply_regime_adjustments(signals, regime_data):
             conf_adj  = 0  # flag shown on card — user decides, no score penalty
 
         # Special rules per regime
+        # BULL TRAP: warn but don't hard block — a stock at support with
+        # volume confirmation is still a valid call even in a bull trap
         if regime == "BULL TRAP" and direction == "bullish":
-            alignment = "BLOCKED"
-            conf_adj  = -20  # heavily penalize calls in bull trap
+            alignment = "COUNTER"
+            conf_adj  = -8  # soft penalty, card shows warning, trader decides
 
         if regime == "CAPITULATION" and direction == "bullish":
             conf_adj  = +8  # bounce plays in capitulation
@@ -3453,7 +3479,6 @@ def apply_regime_adjustments(signals, regime_data):
         adjusted.append(r)
 
     return adjusted
-
 
 def detect_fibonacci_confluence(df, direction, current_price=None):
     if df is None or len(df) < 20:
@@ -3709,7 +3734,6 @@ def detect_sr_levels(ticker, current_price, direction):
         empty["label"]  = "S/R Error"
         empty["detail"] = str(_e)[:50]
         return empty
-
 def detect_exhaustion(df, direction):
     if len(df) < 20:
         return False, 0, ["Insufficient data"]
@@ -4481,6 +4505,7 @@ def render_weekly_bias_banner():
 
 
 @_thread_cache(ttl=900)
+@_thread_cache(ttl=900)
 def fetch_ticker_news(ticker, hours=4, limit=10):
     """Fetch ticker news from Finnhub. 15-min cache prevents rate-limit spam."""
     if not FINNHUB_API_KEY:
@@ -4494,7 +4519,13 @@ def fetch_ticker_news(ticker, hours=4, limit=10):
             % (ticker.upper(), from_d, to_d, FINNHUB_API_KEY)
         )
         r = _http_get(url, timeout=8)
-        if r is None or r.status_code != 200:
+        if r is None:
+            return []
+        if r.status_code == 429:
+            print("[news] Finnhub rate limit hit for %s" % ticker)
+            return []
+        if r.status_code != 200:
+            print("[news] Finnhub returned %s for %s" % (r.status_code, ticker))
             return []
         data = r.json()
         if not isinstance(data, list):
@@ -5327,9 +5358,8 @@ def get_market_stress_monitor():
 
 @_thread_cache(ttl=300)
 def get_pattern_win_rate(pattern, style=None, direction=None):
+    """Win rate for a specific pattern."""
     min_sample = 10
-    """Win rate for a specific pattern.
-    Returns dict with win_rate, sample_size, avg_winner, avg_loser, expectancy."""
     sb = get_supabase(service=True)
     if not sb:
         return None
@@ -5375,9 +5405,8 @@ def get_pattern_win_rate(pattern, style=None, direction=None):
 
 @_thread_cache(ttl=300)
 def get_regime_win_rates():
+    """Win rates grouped by market regime."""
     min_sample = 5
-    """Win rates grouped by market regime.
-    Returns list of dicts so you can see which regimes the screener works in."""
     sb = get_supabase(service=True)
     if not sb:
         return []
@@ -5412,9 +5441,8 @@ def get_regime_win_rates():
 
 @_thread_cache(ttl=300)
 def get_confluence_correlation():
+    """Does confluence alignment correlate with wins?"""
     min_sample = 5
-    """Does confluence alignment correlate with wins?
-    Returns win rates grouped by confluence_alignment count (0-4)."""
     sb = get_supabase(service=True)
     if not sb:
         return []
@@ -5566,7 +5594,6 @@ def render_summary_line_html(r):
         "</div>"
         "</div>"
     )
-
 def render_confluence_block_html(cfl, direction):
     """Confluence Intel display block - VWAP + 9EMA + 400SMA stack."""
     if not cfl or not cfl.get("available"):
@@ -5901,6 +5928,1088 @@ def render_macro_event_warning_html(w):
         + event_chips +
         "</div>"
     ) % (bg, border, border, color, icon, label)
+# PROPER SWING HIGH / SWING LOW DETECTION
+# Replaces the naive max/min approach with structural pivot detection.
+#
+# A real swing high:
+#   - At least N candles on BOTH sides with lower highs
+#   - Minimum size threshold (avoids noise spikes)
+#   - Confirmed — not just the highest point in a window
+#
+# A real swing low:
+#   - At least N candles on BOTH sides with higher lows
+#   - Minimum size threshold
+#   - Confirmed
+
+def detect_swing_points(df, n_confirm=3, min_swing_pct=0.005):
+    """
+    Find confirmed structural swing highs and lows.
+
+    Args:
+        df: OHLCV dataframe (must have 'high', 'low', 'close')
+        n_confirm: candles required on EACH side to confirm a swing (default 3)
+        min_swing_pct: minimum swing size as % of price to filter noise (default 0.5%)
+
+    Returns:
+        dict with:
+            swing_highs: list of (index, price) tuples, most recent last
+            swing_lows:  list of (index, price) tuples, most recent last
+            last_swing_high: (index, price) or None
+            last_swing_low:  (index, price) or None
+    """
+    result = {
+        "swing_highs":      [],
+        "swing_lows":       [],
+        "last_swing_high":  None,
+        "last_swing_low":   None,
+        "available":        False,
+    }
+
+    try:
+        if df is None or len(df) < (n_confirm * 2 + 3):
+            return result
+
+        highs  = df["high"].astype(float).values
+        lows   = df["low"].astype(float).values
+        closes = df["close"].astype(float).values
+        n      = len(highs)
+        avg_price = float(closes[-1])
+        min_size  = avg_price * min_swing_pct
+
+        swing_highs = []
+        swing_lows  = []
+
+        # Check each candle (excluding first and last n_confirm candles)
+        for i in range(n_confirm, n - n_confirm):
+            h = highs[i]
+            l = lows[i]
+
+            # === Swing High check ===
+            # Left side: all n_confirm candles before must have lower highs
+            left_ok  = all(highs[i-j] < h for j in range(1, n_confirm+1))
+            # Right side: all n_confirm candles after must have lower highs
+            right_ok = all(highs[i+j] < h for j in range(1, n_confirm+1))
+
+            if left_ok and right_ok:
+                # Check it's a meaningful swing, not a tiny pip
+                left_low  = min(highs[max(0, i-n_confirm):i])
+                swing_size = h - left_low
+                if swing_size >= min_size:
+                    swing_highs.append((i, round(h, 2)))
+
+            # === Swing Low check ===
+            left_ok_l  = all(lows[i-j] > l for j in range(1, n_confirm+1))
+            right_ok_l = all(lows[i+j] > l for j in range(1, n_confirm+1))
+
+            if left_ok_l and right_ok_l:
+                right_high = max(lows[i:min(n, i+n_confirm)])
+                swing_size_l = right_high - l
+                if swing_size_l >= min_size:
+                    swing_lows.append((i, round(l, 2)))
+
+        result["swing_highs"] = swing_highs
+        result["swing_lows"]  = swing_lows
+
+        if swing_highs:
+            result["last_swing_high"] = swing_highs[-1]
+        if swing_lows:
+            result["last_swing_low"] = swing_lows[-1]
+
+        result["available"] = bool(swing_highs and swing_lows)
+        return result
+
+    except Exception as _e:
+        print("[swing_detect] error: %s" % str(_e)[:120])
+        return result
+
+
+def find_most_recent_breakout_move(df, direction, n_confirm=3, min_swing_pct=0.005):
+    """
+    Find the most recent clean breakout move to draw the fib on.
+
+    For bullish:
+        Most recent significant swing low → most recent significant swing high
+        (Price moved up from the low — we measure the retrace of that move)
+
+    For bearish:
+        Most recent significant swing high → most recent significant swing low
+
+    Returns:
+        dict with move_start (price), move_end (price), move_pct, valid (bool)
+    """
+    result = {
+        "valid":        False,
+        "move_start":   None,   # where the move came FROM
+        "move_end":     None,   # where the move went TO
+        "move_pct":     None,   # size of the move in %
+        "move_dollars": None,   # size in dollars
+        "start_idx":    None,
+        "end_idx":      None,
+    }
+
+    try:
+        swings = detect_swing_points(df, n_confirm=n_confirm, min_swing_pct=min_swing_pct)
+        if not swings["available"]:
+            return result
+
+        highs = swings["swing_highs"]
+        lows  = swings["swing_lows"]
+
+        if direction == "bullish":
+            # Find the most recent swing low that came BEFORE the most recent swing high
+            # That's the move we're drawing fib on
+            if not highs or not lows:
+                return result
+
+            last_high_idx, last_high_price = highs[-1]
+
+            # Find the swing low that preceded this high (lower index)
+            preceding_lows = [(i, p) for i, p in lows if i < last_high_idx]
+            if not preceding_lows:
+                return result
+
+            # Use the most recent preceding low
+            low_idx, low_price = preceding_lows[-1]
+
+            move_dollars = last_high_price - low_price
+            move_pct     = (move_dollars / low_price) * 100
+
+            # Minimum move size — avoid drawing fib on tiny wiggles
+            # At least 1.5% move to qualify
+            if move_pct < 0.5:
+                return result
+
+            result.update({
+                "valid":        True,
+                "move_start":   round(low_price, 2),   # bottom of the move
+                "move_end":     round(last_high_price, 2), # top of the move
+                "move_pct":     round(move_pct, 2),
+                "move_dollars": round(move_dollars, 2),
+                "start_idx":    low_idx,
+                "end_idx":      last_high_idx,
+            })
+
+        else:  # bearish
+            if not highs or not lows:
+                return result
+
+            last_low_idx, last_low_price = lows[-1]
+
+            # Find the swing high that preceded this low
+            preceding_highs = [(i, p) for i, p in highs if i < last_low_idx]
+            if not preceding_highs:
+                return result
+
+            high_idx, high_price = preceding_highs[-1]
+
+            move_dollars = high_price - last_low_price
+            move_pct     = (move_dollars / high_price) * 100
+
+            if move_pct < 0.5:
+                return result
+
+            result.update({
+                "valid":        True,
+                "move_start":   round(high_price, 2),  # top of the move
+                "move_end":     round(last_low_price, 2), # bottom
+                "move_pct":     round(move_pct, 2),
+                "move_dollars": round(move_dollars, 2),
+                "start_idx":    high_idx,
+                "end_idx":      last_low_idx,
+            })
+
+        return result
+
+    except Exception as _e:
+        print("[breakout_move] error: %s" % str(_e)[:120])
+        return result
+
+
+def classify_fib_retrace(move, current_price, direction):
+    """
+    Given a confirmed breakout move and the current price,
+    classify where price is in the fib retrace.
+
+    Returns:
+        dict with level (str), pct (float), verdict (str), color (str),
+        meaning (str), action (str), trade_valid (bool)
+    """
+    result = {
+        "valid":       False,
+        "level":       None,
+        "pct":         None,
+        "verdict":     "",
+        "color":       "#A1A1A6",
+        "meaning":     "",
+        "action":      "",
+        "trade_valid": True,
+        "fib_levels":  {},
+    }
+
+    try:
+        if not move or not move.get("valid"):
+            return result
+
+        move_start = move["move_start"]
+        move_end   = move["move_end"]
+        move_size  = abs(move_end - move_start)
+
+        if move_size < 0.01:
+            return result
+
+        # Calculate all fib levels
+        # For bullish: retrace is measured from move_end (top) DOWN toward move_start (bottom)
+        # For bearish: retrace is measured from move_end (bottom) UP toward move_start (top)
+        if direction == "bullish":
+            fib_levels = {
+                "0.0%":   move_end,
+                "23.6%":  move_end - (move_size * 0.236),
+                "38.2%":  move_end - (move_size * 0.382),
+                "50.0%":  move_end - (move_size * 0.500),
+                "61.8%":  move_end - (move_size * 0.618),
+                "78.6%":  move_end - (move_size * 0.786),
+                "100.0%": move_start,
+            }
+            # How far has price retraced from the top?
+            retrace_amount = move_end - current_price
+        else:
+            fib_levels = {
+                "0.0%":   move_end,
+                "23.6%":  move_end + (move_size * 0.236),
+                "38.2%":  move_end + (move_size * 0.382),
+                "50.0%":  move_end + (move_size * 0.500),
+                "61.8%":  move_end + (move_size * 0.618),
+                "78.6%":  move_end + (move_size * 0.786),
+                "100.0%": move_start,
+            }
+            retrace_amount = current_price - move_end
+
+        retrace_pct = (retrace_amount / move_size) * 100 if move_size > 0 else 0
+        retrace_pct = max(0, retrace_pct)  # no negative retrace
+
+        result["fib_levels"] = {k: round(v, 2) for k, v in fib_levels.items()}
+        result["pct"] = round(retrace_pct, 1)
+
+        # Classify the retrace level
+        if retrace_pct <= 5:
+            result.update({
+                "valid":       True,
+                "level":       "At Highs",
+                "verdict":     "No meaningful retrace yet",
+                "color":       "#22C55E",
+                "meaning":     "Price hasn't pulled back at all. Momentum is strong but don't chase — wait for a pullback entry.",
+                "action":      "Wait for a pullback to the .236 or .382 zone before entering.",
+                "trade_valid": True,
+            })
+        elif retrace_pct <= 27:
+            result.update({
+                "valid":       True,
+                "level":       ".236",
+                "verdict":     "Shallow Pullback",
+                "color":       "#22C55E",
+                "meaning":     "Price barely pulled back. Trend is very strong — buyers stepped in immediately.",
+                "action":      "Valid entry zone. The move has plenty of room left.",
+                "trade_valid": True,
+            })
+        elif retrace_pct <= 43:
+            result.update({
+                "valid":       True,
+                "level":       ".382",
+                "verdict":     "Normal Pullback",
+                "color":       "#D4AF37",
+                "meaning":     "Classic healthy pullback. Trend is intact. This is the textbook entry zone.",
+                "action":      "Strong entry zone. Most trending moves bounce from here and continue.",
+                "trade_valid": True,
+            })
+        elif retrace_pct <= 55:
+            result.update({
+                "valid":       True,
+                "level":       ".500",
+                "verdict":     "Trend Weakening",
+                "color":       "#FF6B35",
+                "meaning":     "Price has retraced half the move. The trend is losing conviction. Bulls and bears are balanced here.",
+                "action":      "Caution. If price cannot bounce strongly from here, the trend is likely over. Quick trades only — no swings.",
+                "trade_valid": True,  # still tradeable but with caution
+            })
+        elif retrace_pct <= 70:
+            result.update({
+                "valid":       True,
+                "level":       ".618",
+                "verdict":     "Trend Gone — Wait for Reset",
+                "color":       "#C1121F",
+                "meaning":     "Price has retraced 61.8% of the move. The original trend is over. Smart money has exited.",
+                "action":      "Do not trade in the original direction. Wait for a new structure to form — a new confirmed high or low before re-entering.",
+                "trade_valid": False,
+            })
+        else:
+            result.update({
+                "valid":       True,
+                "level":       "Full Retrace",
+                "verdict":     "Full Reversal — New Direction Forming",
+                "color":       "#C1121F",
+                "meaning":     "Price has given back nearly the entire move. This is no longer a pullback — it is a reversal. The thesis has changed.",
+                "action":      "Stay out until a new swing structure forms. A new confirmed high (bullish) or new confirmed low (bearish) is your signal to re-enter.",
+                "trade_valid": False,
+            })
+
+        return result
+
+    except Exception as _e:
+        print("[fib_classify] error: %s" % str(_e)[:120])
+        return result
+
+
+def detect_multi_timeframe_fib(ticker, current_price, direction, style):
+    """
+    Run fib detection across the correct timeframes for the trade style.
+
+    Quick  → 1-hour fib (last 5 days of hourly data)
+    Swing  → Daily fib  (last 60 days of daily data)
+    Leap   → Weekly fib (last 2 years of weekly data)
+
+    Returns dict with fib reads for each relevant timeframe.
+    """
+    result = {
+        "available": False,
+        "intraday":  None,   # 1H fib (for quick trades)
+        "daily":     None,   # Daily fib (for swing trades)
+        "weekly":    None,   # Weekly fib (for leaps)
+        "verdict":   "",     # plain English synthesis
+        "trade_valid": True, # overall — if ANY higher TF says no, this is False
+        "conflict":  False,  # timeframes disagree
+        "conflict_note": "",
+    }
+
+    try:
+        # Pull data for each timeframe
+        df_1h = None
+        df_1d = None
+        df_1w = None
+
+        try:
+            df_1h = _fmp_download(ticker, "10d", "1h")
+        except Exception:
+            pass
+
+        try:
+            df_1d = _fmp_download(ticker, "90d", "1d")
+        except Exception:
+            pass
+
+        try:
+            df_1w = _fmp_download(ticker, "2y", "1wk")
+        except Exception:
+            pass
+
+        # Run fib on each
+        any_available = False
+
+        if df_1h is not None and len(df_1h) >= 10 and style in ("quick", "swing", "leap"):
+            move_1h = find_most_recent_breakout_move(df_1h, direction, n_confirm=2, min_swing_pct=0.001)
+            if move_1h["valid"]:
+                fib_1h = classify_fib_retrace(move_1h, current_price, direction)
+                fib_1h["move"] = move_1h
+                result["intraday"] = fib_1h
+                any_available = True
+
+        if df_1d is not None and len(df_1d) >= 20 and style in ("quick", "swing", "leap"):
+            move_1d = find_most_recent_breakout_move(df_1d, direction, n_confirm=3, min_swing_pct=0.01)
+            if move_1d["valid"]:
+                fib_1d = classify_fib_retrace(move_1d, current_price, direction)
+                fib_1d["move"] = move_1d
+                result["daily"] = fib_1d
+                any_available = True
+
+        if df_1w is not None and len(df_1w) >= 20 and style == "leap":
+            move_1w = find_most_recent_breakout_move(df_1w, direction, n_confirm=2, min_swing_pct=0.02)
+            if move_1w["valid"]:
+                fib_1w = classify_fib_retrace(move_1w, current_price, direction)
+                fib_1w["move"] = move_1w
+                result["weekly"] = fib_1w
+                any_available = True
+
+        result["available"] = any_available
+
+        if not any_available:
+            return result
+
+        # === SYNTHESIS — determine overall verdict ===
+        reads = []
+        if result["intraday"]: reads.append(("Intraday", result["intraday"]))
+        if result["daily"]:    reads.append(("Daily",    result["daily"]))
+        if result["weekly"]:   reads.append(("Weekly",   result["weekly"]))
+
+        # If ANY higher timeframe says trend gone — overall is invalid for swing/leap
+        higher_tf_broken = False
+        if result["daily"] and not result["daily"]["trade_valid"]:
+            higher_tf_broken = True
+        if result["weekly"] and not result["weekly"]["trade_valid"]:
+            higher_tf_broken = True
+
+        result["trade_valid"] = not higher_tf_broken
+
+        # Check for conflict — intraday valid but daily broken
+        if (result["intraday"] and result["intraday"]["trade_valid"] and
+            result["daily"] and not result["daily"]["trade_valid"]):
+            result["conflict"] = True
+            result["conflict_note"] = (
+                "Short-term (hourly) shows a valid pullback but the daily trend has broken down. "
+                "A quick bounce toward $%.2f is possible but the bigger move is gone. "
+                "If you trade this — quick in and out only, no overnight holds. "
+                "Target the hourly resistance, take profit, move on." % (
+                    result["intraday"].get("move", {}).get("move_end", current_price)
+                )
+            )
+
+        # Build overall verdict string
+        if higher_tf_broken and result["conflict"]:
+            result["verdict"] = "TIMEFRAME CONFLICT — Quick only"
+        elif higher_tf_broken:
+            result["verdict"] = "TREND GONE — Wait for reset"
+        elif all(r.get("level") in (".236", "At Highs") for _, r in reads):
+            result["verdict"] = "ALL TIMEFRAMES STRONG — High conviction entry"
+        elif all(r.get("level") in (".236", ".382", "At Highs") for _, r in reads):
+            result["verdict"] = "ALIGNED — Entry valid across timeframes"
+        elif all(r.get("trade_valid", True) for _, r in reads):
+            result["verdict"] = "MIXED — Entry valid but watch the levels"
+        else:
+            result["verdict"] = "CAUTION — Timeframes not aligned"
+
+        return result
+
+    except Exception as _e:
+        print("[multi_tf_fib] error: %s" % str(_e)[:120])
+        return result
+
+
+# FEATURE 1: VOLATILITY CLASSIFIER + PREDICTED MOVE + STRIKE GUIDANCE
+
+@_thread_cache(ttl=1800)
+def classify_stock_volatility(ticker, current_price=None):
+    """
+    Classify stock as LOW / MODERATE / HIGH mover based on ATR% of price.
+    Returns dollar range, % classification, and DTE/delta guidance.
+    """
+    result = {
+        "available":      False,
+        "tier":           "MODERATE",
+        "atr_dollar":     None,
+        "atr_pct":        None,
+        "daily_range_lo": None,
+        "daily_range_hi": None,
+        "label":          "",
+        "dte_min":        21,
+        "dte_max":        45,
+        "delta_lo":       0.35,
+        "delta_hi":       0.55,
+        "guidance":       "",
+    }
+    ETF_TICKERS = {
+        'SPY','QQQ','IWM','DIA','XLK','XLF','XLE','XLV','XLY','XLI',
+        'GLD','SLV','TLT','HYG','IBIT','VXX','UVXY','SQQQ','TQQQ','SPXL','SPXU',
+    }
+    is_etf = ticker.upper() in ETF_TICKERS
+
+    try:
+        df = _fmp_download(ticker, "30d", "1d")
+        if df is None or len(df) < 14:
+            return result
+
+        close = df["close"].astype(float)
+        high  = df["high"].astype(float)
+        low   = df["low"].astype(float)
+
+        tr  = (high - low).copy()
+        tr2 = (high - close.shift(1)).abs()
+        tr3 = (low  - close.shift(1)).abs()
+        tr  = tr.combine(tr2, max).combine(tr3, max)
+        atr_14 = float(tr.rolling(14).mean().iloc[-1])
+
+        price = current_price or float(close.iloc[-1])
+        atr_pct = (atr_14 / price) * 100
+
+        result["atr_dollar"]     = round(atr_14, 2)
+        result["daily_range_lo"] = round(atr_14 * 0.7, 2)
+        result["daily_range_hi"] = round(atr_14 * 1.3, 2)
+        result["atr_pct"]        = round(atr_pct, 2)
+
+        if is_etf:
+            result.update({
+                "tier": "ETF", "label": "INDEX ETF",
+                "dte_min": 0, "dte_max": 30, "delta_lo": 0.40, "delta_hi": 0.65,
+                "guidance": (
+                    "Index ETF \u2014 moves $%.2f/day (%.1f%%). "
+                    "0DTE is heavily traded here and perfectly valid. "
+                    "Same-day plays: 0-5 DTE, delta 0.40-0.65. "
+                    "Multi-day swings: 21-30 DTE." % (atr_14, atr_pct)
+                ),
+            })
+            result["available"] = True
+            return result
+
+        # Classify by ATR% internally, display in dollars externally
+        if atr_pct < 1.5:
+            result.update({
+                "tier":      "LOW",
+                "label":     "LOW MOVER",
+                "dte_min":   30,
+                "dte_max":   60,
+                "delta_lo":  0.40,
+                "delta_hi":  0.65,
+                "guidance":  (
+                    "This stock moves about $%.2f/day (%.1f%% of price). "
+                    "It needs time — short DTE options will decay before the move develops. "
+                    "Target 30-60 DTE and a delta of 0.40-0.65 so your option moves "
+                    "meaningfully when the stock does." % (atr_14, atr_pct)
+                ),
+            })
+        elif atr_pct < 3.0:
+            result.update({
+                "tier":      "MODERATE",
+                "label":     "MODERATE MOVER",
+                "dte_min":   21,
+                "dte_max":   45,
+                "delta_lo":  0.35,
+                "delta_hi":  0.55,
+                "guidance":  (
+                    "This stock moves about $%.2f/day (%.1f%% of price). "
+                    "Standard options approach — 21-45 DTE, 0.35-0.55 delta. "
+                    "Room to catch the move without overpaying for time." % (atr_14, atr_pct)
+                ),
+            })
+        else:
+            result.update({
+                "tier":      "HIGH",
+                "label":     "HIGH MOVER",
+                "dte_min":   7,
+                "dte_max":   21,
+                "delta_lo":  0.25,
+                "delta_hi":  0.50,
+                "guidance":  (
+                    "This stock moves about $%.2f/day (%.1f%% of price). "
+                    "Moves fast — shorter DTE (7-21) is fine since the move happens quickly. "
+                    "Lower delta (0.25-0.50) gives you better leverage on the big moves." % (atr_14, atr_pct)
+                ),
+            })
+
+        result["available"] = True
+        return result
+    except Exception as _e:
+        print("[vol_classify] error: %s" % str(_e)[:100])
+        return result
+
+
+def calc_predicted_move(ticker, current_price, direction, atr, sq_state, sq_compression, block_detected, style):
+    """
+    Predict today's move range and the next 15-min candle projection.
+    Two separate outputs as requested.
+    Returns dict with daily_lo, daily_hi, candle_lo, candle_hi, candle_time, confidence.
+    """
+    result = {
+        "available":       False,
+        "daily_lo":        None,
+        "daily_hi":        None,
+        "daily_lo_price":  None,
+        "daily_hi_price":  None,
+        "candle_proj":     None,
+        "candle_lo":       None,
+        "candle_hi":       None,
+        "candle_time":     None,
+        "candle_state":    None,  # WAITING / CURRENT_IS_ENTRY / WATCH_CLOSE
+        "candle_minutes_left": None,
+        "candle_time_range":   None,
+        "confirm_level":   None,
+        "confidence":      "MODERATE",
+        "scan_time":       None,
+    }
+    try:
+        if not atr or atr <= 0:
+            return result
+
+        # === DAILY MOVE PREDICTION ===
+        # Base multiplier from ATR
+        multiplier = 1.0
+
+        # Squeeze modifier
+        if sq_state == "firing" and sq_compression >= 60:
+            multiplier = 1.55
+            result["confidence"] = "HIGH"
+        elif sq_state == "firing":
+            multiplier = 1.35
+            result["confidence"] = "HIGH"
+        elif sq_state == "squeeze" and sq_compression >= 50:
+            multiplier = 1.20
+            result["confidence"] = "MODERATE-HIGH"
+        elif sq_state == "squeeze":
+            multiplier = 1.10
+            result["confidence"] = "MODERATE"
+
+        # Block modifier (institutional footprint)
+        if block_detected:
+            multiplier *= 1.15
+            if result["confidence"] == "MODERATE":
+                result["confidence"] = "MODERATE-HIGH"
+
+        # Both firing together
+        if sq_state == "firing" and block_detected:
+            result["confidence"] = "HIGH"
+
+        predicted_move = atr * multiplier
+        daily_lo = predicted_move * 0.65
+        daily_hi = predicted_move * 1.35
+
+        result["daily_lo"] = round(daily_lo, 2)
+        result["daily_hi"] = round(daily_hi, 2)
+
+        if direction == "bullish":
+            result["daily_lo_price"] = round(current_price + daily_lo, 2)
+            result["daily_hi_price"] = round(current_price + daily_hi, 2)
+        else:
+            result["daily_lo_price"] = round(current_price - daily_hi, 2)
+            result["daily_hi_price"] = round(current_price - daily_lo, 2)
+
+        # === NEXT 15-MIN CANDLE PROJECTION ===
+        try:
+            et = pytz.timezone("America/New_York")
+            now = datetime.now(et)
+            current_minute = now.hour * 60 + now.minute
+
+            # Find which 15-min candle we're in
+            market_open_min = 9 * 60 + 30   # 9:30 AM
+            mins_since_open = current_minute - market_open_min
+
+            if mins_since_open < 0:
+                # Pre-market
+                candle_start_min = market_open_min
+                mins_into_candle = 0
+            else:
+                candle_num = mins_since_open // 15
+                candle_start_min = market_open_min + (candle_num * 15)
+                mins_into_candle = mins_since_open % 15
+
+            mins_left = 15 - mins_into_candle
+            candle_end_min = candle_start_min + 15
+
+            def fmt_time(total_minutes):
+                h = total_minutes // 60
+                m = total_minutes % 60
+                ampm = "AM" if h < 12 else "PM"
+                h12 = h if h <= 12 else h - 12
+                if h12 == 0: h12 = 12
+                return "%d:%02d %s" % (h12, m, ampm)
+
+            candle_start_str = fmt_time(candle_start_min)
+            candle_end_str   = fmt_time(candle_end_min)
+            next_candle_str  = fmt_time(candle_end_min)
+
+            result["candle_time_range"] = "%s - %s ET" % (candle_start_str, candle_end_str)
+            result["candle_minutes_left"] = mins_left
+            result["scan_time"] = now.strftime("%I:%M %p ET")
+
+            # Pull 15-min data for candle size projection
+            df_15m = _fmp_download(ticker, "5d", "15min")
+            if df_15m is not None and len(df_15m) >= 10:
+                c15 = df_15m["close"].astype(float)
+                h15 = df_15m["high"].astype(float)
+                l15 = df_15m["low"].astype(float)
+                v15 = df_15m["volume"].astype(float)
+
+                # Average 15-min candle range
+                avg_candle_range = float((h15 - l15).rolling(10).mean().iloc[-1])
+
+                # Volume ratio on most recent candle
+                avg_vol_15 = float(v15.iloc[-10:].mean())
+                cur_vol_15 = float(v15.iloc[-1])
+                vol_ratio_15 = cur_vol_15 / avg_vol_15 if avg_vol_15 > 0 else 1.0
+
+                # Projected next candle range
+                projected_range = avg_candle_range * min(vol_ratio_15, 2.0)
+                candle_lo_proj  = projected_range * 0.6
+                candle_hi_proj  = projected_range * 1.4
+
+                result["candle_proj"]  = round(projected_range, 2)
+                result["candle_lo"]    = round(candle_lo_proj, 2)
+                result["candle_hi"]    = round(candle_hi_proj, 2)
+
+                # Determine candle state and confirm level
+                last_15m_close = float(c15.iloc[-1])
+                last_15m_high  = float(h15.iloc[-1])
+                last_15m_low   = float(l15.iloc[-1])
+
+                if direction == "bullish":
+                    confirm_level = round(last_15m_high + (avg_candle_range * 0.1), 2)
+                else:
+                    confirm_level = round(last_15m_low - (avg_candle_range * 0.1), 2)
+                result["confirm_level"] = confirm_level
+
+                # State logic
+                if mins_into_candle <= 2:
+                    result["candle_state"] = "NEW_CANDLE"
+                    result["candle_time"] = (
+                        "New candle just opened (%s). Give it 3-5 minutes to show direction. "
+                        "Watch for price to %s $%.2f — that confirms the move is on." % (
+                            candle_start_str,
+                            "hold above" if direction == "bullish" else "hold below",
+                            confirm_level
+                        )
+                    )
+                elif mins_left <= 3:
+                    result["candle_state"] = "WATCH_CLOSE"
+                    result["candle_time"] = (
+                        "Current candle (%s) has %d minute%s left. "
+                        "If it closes %s $%.2f the next candle (%s) is your entry. "
+                        "This is the decision point." % (
+                            result["candle_time_range"],
+                            mins_left,
+                            "s" if mins_left != 1 else "",
+                            "above" if direction == "bullish" else "below",
+                            confirm_level,
+                            next_candle_str
+                        )
+                    )
+                elif mins_into_candle >= 7 and vol_ratio_15 >= 1.3:
+                    result["candle_state"] = "CURRENT_IS_ENTRY"
+                    result["candle_time"] = (
+                        "We are %d minutes into the %s candle and volume is %.1fx average. "
+                        "Price is %s $%.2f — this IS the entry candle. "
+                        "Enter now or on any dip back to $%.2f." % (
+                            mins_into_candle,
+                            result["candle_time_range"],
+                            vol_ratio_15,
+                            "holding above" if direction == "bullish" else "holding below",
+                            confirm_level,
+                            confirm_level
+                        )
+                    )
+                else:
+                    result["candle_state"] = "WAITING"
+                    result["candle_time"] = (
+                        "Current candle: %s | %d minutes left. "
+                        "Watch for a close %s $%.2f to confirm entry on the next candle (%s)." % (
+                            result["candle_time_range"],
+                            mins_left,
+                            "above" if direction == "bullish" else "below",
+                            confirm_level,
+                            next_candle_str
+                        )
+                    )
+        except Exception:
+            pass
+
+        result["available"] = True
+        return result
+
+    except Exception as _e:
+        print("[predicted_move] error: %s" % str(_e)[:120])
+        return result
+
+
+def calc_strike_guidance(vol_class, predicted_move, current_price, direction):
+    """
+    Generate 3 strike guidance options (Conservative / Balanced / Aggressive)
+    based on volatility classification and predicted move.
+    Uses Black-Scholes delta approximation — no live options chain needed.
+    """
+    result = {
+        "available": False,
+        "options":   [],  # list of 3 dicts
+        "summary":   "",
+    }
+    try:
+        if not vol_class.get("available") or not predicted_move.get("available"):
+            return result
+
+        tier    = vol_class["tier"]
+        delta_lo = vol_class["delta_lo"]
+        delta_hi = vol_class["delta_hi"]
+        dte_min  = vol_class["dte_min"]
+        dte_max  = vol_class["dte_max"]
+        move_lo  = predicted_move["daily_lo"]
+        move_hi  = predicted_move["daily_hi"]
+
+        # Three options — Conservative, Balanced, Aggressive
+        options = [
+            {
+                "label":     "Conservative",
+                "delta_lo":  round(delta_lo - 0.05, 2),
+                "delta_hi":  round(delta_lo + 0.05, 2),
+                "dte_lo":    dte_max - 5,
+                "dte_hi":    dte_max + 15,
+                "why":       "Lower premium cost, more time for the move to develop. Lower risk, lower reward.",
+                "gain_lo":   round(move_lo * (delta_lo - 0.05) * 100, 0),
+                "gain_hi":   round(move_hi * (delta_lo + 0.05) * 100, 0),
+            },
+            {
+                "label":     "Balanced",
+                "delta_lo":  round((delta_lo + delta_hi) / 2 - 0.05, 2),
+                "delta_hi":  round((delta_lo + delta_hi) / 2 + 0.05, 2),
+                "dte_lo":    dte_min + 5,
+                "dte_hi":    dte_max,
+                "why":       "Best risk/reward balance. Enough delta to profit from the predicted move, enough time to not panic.",
+                "gain_lo":   round(move_lo * ((delta_lo + delta_hi) / 2 - 0.05) * 100, 0),
+                "gain_hi":   round(move_hi * ((delta_lo + delta_hi) / 2 + 0.05) * 100, 0),
+            },
+            {
+                "label":     "Aggressive",
+                "delta_lo":  round(delta_hi - 0.05, 2),
+                "delta_hi":  round(delta_hi + 0.05, 2),
+                "dte_lo":    dte_min,
+                "dte_hi":    dte_min + 10,
+                "why":       "Higher premium, faster decay. Only works if the move happens quickly. Higher reward, higher risk.",
+                "gain_lo":   round(move_lo * (delta_hi - 0.05) * 100, 0),
+                "gain_hi":   round(move_hi * (delta_hi + 0.05) * 100, 0),
+            },
+        ]
+
+        result["options"]  = options
+        result["available"] = True
+        result["summary"]  = (
+            "Based on predicted move of $%.2f-$%.2f and %s volatility profile — "
+            "look for a strike with these delta/DTE characteristics at your broker." % (
+                move_lo, move_hi, tier.lower()
+            )
+        )
+        return result
+    except Exception as _e:
+        print("[strike_guidance] error: %s" % str(_e)[:100])
+        return result
+
+
+def render_volatility_block_html(vol, pred, strike, fib, scan_time, style='swing'):
+    """
+    Full render block combining:
+    - Volatility classification chip
+    - Predicted move (daily + candle)
+    - Strike guidance (3 options)
+    - Fibonacci multi-timeframe read
+
+    Plain English throughout. No jargon.
+    """
+    if not vol.get("available") and not pred.get("available") and not fib.get("available"):
+        return ""
+
+    parts = []
+
+    # === SECTION 1: VOLATILITY + PREDICTED MOVE ===
+    if vol.get("available") or pred.get("available"):
+        tier_color = {"LOW": "#F6E27A", "MODERATE": "#D4AF37", "HIGH": "#22C55E"}.get(
+            vol.get("tier", "MODERATE"), "#D4AF37"
+        )
+        vol_chip = ""
+        if vol.get("available"):
+            if style == "quick":
+                _dte_guidance = (
+                    "Quick trade \u2014 use 0-5 DTE. Stock moves $%.2f/day (%.1f%% of price). "
+                    "For a same-day move, target delta %.2f-%.2f \u2014 enough sensitivity "
+                    "to profit without overpaying on premium." % (
+                        vol.get("atr_dollar", 0), vol.get("atr_pct", 0),
+                        vol.get("delta_lo", 0.35), vol.get("delta_hi", 0.55)
+                    )
+                )
+            else:
+                _dte_guidance = vol.get("guidance", "")
+            vol_chip = (
+                "<div style='display:flex;align-items:center;gap:10px;margin-bottom:10px'>"
+                "<span style='background:" + tier_color + "22;color:" + tier_color + ";"
+                "border:1px solid " + tier_color + ";border-radius:4px;padding:2px 8px;"
+                "font-size:0.65rem;font-weight:700;letter-spacing:1px'>"
+                + vol.get("label", "") + "</span>"
+                "<span style='color:#A1A1A6;font-size:0.72rem'>"
+                "$%.2f avg daily range (%.1f%% of price)</span>" % (
+                    vol.get("atr_dollar", 0), vol.get("atr_pct", 0)
+                ) +
+                "</div>"
+                "<div style='font-size:0.73rem;color:#F5F5F5;line-height:1.5;margin-bottom:8px'>"
+                + _dte_guidance + "</div>"
+            )
+
+        move_html = ""
+        if pred.get("available"):
+            conf = pred.get("confidence", "MODERATE")
+            conf_color = "#22C55E" if "HIGH" in conf else "#D4AF37"
+
+            daily_html = ""
+            if pred.get("daily_lo") and pred.get("daily_hi"):
+                daily_html = (
+                    "<div style='background:#111115;border-radius:6px;padding:8px 10px;margin-bottom:6px'>"
+                    "<div style='font-size:0.6rem;color:#A1A1A6;letter-spacing:1px'>TODAY'S EXPECTED MOVE</div>"
+                    "<div style='font-size:1.0rem;font-weight:700;color:#F5F5F5'>"
+                    "$%.2f - $%.2f" % (pred["daily_lo"], pred["daily_hi"]) +
+                    " <span style='font-size:0.65rem;color:" + conf_color + ";margin-left:6px'>"
+                    + conf + " CONFIDENCE</span></div>"
+                )
+                if pred.get("daily_lo_price") and pred.get("daily_hi_price"):
+                    daily_html += (
+                        "<div style='font-size:0.7rem;color:#A1A1A6;margin-top:2px'>"
+                        "Price range: $%.2f - $%.2f</div>" % (
+                            pred["daily_lo_price"], pred["daily_hi_price"]
+                        )
+                    )
+                daily_html += "</div>"
+
+            candle_html = ""
+            if pred.get("candle_time"):
+                state = pred.get("candle_state", "WAITING")
+                state_color = {
+                    "CURRENT_IS_ENTRY": "#22C55E",
+                    "WATCH_CLOSE":      "#D4AF37",
+                    "NEW_CANDLE":       "#F6E27A",
+                    "WAITING":          "#A1A1A6",
+                }.get(state, "#A1A1A6")
+
+                candle_html = (
+                    "<div style='background:#111115;border-radius:6px;padding:8px 10px;margin-bottom:6px'>"
+                    "<div style='font-size:0.6rem;color:#A1A1A6;letter-spacing:1px'>15-MIN CANDLE TIMING</div>"
+                    "<div style='font-size:0.7rem;color:" + state_color + ";font-weight:700;margin:3px 0'>"
+                    + {"CURRENT_IS_ENTRY":"* ENTRY CANDLE PRINTING NOW","WATCH_CLOSE":"* WATCH THIS CLOSE",
+                       "NEW_CANDLE":"NEW CANDLE OPENED","WAITING":"MONITORING"}.get(state, "") +
+                    "</div>"
+                    "<div style='font-size:0.73rem;color:#F5F5F5;line-height:1.5'>" + pred["candle_time"] + "</div>"
+                )
+                if pred.get("candle_lo") and pred.get("candle_hi"):
+                    candle_html += (
+                        "<div style='font-size:0.7rem;color:#A1A1A6;margin-top:4px'>"
+                        "Projected next candle range: $%.2f - $%.2f</div>" % (
+                            pred["candle_lo"], pred["candle_hi"]
+                        )
+                    )
+                candle_html += (
+                    "<div style='font-size:0.62rem;color:#4a5568;margin-top:4px'>"
+                    "Data as of %s — rescan for latest 15-min</div>" % (scan_time or "") +
+                    "</div>"
+                )
+
+            move_html = daily_html + candle_html
+
+        parts.append(
+            "<div style='background:#0B0B0C;border:1px solid #2A2A2D;border-radius:10px;"
+            "padding:12px 14px;margin-top:8px'>"
+            "<div style='color:#D4AF37;font-family:monospace;font-size:0.68rem;"
+            "letter-spacing:2px;font-weight:700;margin-bottom:8px'>📊 MOVE ANALYSIS</div>"
+            + vol_chip + move_html +
+            "</div>"
+        )
+
+    # === SECTION 2: STRIKE GUIDANCE ===
+    if strike and strike.get("available"):
+        opts_html = ""
+        for i, opt in enumerate(strike.get("options", [])):
+            badge_colors = ["#22C55E", "#D4AF37", "#FF6B35"]
+            bc = badge_colors[i]
+            opts_html += (
+                "<div style='background:#111115;border-radius:6px;padding:8px 10px;margin-bottom:6px'>"
+                "<div style='display:flex;justify-content:space-between;align-items:center'>"
+                "<span style='color:" + bc + ";font-size:0.72rem;font-weight:700'>" + opt["label"] + "</span>"
+                "<span style='color:#A1A1A6;font-size:0.68rem'>"
+                "Delta %.2f-%.2f | %d-%d DTE</span>" % (
+                    opt["delta_lo"], opt["delta_hi"], opt["dte_lo"], opt["dte_hi"]
+                ) +
+                "</div>"
+                "<div style='font-size:0.7rem;color:#A1A1A6;margin-top:3px'>" + opt["why"] + "</div>"
+                "<div style='font-size:0.7rem;color:#F5F5F5;margin-top:2px'>"
+                "Estimated option gain on predicted move: "
+                "$%.0f - $%.0f per contract</div>" % (opt["gain_lo"], opt["gain_hi"]) +
+                "</div>"
+            )
+
+        parts.append(
+            "<div style='background:#0B0B0C;border:1px solid #2A2A2D;border-radius:10px;"
+            "padding:12px 14px;margin-top:8px'>"
+            "<div style='color:#D4AF37;font-family:monospace;font-size:0.68rem;"
+            "letter-spacing:2px;font-weight:700;margin-bottom:6px'>🎯 STRIKE GUIDANCE</div>"
+            "<div style='font-size:0.72rem;color:#A1A1A6;margin-bottom:8px'>"
+            + strike.get("summary", "") + "</div>"
+            + opts_html +
+            "<div style='font-size:0.65rem;color:#4a5568;margin-top:6px'>"
+            "Find these strikes at your broker. Delta is shown in the options chain. "
+            "Estimated gains are approximate — actual results depend on IV at entry.</div>"
+            "</div>"
+        )
+
+    # === SECTION 3: FIBONACCI MULTI-TIMEFRAME ===
+    if fib and fib.get("available"):
+        fib_rows = ""
+        tf_map = [
+            ("intraday", "Intraday (1H)", "Quick trade timeframe"),
+            ("daily",    "Daily",         "Swing trade timeframe"),
+            ("weekly",   "Weekly",        "Leap timeframe"),
+        ]
+        for key, label, sublabel in tf_map:
+            read = fib.get(key)
+            if not read or not read.get("valid"):
+                continue
+            level   = read.get("level", "")
+            verdict = read.get("verdict", "")
+            color   = read.get("color", "#A1A1A6")
+            valid   = read.get("trade_valid", True)
+            icon    = "OK" if valid else "!!"
+            move    = read.get("move", {})
+            move_str = ""
+            if move.get("move_start") and move.get("move_end"):
+                move_str = " (Move: $%.2f to $%.2f)" % (move["move_start"], move["move_end"])
+
+            fib_rows += (
+                "<div style='display:flex;justify-content:space-between;align-items:center;"
+                "padding:6px 0;border-bottom:1px solid #1A1A1D'>"
+                "<div>"
+                "<div style='font-size:0.75rem;color:#F5F5F5;font-weight:700'>" + label + "</div>"
+                "<div style='font-size:0.62rem;color:#4a5568'>" + sublabel + move_str + "</div>"
+                "</div>"
+                "<div style='text-align:right'>"
+                "<span style='color:" + color + ";font-size:0.72rem;font-weight:700'>"
+                + icon + " " + level + "</span>"
+                "<div style='font-size:0.65rem;color:" + color + "'>" + verdict + "</div>"
+                "</div>"
+                "</div>"
+            )
+
+        # Verdict + meaning
+        overall = fib.get("verdict", "")
+        is_conflict = fib.get("conflict", False)
+        trade_valid = fib.get("trade_valid", True)
+
+        verdict_color = "#22C55E" if trade_valid and not is_conflict else "#FF6B35" if is_conflict else "#C1121F"
+        verdict_icon  = "OK" if trade_valid and not is_conflict else "!!" if is_conflict else "X"
+
+        conflict_html = ""
+        if is_conflict and fib.get("conflict_note"):
+            conflict_html = (
+                "<div style='background:#1a0f00;border-left:3px solid #FF6B35;"
+                "border-radius:4px;padding:8px 12px;margin-top:8px'>"
+                "<div style='font-size:0.6rem;color:#FF6B35;letter-spacing:1px;"
+                "font-weight:700;margin-bottom:3px'>!! TIMEFRAME CONFLICT — READ CAREFULLY</div>"
+                "<div style='font-size:0.73rem;color:#F5F5F5;line-height:1.6'>"
+                + fib["conflict_note"] + "</div>"
+                "</div>"
+            )
+
+        action_html = ""
+        highest_read = fib.get("daily") or fib.get("intraday")
+        if highest_read and highest_read.get("action"):
+            action_html = (
+                "<div style='font-size:0.73rem;color:#F5F5F5;margin-top:6px;line-height:1.5'>"
+                + highest_read["action"] + "</div>"
+            )
+
+        parts.append(
+            "<div style='background:#0B0B0C;border:1px solid #2A2A2D;border-radius:10px;"
+            "padding:12px 14px;margin-top:8px'>"
+            "<div style='color:#D4AF37;font-family:monospace;font-size:0.68rem;"
+            "letter-spacing:2px;font-weight:700;margin-bottom:8px'>📐 FIBONACCI READ</div>"
+            + fib_rows +
+            "<div style='margin-top:8px;display:flex;align-items:center;gap:8px'>"
+            "<span style='color:" + verdict_color + ";font-weight:700;font-size:0.78rem'>"
+            + verdict_icon + " " + overall + "</span>"
+            "</div>"
+            + action_html + conflict_html +
+            "</div>"
+        )
+
+    if not parts:
+        return ""
+
+    return "\n".join(parts)
+
 
 def render_news_sentiment_html(news_data, ticker, signal_direction=None,
                                 flip_signal=False, flip_reason="", conf_adj=0):
@@ -6333,6 +7442,22 @@ def precision_score(ticker, direction, df_primary, df_confirm,
     except Exception:
         pass
 
+    # Volatility classification
+    _vol_class = {}
+    try:
+        _vol_class = classify_stock_volatility(ticker, float(current_price) if current_price else None)
+    except Exception:
+        pass
+
+    # Fibonacci multi-timeframe
+    _fib_data = {}
+    try:
+        _fib_data = detect_multi_timeframe_fib(ticker, float(current_price) if current_price else 0, direction, trade_style or "swing")
+        if not _fib_data.get("trade_valid", True):
+            score = max(0, score - 10)
+    except Exception:
+        pass
+
 
 
     tf_agree = 0
@@ -6355,7 +7480,7 @@ def precision_score(ticker, direction, df_primary, df_confirm,
 
     if market_bias == direction:    score += 6
     elif market_bias == "neutral":  score += 3
-    elif _against_bias:             score -= 8   # penalty not block - still tradeable
+    elif _against_bias:             score -= 3   # soft flag — strong setups still surface
     if sector_bias  == direction:   score += 4
     elif sector_bias == "neutral":  score += 2
 
@@ -6418,7 +7543,6 @@ def precision_score(ticker, direction, df_primary, df_confirm,
         "sr_label":             _sr_label,
         "confluence":           _confluence_data,
     }
-
 
 def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                         dte_quick, dte_swing, max_premium,
@@ -6484,9 +7608,26 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
             # Low R:R - tag it but don't hard reject, let it fall to ON DECK
             _low_rr = opt.get("rr_option", 0) < 2.0
 
+            # Stock-level override: strong volume surge at a low price
+            # can still be a valid CALL even in a bearish market
+            _effective_bias = market_bias
+            if direction == "bullish" and market_bias == "bearish":
+                try:
+                    _avg_vol = float(df_pri["volume"].iloc[-20:].mean())
+                    _cur_vol = float(df_pri["volume"].iloc[-3:].mean())
+                    _price_pct_from_low = (
+                        (float(df_pri["close"].iloc[-1]) - float(df_pri["low"].iloc[-20:].min()))
+                        / max(float(df_pri["low"].iloc[-20:].min()), 0.01) * 100
+                    )
+                    # Volume surging + price near 20-day low = bounce candidate
+                    if _cur_vol > _avg_vol * 1.5 and _price_pct_from_low < 5:
+                        _effective_bias = "neutral"
+                except Exception:
+                    pass
+
             conf, detail = precision_score(
                 ticker, direction, df_pri, df_con,
-                iv_rank, earn_days, market_bias,
+                iv_rank, earn_days, _effective_bias,
                 sec_bias, atr, dte, account_size, risk_pct, style,
                 current_price=cur_price
             )
@@ -6553,6 +7694,9 @@ def scan_single_ticker(ticker, toggles, account_size, risk_pct,
                 "sq_state":       sq_state,
                 "sq_compression": sq_compression,
                 "confluence":     detail.get("confluence", {}),
+                "vol_class":      detail.get("vol_class", {}),
+                "fib_data":       detail.get("fib_data", {}),
+                "atr":            float(atr) if atr else 0,
             })
     except Exception as _e:
         results.append({"ticker": ticker, "_rejected": True, "_reason": "Exception: " + str(_e)[:80]})
@@ -7381,7 +8525,6 @@ def log_signal_outcome(r):
             "premium":      round(float(opt.get("premium", 0) or 0), 2),
             "delta":        round(_delta, 3),
             "option_type":  opt.get("type", signal_type),
-            "expiration":   _exp_str,
             "outcome_1d":   None,
             "outcome_3d":   None,
             "outcome_5d":   None,
@@ -7697,8 +8840,6 @@ PAPER_PROFIT_TARGET = {
 }
 PAPER_STOP_LOSS_PCT = -20  # exit any trade at -20% premium loss
 
-
-
 def sync_bg_auto_scan():
     """Push current sidebar settings into bg engine and enable auto mode."""
     cfg = st.session_state.auto_scan_settings
@@ -7863,6 +9004,8 @@ with tab1:
                         c["signals_hit"]   = _ps_detail.get("signals_hit", 0)
                         c["signal_detail"] = _ps_detail.get("signal_detail", [])
                         c["confluence"]    = _ps_detail.get("confluence", {})
+                        c["vol_class"]     = _ps_detail.get("vol_class", {})
+                        c["fib_data"]      = _ps_detail.get("fib_data", {})
                 except Exception:
                     pass
                 enriched.append(c)
@@ -8774,31 +9917,59 @@ with tab4:
                 except Exception:
                     pass
 
-                _chip_admin = (
-                    st.session_state.get("is_admin", False) or
-                    st.session_state.get("user_email", "").strip().lower() == ADMIN_EMAIL.strip().lower()
-                )
-                if bucket == "go_now" and _chip_admin:
-                    try:
-                        st.markdown(render_perf_chip_html(
-                            r.get("pattern", ""), r.get("style", ""), r.get("direction", "")
-                        ), unsafe_allow_html=True)
-                    except Exception:
-                        pass
+
 
                 # News sentiment block
-                st.markdown(render_news_sentiment_html(
-                    r.get("news_data", {}), r["ticker"],
-                    signal_direction=r.get("direction"),
-                    flip_signal=r.get("flip_signal", False),
-                    flip_reason=r.get("flip_reason", ""),
-                    conf_adj=r.get("detail", {}).get("news_conf_adj", 0),
-                ), unsafe_allow_html=True)
+                try:
+                    _mc_news = r.get("news_data", {})
+                    if not _mc_news or not _mc_news.get("article_count"):
+                        _, _, _mc_news, _mc_adj, _mc_flip, _mc_flipr = run_news_check(
+                            r["ticker"], r.get("direction", "bullish")
+                        )
+                    else:
+                        _mc_adj  = r.get("detail", {}).get("news_conf_adj", 0)
+                        _mc_flip = r.get("flip_signal", False)
+                        _mc_flipr = r.get("flip_reason", "")
+                    st.markdown(render_news_sentiment_html(
+                        _mc_news, r["ticker"],
+                        signal_direction=r.get("direction"),
+                        flip_signal=_mc_flip,
+                        flip_reason=_mc_flipr,
+                        conf_adj=_mc_adj,
+                    ), unsafe_allow_html=True)
+                except Exception:
+                    st.markdown(render_news_sentiment_html(
+                        {}, r["ticker"], signal_direction=r.get("direction")
+                    ), unsafe_allow_html=True)
 
                 try:
                     _cfl_card = r.get("confluence", r.get("detail", {}).get("confluence", {}))
                     if _cfl_card and _cfl_card.get("available"):
                         st.markdown(render_confluence_block_html(_cfl_card, r.get("direction","bullish")), unsafe_allow_html=True)
+                except Exception:
+                    pass
+
+                try:
+                    _price_c = r.get("price", 0) or 0
+                    _dir_c   = r.get("direction", "bullish")
+                    _sty_c   = r.get("style", "swing")
+                    _atr_c   = (r.get("atr") or (_price_c * 0.015))
+                    _vol_c   = r.get("vol_class", r.get("detail", {}).get("vol_class", {}))
+                    _fib_c   = r.get("fib_data",  r.get("detail", {}).get("fib_data",  {}))
+                    if not _vol_c.get("available") and r.get("ticker"):
+                        try: _vol_c = classify_stock_volatility(r["ticker"], _price_c)
+                        except Exception: pass
+                    if not _fib_c.get("available") and r.get("ticker"):
+                        try: _fib_c = detect_multi_timeframe_fib(r["ticker"], _price_c, _dir_c, _sty_c)
+                        except Exception: pass
+                    _pred_c  = calc_predicted_move(r.get("ticker",""), _price_c, _dir_c, _atr_c,
+                        r.get("sq_state","none"), r.get("sq_compression",0) or 0,
+                        r.get("block_detected",False), _sty_c)
+                    _strike_c = calc_strike_guidance(_vol_c, _pred_c, _price_c, _dir_c)
+                    _block_c  = render_volatility_block_html(_vol_c, _pred_c, _strike_c, _fib_c,
+                        _pred_c.get("scan_time",""), style=_sty_c)
+                    if _block_c:
+                        st.markdown(_block_c, unsafe_allow_html=True)
                 except Exception:
                     pass
                 c1, c2 = st.columns(2)
