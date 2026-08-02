@@ -454,10 +454,12 @@ def check_onboarding():
   <div class='ob-step'>STEP 1 OF 4</div>
   <div class='ob-title'>Welcome to PaidButPressured 📡</div>
   <div class='ob-body'>
-    A real-time options screener built for active traders.<br><br>
-    We scan the market, filter out the noise, and surface only the 
-    highest-conviction setups — with clear entry, target, and stop levels.<br><br>
-    <b style='color:#D4AF37'>Let's show you how it works.</b>
+    An options screener built around ONE strategy: the
+    <b style='color:#D4AF37'>Opening Range Breakout</b>.<br><br>
+    Every morning, the first 15 minutes sets a high and a low. When price breaks
+    that range and retests it, that's the trade — and this tool tracks all of it
+    for you across your whole list.<br><br>
+    <b style='color:#D4AF37'>Let's walk through it.</b>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -477,11 +479,13 @@ def check_onboarding():
   <div class='ob-step'>STEP 2 OF 4</div>
   <div class='ob-title'>How to Scan 🔍</div>
   <div class='ob-body'>
-    Open the <b style='color:#F5F5F5'>SCAN tab</b> and pick a sector from the dropdown.<br><br>
-    Start with <b style='color:#D4AF37'>My Watchlist</b> for tickers you already follow,
-    or choose a sector like <b style='color:#D4AF37'>Tech & Semis</b> or 
-    <b style='color:#D4AF37'>High Momentum</b>.<br><br>
-    Hit <b style='color:#F5F5F5'>RUN SCAN</b> and let the engine do the work.
+    Open the <b style='color:#C1121F'>🔴 ORB tab</b> and pick your scope —
+    <b style='color:#D4AF37'>My Watchlist</b>, a <b style='color:#D4AF37'>Sector</b>,
+    or the <b style='color:#D4AF37'>Full Universe</b>.<br><br>
+    Hit <b style='color:#F5F5F5'>RUN ORB SCAN</b> after 9:45 ET once the range is set.
+    Want just one name? Type it in the search box for the full read — even before
+    it breaks.<br><br>
+    Scan for the setup, then confirm it on your own chart.
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -499,21 +503,21 @@ def check_onboarding():
             st.markdown("""
 <div class='ob-wrap'>
   <div class='ob-step'>STEP 3 OF 4</div>
-  <div class='ob-title'>Reading Signals 🚦</div>
+  <div class='ob-title'>Reading the Buckets 🚦</div>
   <div class='ob-body'>
-    Every signal lands in one of three buckets:<br><br>
+    Every setup lands in one of three buckets:<br><br>
     <span class='ob-badge' style='background:#22C55E22;color:#22C55E;border:1px solid #22C55E'>
       🟢 GO NOW
     </span>
-    Entry confirmed. Highest conviction. Act now.<br><br>
+    The retest held. The entry is live right now.<br><br>
     <span class='ob-badge' style='background:#D4AF3722;color:#D4AF37;border:1px solid #D4AF37'>
       🟡 WATCHING
     </span>
-    Building conviction. Wait for confirmation.<br><br>
-    <span class='ob-badge' style='background:#C1121F22;color:#C1121F;border:1px solid #C1121F'>
-      🔴 ON DECK
+    Broke, but hasn't retested yet — or volume was weak. Wait.<br><br>
+    <span class='ob-badge' style='background:#7AA2F722;color:#7AA2F7;border:1px solid #7AA2F7'>
+      🔵 ON DECK
     </span>
-    Setup developing. Not ready yet.
+    Range is set, price is near a boundary. Nothing triggered yet.
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -531,16 +535,16 @@ def check_onboarding():
             st.markdown("""
 <div class='ob-wrap'>
   <div class='ob-step'>STEP 4 OF 4</div>
-  <div class='ob-title'>Confluence Intel 🎯</div>
+  <div class='ob-title'>The Retest is the Entry 🎯</div>
   <div class='ob-body'>
-    Every signal card now shows a <b style='color:#D4AF37'>Confluence Intel</b> block 
-    with the exact game plan.<br><br>
-    Look for the <b style='color:#F5F5F5'>Sweet Spot Zone</b> — the price range where 
-    multiple trend lines cluster. That's your best risk/reward entry area.<br><br>
-    The <b style='color:#22C55E'>GAME PLAN</b> tells you exactly when to enter. The 
-    <b style='color:#C1121F'>WHEN TO BAIL</b> tells you exactly where the setup breaks.<br><br>
-    Trust the <b style='color:#F5F5F5'>Summary Line</b> at the top of each card — it 
-    tells you how aligned the full stack is.<br><br>
+    The #1 rule: <b style='color:#F5F5F5'>don't chase the break — wait for the
+    retest.</b> Price breaks out, pulls back to test the level, and if it holds,
+    THAT's your entry with a tight stop.<br><br>
+    Each GO NOW card lays out the whole trade — <b style='color:#22C55E'>entry</b>,
+    <b style='color:#C1121F'>stop</b>, <b style='color:#D4AF37'>target</b>, plus a
+    suggested strike and expiration.<br><br>
+    The <b style='color:#C1121F'>⚡ Momentum tab</b> catches early moves before the
+    range sets — powerful, but UNCONFIRMED and can reverse. Size small there.<br><br>
     <b style='color:#D4AF37'>You're ready. Let's find some setups.</b>
   </div>
 </div>
@@ -1022,7 +1026,7 @@ def _fmp_download(ticker, period, interval):
         fmp_interval = interval_map.get(interval, "1day")
         period_days  = {
             "1d":1,"2d":2,"5d":5,"7d":7,"14d":14,"30d":30,
-            "60d":60,"90d":90,"1mo":30,"3mo":90,"6mo":180,"1y":365,
+            "60d":60,"90d":90,"1mo":30,"3mo":90,"6mo":180,"1y":365,"18mo":545,"2y":760,
         }
         days    = period_days.get(period, 30)
         from_dt = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
@@ -2304,84 +2308,6 @@ def check_tf_trend_agreement(dfs, direction):
             continue
     return agreeing, len(details), details
 
-def build_multi_tf_candidates(ticker, toggles, account, risk_pct,
-                               dte, trade_style, atr=None):
-    tfs = fetch_multi_tf(ticker, trade_style)
-
-    # Pick primary df for pattern detection
-    if trade_style == "quick":
-        _15m = tfs.get("15min"); _5m = tfs.get("5min")
-        primary_df = _15m if _15m is not None else _5m
-        confirm_df = _5m
-    else:
-        _1h  = tfs.get("1hr"); _4h = tfs.get("4hr"); _1d = tfs.get("daily")
-        primary_df = _1h
-        confirm_df = _4h if _4h is not None else _1d
-        daily_df   = _1d
-
-    if primary_df is None:
-        return [], tfs   # no data
-
-    # Build candidates using primary timeframe
-    cands = build_candidates(primary_df, ticker, toggles, account, risk_pct,
-                             dte, trade_style=trade_style, atr=atr)
-
-    # Enhance each candidate with multi-TF confluence
-    for c in cands:
-        direction = c["direction"]
-        tf_agreement, tf_total, tf_details = check_tf_trend_agreement(tfs, direction)
-
-        if trade_style == "quick":
-            # Extra confluence: 5min VWAP
-            extra_pass, extra_label = check_vwap_confluence(confirm_df, direction)
-            extra_name = "5min VWAP"
-        else:
-            # Extra confluence: Daily EMA50 slope
-            extra_pass, extra_label = check_ema50_slope(
-                tfs.get("daily"), direction)
-            extra_name = "Daily EMA50"
-
-        # Base (from score_setup): 0-50 pts  (each of 5 factors = 10 pts)
-        # TF confluence:           0-30 pts  (each agreeing TF = 10 pts, max 3 TFs = 30)
-        # Extra confluence:        0-20 pts  (VWAP reclaim or EMA50 slope)
-        # Total max = 100, min shown = 50
-        base = c["confidence"]  # already 50-95 from build_candidates
-
-        # TF layer: up to 30 pts from agreeing timeframes
-        if tf_total > 0:
-            tf_pts = int((tf_agreement / tf_total) * 30)
-        else:
-            tf_pts = 15  # neutral if no TF data
-
-        # Extra confluence layer: 20 pts if passes, 0 if not
-        extra_pts = 20 if extra_pass else 0
-
-        # Combine and clamp to 50-100
-        raw_final = base + tf_pts + extra_pts
-        # Normalize so max possible (50+30+20=100) maps cleanly
-        # But base is already 50-95, so we need to scale down
-        # Simpler: score = 50 + (factors/5)*25 + (tfs/total)*15 + extra*10
-        factor_pts = c.get("score", 0)  # 0-5 raw factors passing
-        score_50_100 = (
-            50
-            + int((factor_pts / 5) * 25)
-            + (int((tf_agreement / tf_total) * 15) if tf_total > 0 else 8)
-            + (10 if extra_pass else 0)
-        )
-        c["confidence"] = min(100, max(50, score_50_100))
-        c["tf_details"]   = tf_details
-        c["tf_agreement"] = tf_agreement
-        c["tf_total"]     = tf_total
-        c["extra_confluence"] = {
-            "name":  extra_name,
-            "pass":  extra_pass,
-            "label": extra_label,
-        }
-        c["primary_tf"] = "15min" if trade_style == "quick" else "1hr"
-        c["confirm_tfs"] = list(tfs.keys())
-
-    return cands, tfs
-
 def build_candidates(df, ticker, toggles, account, risk_pct, dte, trade_style="swing", atr=None):
     trend_dir,trend_score,trend_factors,t_ema,t_vwap,t_rsi = get_trend(df)
     _raw_price = df["close"].iloc[-1]
@@ -2579,549 +2505,6 @@ def parse_ai_brief(text):
         elif line.startswith("KEY RISK:"): parsed["risk"]      = line.replace("KEY RISK:","").strip()
         elif line.startswith("EDGE:"):    parsed["edge"]      = line.replace("EDGE:","").strip()
     return parsed
-
-def render_signal_cards(candidates, ticker, dte, trade_style, key_prefix,
-                        df, current_price, atr, iv_rank, earnings_days,
-                        mstatus, mtext, account_size, risk_pct,
-                        htf_trend, htf_rsi, htf_ema, liq_ok):
-    """Renders signal cards for a given candidate list. Called once per column."""
-    if not candidates:
-        st.markdown(
-            "<div style='background:#111827;border:1px solid #2A2A2D;border-radius:12px;"
-            "padding:20px;text-align:center;color:#A1A1A6;font-size:0.85rem'>"
-            "No signals found for this mode.</div>", unsafe_allow_html=True)
-        return
-
-    rank_labels   = ["BEST","BETTER","GOOD"]
-    rank_classes  = ["rank-best","rank-better","rank-good"]
-    badge_classes = ["badge-best","badge-better","badge-good"]
-    conf_classes  = ["conf-num-best","conf-num-better","conf-num-good"]
-    rank_icons    = ["🥇","🥈","🥉"]
-
-    for i, sig in enumerate(candidates):
-        rl = rank_labels[i]  if i<3 else f"#{i+1}"
-        rc = rank_classes[i] if i<3 else "rank-good"
-        bc = badge_classes[i]if i<3 else "badge-good"
-        cc = conf_classes[i] if i<3 else "conf-num-good"
-        ri = rank_icons[i]   if i<3 else ""
-
-        is_bull   = sig["direction"] == "bullish"
-        dir_color = "#D4AF37" if is_bull else "#C1121F"
-        dir_label = "BUY CALL" if is_bull else "BUY PUT"
-
-        # SCAN tab candidates come from full_scan (precision_score, 6-signal system)
-        # Use whichever system has data — never assume signals_hit is populated
-        _pre_signals_hit = sig.get("signals_hit", sig.get("detail", {}).get("signals_hit", None))
-
-        if _pre_signals_hit is not None:
-            # precision_score 6-signal system available
-            _pre_signals  = _pre_signals_hit
-            _pre_sig_pct  = (_pre_signals / 6 * 100)
-            _min_signals  = 4  # enrichment already ran quality controls — don't double-cap
-        else:
-            # Fall back to score_setup 5-factor system (signals tab path)
-            _pre_signals  = sum(1 for f in sig.get("factors", {}).values() if isinstance(f, dict) and f.get("pass"))
-            _pre_sig_pct  = (_pre_signals / 5 * 100)
-            _min_signals  = 4
-
-        # Skip alignment cap entirely when signal_detail is populated —
-        # enrichment already ran precision_score with its own quality controls.
-        # Cap only applies when we're working from raw score_setup factors.
-        _has_enrichment = bool(sig.get("signal_detail") or sig.get("detail", {}).get("signal_detail"))
-        _pre_gates    = sig.get("gates_passed", 0)
-        _pre_gate_pct = (_pre_gates / 7 * 100) if _pre_gates else 0
-        _pre_div      = abs(_pre_gate_pct - _pre_sig_pct)
-        _misaligned   = (not _has_enrichment) and (_pre_signals < _min_signals or _pre_div > 28)
-
-        # Compute display label and confidence BEFORE first card render
-        if _misaligned:
-            _display_label = "WAIT"
-            _adjusted_conf = min(sig["confidence"], 64)  # cap below WATCH threshold
-        else:
-            _adjusted_conf = sig["confidence"]
-            _display_label = ("GO" if _adjusted_conf >= 90 else
-                              "STRONG" if _adjusted_conf >= 80 else
-                              "WATCH" if _adjusted_conf >= 70 else
-                              "WEAK" if _adjusted_conf >= 60 else "WAIT")
-
-        # Trade style badge
-        sig_style = trade_style  # passed as parameter
-        if sig_style == "quick":
-            style_badge = "<span style='background:#1a0a3a;color:#aa88ff;font-family:monospace;font-size:0.68rem;padding:2px 7px;border-radius:10px;margin-left:6px'>⚡ QUICK</span>"
-        else:
-            style_badge = "<span style='background:#0a1a2a;color:#A1A1A6;font-family:monospace;font-size:0.68rem;padding:2px 7px;border-radius:10px;margin-left:6px'>📅 SWING</span>"
-
-        # Liquidity warning (silent fail - only shows if explicitly illiquid)
-        liq_warn = "" if liq_ok else "<span style='color:#F6E27A;font-size:0.75rem;margin-left:8px'>⚠ Low liquidity</span>"
-
-        # Regime indicator (1 line, subtle)
-        sig_regime   = sig.get("regime","unknown")
-        regime_icon  = "📈" if sig_regime=="trending" else "↔️" if sig_regime=="choppy" else ""
-        regime_label = sig_regime.upper() if sig_regime != "unknown" else ""
-
-        conflict_html = ""
-        if sig.get("conflict"):
-            pname = sig.get("conflict_pattern","pattern")
-            conflict_html = f"<div class='conflict-warn'>Pattern {pname} found but trend overrides - showing {'PUT' if not is_bull else 'CALL'}.</div>"
-
-        # Quick trade warning if market closed
-        quick_warn_html = ""
-        if sig_style == "quick" and mstatus != "open":
-            session_name = {"pre": "Pre-Market", "after": "After-Hours", "closed": "Market Closed"}.get(mstatus, "Extended Hours")
-            quick_warn_html = "<div style='background:#1a150a;border:1px solid #F6E27A;border-radius:6px;padding:8px 12px;margin-bottom:6px;color:#F6E27A;font-size:0.8rem'>⚡ %s - Quick trade levels based on latest price. Use for planning only.</div>" % session_name
-
-        _sniper_html = ""  # Sniper Strip moved to Sniper tab only
-
-        dots_html = ""
-        _sig_detail = sig.get("signal_detail") or sig.get("detail", {}).get("signal_detail", [])
-        if _sig_detail:
-            # precision_score 6-signal system — use this when available
-            for sd in _sig_detail:
-                dot = "dot-green" if sd.startswith("✅") else "dot-red"
-                label = sd.replace("✅ ", "").replace("❌ ", "")
-                color = "#F5F5F5" if sd.startswith("✅") else "#A1A1A6"
-                dots_html += f"<div class='factor-row'><span class='{dot}'></span><span style='color:{color}'>{label}</span></div>"
-        else:
-            # Fall back to score_setup 5-factor system
-            for f in sig["factors"].values():
-                dot = "dot-green" if f["pass"] else "dot-red"
-                dots_html += f"<div class='factor-row'><span class='{dot}'></span><span style='color:{'#F5F5F5' if f['pass'] else '#A1A1A6'}'>{f['label']}</span></div>"
-
-        # Multi-TF confluence rows
-        tf_details = sig.get("tf_details", [])
-        extra_conf = sig.get("extra_confluence", {})
-        tf_html = ""
-        if tf_details:
-            tf_html += "<div style='margin-top:8px;padding-top:8px;border-top:1px solid #2A2A2D'>"
-            tf_html += "<div style='color:#A1A1A6;font-family:monospace;font-size:0.68rem;letter-spacing:1px;margin-bottom:4px'>TIMEFRAME CONFLUENCE</div>"
-            for td in tf_details:
-                dot = "dot-green" if td["agrees"] else "dot-red"
-                c_color = "#F5F5F5" if td["agrees"] else "#A1A1A6"
-                tf_html += "<div class='factor-row'><span class='" + dot + "'></span><span style='color:" + c_color + ";font-size:0.78rem'><b>" + td["tf"].upper() + ":</b> " + td["trend"].upper() + "</span></div>"
-            if extra_conf:
-                dot = "dot-green" if extra_conf.get("pass") else "dot-yellow"
-                c_color = "#F5F5F5" if extra_conf.get("pass") else "#A1A1A6"
-                tf_html += "<div class='factor-row'><span class='" + dot + "'></span><span style='color:" + c_color + ";font-size:0.78rem'><b>" + str(extra_conf.get("name","")) + ":</b> " + str(extra_conf.get("label","")) + "</span></div>"
-            tf_html += "</div>"
-
-        st.markdown(f"""
-        {conflict_html}
-        {quick_warn_html}
-        {_sniper_html}
-        <div class='{rc}'>
-            <div style='display:flex;justify-content:space-between;align-items:flex-start'>
-                <div>
-                    <span class='rank-badge {bc}'>{ri} {rl}</span>{style_badge}{liq_warn}
-                    <div style='font-size:1.1rem;font-weight:700;color:{dir_color};margin-top:4px'>{dir_label} - {ticker}</div>
-                    <div style='color:#A1A1A6;font-size:0.82rem;margin-top:2px'>{sig['pattern_label']} &nbsp;<span style='font-size:0.75rem'>{regime_icon} {regime_label}</span></div>
-                </div>
-                <div style='text-align:right'>
-                    <div class='{cc}'>{_adjusted_conf}%</div>
-                    <div style='font-size:0.7rem;font-family:monospace;margin-top:2px;color:#A1A1A6'>{_display_label}</div>
-                </div>
-            </div>
-            <div style='margin-top:10px'>{dots_html}{tf_html}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        if sig["confidence"] >= 60:
-            opt = calc_trade(sig["entry"],sig["stop"],sig["target"],sig["direction"],dte,account_size,risk_pct,current_price,atr=atr,trade_style=trade_style,ticker=ticker)
-            gates, gates_passed, elevate = run_seven_point_gate(df,sig,opt,iv_rank,earnings_days,opt["actual_dte"])
-            est_days, dte_rec = estimate_move_timeframe(sig["pattern_label"])
-
-            # Use precision_score signals_hit (6-signal system) — same as card display
-            _tab_signals     = sig.get("signals_hit", sig.get("detail", {}).get("signals_hit", 0))
-            _tab_gate_pct    = (gates_passed / 7) * 100
-            _tab_signal_pct  = (_tab_signals / 7) * 100
-            _tab_divergence  = abs(_tab_gate_pct - _tab_signal_pct)
-            _tab_aligned     = _tab_divergence <= 28 and _tab_signals >= 5
-            # If not aligned — suppress PRIME SETUP and force gate color to yellow
-            if not _tab_aligned:
-                elevate    = False
-                gate_color = "#FFD600"  # yellow = misaligned
-            else:
-                gate_color = "#00C853" if gates_passed>=6 else "#FFD600" if gates_passed>=4 else "#FF1744"
-
-            elev_badge = "<span style='background:#D4AF3722;color:#D4AF37;padding:2px 8px;border-radius:10px;font-size:0.72rem;margin-left:8px'>PRIME SETUP</span>" if elevate else ""
-
-            # Fibonacci confluence for signals tab
-            try:
-                _sig_price = float(df["close"].iloc[-1]) if "close" in df.columns else None
-                _fib_sig = detect_fibonacci_confluence(df, sig["direction"], _sig_price)
-            except Exception:
-                _fib_sig = {"confirmed": False, "boost": 0}
-
-            gates_dots = ""
-            for gname, gdata in gates.items():
-                if gdata["critical"] and not gdata["pass"]: dot = "dot-red"
-                elif gdata["pass"]:                          dot = "dot-green"
-                else:                                        dot = "dot-yellow"
-                g_color = "#F5F5F5" if gdata["pass"] else "#A1A1A6"
-                # Sanitize label - remove any characters that could break HTML
-                g_label = str(gdata["label"]).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;").replace("'","&#39;")
-                gates_dots += "<div class='factor-row'><span class='" + dot + "'></span><span style='color:" + g_color + ";font-size:0.78rem'>" + g_label + "</span></div>"
-
-            # Build as plain string - no f-string so special chars in labels cant break it
-            gate_html = (
-                "<div class='gate-box'>"
-                "<div style='display:flex;align-items:center;margin-bottom:8px'>"
-                "<span style='color:" + gate_color + ";font-family:monospace;font-size:0.78rem;font-weight:700'>7-POINT GATE: " + str(gates_passed) + "/7 PASSED</span>"
-                + elev_badge +
-                "</div>"
-                + gates_dots +
-                "<div style='color:#A1A1A6;font-size:0.75rem;margin-top:6px'>Pattern needs ~" + str(est_days) + " days to play out | Recommended DTE: " + str(dte_rec) + "+ days</div>"
-                "</div>"
-            )
-            st.markdown(gate_html, unsafe_allow_html=True)
-
-            try:
-                _summary_r = {
-                    "direction":     sig["direction"],
-                    "signals_hit":   sig.get("signals_hit", sig.get("detail", {}).get("signals_hit", 0)),
-                    "detail":        sig.get("detail", {}),
-                    "macro_bias_label": sig.get("macro_bias_label", ""),
-                    "regime_alignment": sig.get("regime_alignment", ""),
-                    "confluence":    sig.get("confluence", sig.get("detail", {}).get("confluence", {})),
-                }
-                st.markdown(render_summary_line_html(_summary_r), unsafe_allow_html=True)
-            except Exception:
-                pass
-
-            try:
-                _cfl = sig.get("confluence", sig.get("detail", {}).get("confluence", {}))
-                if _cfl and _cfl.get("available"):
-                    st.markdown(render_confluence_block_html(_cfl, sig["direction"]), unsafe_allow_html=True)
-            except Exception:
-                pass
-
-            try:
-                _ticker_s = sig.get("ticker", ticker)
-                _price_s  = sig.get("price", current_price) or 0
-                _dir_s    = sig.get("direction", "bullish")
-                _sty_s    = sig.get("style", trade_style or "swing")
-                _atr_s    = (sig.get("atr") or (float(atr) if atr else 0) or (_price_s * 0.015))
-                _vol_s    = sig.get("vol_class", sig.get("detail", {}).get("vol_class", {}))
-                _fib_s    = sig.get("fib_data",  sig.get("detail", {}).get("fib_data",  {}))
-                if not _vol_s.get("available") and _ticker_s:
-                    try: _vol_s = classify_stock_volatility(_ticker_s, _price_s)
-                    except Exception: pass
-                if not _fib_s.get("available") and _ticker_s:
-                    try: _fib_s = detect_multi_timeframe_fib(_ticker_s, _price_s, _dir_s, _sty_s)
-                    except Exception: pass
-                _pred_s   = calc_predicted_move(_ticker_s, _price_s, _dir_s, _atr_s,
-                    sig.get("sq_state","none"), sig.get("sq_compression",0) or 0,
-                    sig.get("block_detected",False), _sty_s)
-                _strike_s = calc_strike_guidance(_vol_s, _pred_s, _price_s, _dir_s)
-                _block_html = render_volatility_block_html(_vol_s, _pred_s, _strike_s, _fib_s,
-                    _pred_s.get("scan_time",""), style=_sty_s)
-                if _block_html:
-                    st.markdown(_block_html, unsafe_allow_html=True)
-            except Exception:
-                pass
-
-            try:
-                _mw = st.session_state.get('macro_warning', {})
-                if _mw and _mw.get('level') in ('PRE_EVENT', 'POST_EVENT'):
-                    _mwc = '#FF6B35' if _mw['level'] == 'PRE_EVENT' else '#F6E27A'
-                    _mwt = 'Macro event upcoming — lower confidence signal' if _mw['level'] == 'PRE_EVENT' else 'Macro data just printed — wait for market to digest'
-                    st.markdown(
-                        "<div style='background:#1a0f00;border-left:3px solid " + _mwc + ";"
-                        "border-radius:4px;padding:5px 10px;margin:4px 0;font-size:0.7rem;color:" + _mwc + "'>"
-                        "⚠️ " + _mwt + "</div>",
-                        unsafe_allow_html=True
-                    )
-            except Exception:
-                pass
-
-            try:
-                _, _, _sig_news, _sig_adj, _sig_flip, _sig_flip_reason = run_news_check(ticker, sig["direction"])
-                st.markdown(render_news_sentiment_html(
-                    _sig_news, ticker,
-                    signal_direction=sig["direction"],
-                    flip_signal=_sig_flip,
-                    flip_reason=_sig_flip_reason,
-                    conf_adj=_sig_adj,
-                ), unsafe_allow_html=True)
-            except Exception as _news_err:
-                st.caption("⚠️ News debug: %s" % str(_news_err)[:120])
-
-            if htf_trend is not None:
-                htf_agrees = htf_trend == sig["direction"]
-                htf_color  = "#D4AF37" if htf_agrees else "#C1121F"
-                htf_icon   = "✅" if htf_agrees else "⚠️"
-                htf_label  = ("DAILY TREND CONFIRMS" if htf_agrees else "DAILY TREND CONFLICTS")
-                htf_detail = "Daily chart agrees - higher timeframe is aligned." if htf_agrees else "Daily chart is moving the other way. Extra caution - counter-trend trade."
-                htf_html = (
-                    "<div style='background:#1A1A1D;border:1px solid " + htf_color + "33;border-radius:8px;padding:10px 14px;margin-top:6px'>"
-                    "<div style='display:flex;align-items:center;gap:8px'>"
-                    "<span>" + htf_icon + "</span>"
-                    "<span style='color:" + htf_color + ";font-family:monospace;font-size:0.72rem;font-weight:700'>" + htf_label + "</span>"
-                    "<span style='color:#A1A1A6;font-size:0.78rem;margin-left:4px'>Daily trend: " + htf_trend.upper() + " | RSI " + str(htf_rsi) + " | EMA20 $" + str(htf_ema) + "</span>"
-                    "</div>"
-                    "<div style='color:#A1A1A6;font-size:0.78rem;margin-top:4px'>" + htf_detail + "</div>"
-                    "</div>"
-                )
-                st.markdown(htf_html, unsafe_allow_html=True)
-
-            _mb_label = sig.get("macro_bias_label", "")
-            if _mb_label:
-                _mb_col = "#00C853" if "ALIGNED" in _mb_label else "#C1121F" if "HEADWIND" in _mb_label else "#A1A1A6"
-                st.markdown(
-                    "<div style='background:#1A1A1D;border:1px solid %s33;border-radius:8px;"
-                    "padding:8px 14px;margin-top:6px;font-size:0.75rem;color:%s;font-weight:600'>"
-                    "📡 WEEKLY MACRO: %s</div>" % (_mb_col, _mb_col, _mb_label),
-                    unsafe_allow_html=True
-                )
-
-            if not opt["delta_ok"]:
-                st.markdown(f"<div style='background:#1a150a;border:1px solid #F6E27A;border-radius:6px;padding:8px 12px;margin-top:6px;color:#F6E27A;font-size:0.8rem'>Delta {opt['delta']:.2f} outside 0.35-0.85 ideal range</div>", unsafe_allow_html=True)
-
-            delta_color = "#D4AF37" if opt["delta_ok"] else "#F6E27A"
-            st.markdown(f"""
-            <div class='trade-box {"" if is_bull else "bear"}'>
-                <div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.88rem'>
-                    <div><div style='color:#A1A1A6;font-size:0.72rem'>STRIKE</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>${opt['strike']:.2f}</div></div>
-                    <div><div style='color:#A1A1A6;font-size:0.72rem'>PAY MAX</div><div style='font-weight:700'>${opt['premium']:.2f}/sh</div></div>
-                    <div><div style='color:#A1A1A6;font-size:0.72rem'>ENTRY</div><div style='font-weight:700'>${opt['entry']:.2f}</div></div>
-                    <div><div style='color:#A1A1A6;font-size:0.72rem'>DELTA</div><div style='font-weight:700;color:{delta_color}'>{opt['delta']:.2f}</div></div>
-                    <div><div style='color:#A1A1A6;font-size:0.72rem'>EXIT TARGET</div><div style='font-weight:700;color:#D4AF37'>${opt['target']:.2f}</div></div>
-                    <div><div style='color:#A1A1A6;font-size:0.72rem'>STOP OUT</div><div style='font-weight:700;color:#C1121F'>${opt['stop']:.2f}</div></div>
-                    <div><div style='color:#A1A1A6;font-size:0.72rem'>R:R RATIO</div><div style='font-weight:700;color:#D4AF37'>{opt['rr']}x</div></div>
-                    <div><div style='color:#A1A1A6;font-size:0.72rem'>MAX LOSS</div><div style='font-weight:700;color:#C1121F'>${opt['max_loss']:.0f}</div></div>
-                    <div><div style='color:#A1A1A6;font-size:0.72rem'>CONTRACTS</div><div style='font-size:1.2rem;font-weight:700;color:{dir_color}'>{opt['contracts']}</div></div>
-                    <div><div style='color:#A1A1A6;font-size:0.72rem'>PROFIT AT TARGET</div><div style='font-size:1.2rem;font-weight:700;color:#D4AF37'>${opt['profit_at_target']:,.0f}</div></div>
-                </div>
-                <div style='margin-top:8px;padding-top:8px;border-top:1px solid #2A2A2D;display:flex;justify-content:space-between;align-items:center'>
-                    <div><div style='color:#A1A1A6;font-size:0.72rem'>EXPIRES</div><div style='font-weight:700'>{opt['expiration']}</div></div>
-                    <div style='text-align:right'><div style='color:#A1A1A6;font-size:0.72rem'>POSITION SIZE</div><div style='font-weight:700'>${opt['position_dollars']:.0f} <span style='color:#A1A1A6;font-size:0.75rem'>({opt['pct_of_account']}% of account)</span></div></div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            _contracts = opt.get("contracts", 1)
-            _can_split  = _contracts >= 2
-            _take_action_q = (
-                "Sell %s contract(s) at $%.2f/sh - lock in 100%% gain, let remaining %s ride with tight stop." % (_contracts // 2, opt['exit_take_half'], _contracts - _contracts // 2)
-                if _can_split else
-                "Close full position at $%.2f/sh (100%% gain). With 1 contract you exit all at once." % opt['exit_take_half']
-            )
-            _take_action_s = (
-                "Sell %s contract(s) at $%.2f/sh - lock in 100%% gain, let remaining %s run with no stop." % (_contracts // 2, opt['exit_take_half'], _contracts - _contracts // 2)
-                if _can_split else
-                "Close full position at $%.2f/sh (100%% gain). With 1 contract you exit all at once." % opt['exit_take_half']
-            )
-            if sig_style == "quick":
-                exit_hold = "Close within 20-60 minutes regardless of outcome. Do not hold into close."
-                exit_take = _take_action_q
-            else:
-                exit_take = _take_action_s
-                exit_hold = "Never hold through earnings. Never add to a losing position. Never let a winner turn into a loser."
-
-            st.markdown(f"""
-            <div class='exit-rules'>
-                <div style='color:#D4AF37;font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:6px'>EXIT RULES - DECIDE BEFORE YOU ENTER</div>
-                <div style='margin:4px 0'><b>{'Partial exit:' if _can_split else 'Full exit:'}</b> {exit_take}</div>
-                <div style='margin:4px 0'><b>Close all</b> if {ticker} closes {'below' if is_bull else 'above'} <b style='color:#C1121F'>${opt['exit_stop_stock']:.2f}</b> - pattern failed, no questions asked.</div>
-                <div style='margin:4px 0;color:#A1A1A6;font-size:0.8rem'>{exit_hold}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Entry timing check + watch queue - market hours only
-            watch_key = f"{ticker}_{sig['direction']}"
-            already_watching = watch_key in st.session_state.get("watch_queue", {})
-            conf_status = "N/A"
-
-            if True:  # entry check runs in all sessions
-                conf_result = check_entry_confirmation(df, sig["direction"])
-                conf_status = conf_result["status"]
-                if mstatus != "open":
-                    conf_status = conf_status + " (extended hrs)"
-                if "CONFIRMED" in conf_status:
-                    conf_bg = "#1A1500"; conf_border = "#D4AF37"; conf_color = "#D4AF37"; conf_icon = "✅"
-                    _sig_key = "signals_fired_%s_%s_%s" % (ticker, sig.get("direction",""), i)
-                    if not st.session_state.get(_sig_key):
-                        st.session_state[_sig_key] = True
-                        _detail = sig.get("detail", {})
-                        _signal_r = {
-                            "ticker":       ticker,
-                            "direction":    sig.get("direction","bullish"),
-                            "action":       "CALL" if sig.get("direction")=="bullish" else "PUT",
-                            "pattern":      sig.get("pattern_label", sig.get("pattern","Signal")),
-                            "style":        sig.get("trade_style", trade_style),
-                            "confidence":   sig.get("confidence", 60),
-                            "gates_passed": gates_passed,
-                            "signals_hit":  _detail.get("signals_hit", 0),
-                            "signal_detail":_detail.get("signal_detail",[]),
-                            "price":        round(float(df["close"].iloc[-1]), 2),
-                            "iv_rank":      iv_rank,
-                            "earn_days":    earnings_days,
-                            "detail":       _detail,
-                            "opt":          opt,
-                            "sig":          sig,
-                            "exh_confirmed":_detail.get("exhaustion_confirmed", False),
-                            "exh_reasons":  _detail.get("exhaustion_reasons", []),
-                            "rel_vol":      1.0,
-                            "vol_spike":    False,
-                            "block_detected": False,
-                            "sq_state":     "none",
-                            "sq_compression": 0,
-                            "market_bias":  "neutral",
-                            "sector_bias":  "neutral",
-                            "elevate":      elevate,
-                            "entry_status": "CONFIRMED",
-                        }
-                        _is_admin = (
-                            st.session_state.get("is_admin", False) or
-                            st.session_state.get("user_email", "") == ADMIN_EMAIL
-                        )
-                        # Only fire Telegram from scan tab where gates/exh are verified
-                        # Signals tab just logs history and enters paper trade
-                        save_signal_history(_signal_r)
-                        # Only auto-enter paper trade if signal meets conviction threshold
-                        _auto_conf  = sig.get("confidence", 0) >= 85
-                        _auto_gates = gates_passed >= 5
-                elif "WAITING" in conf_status:
-                    conf_bg = "#1A1A1D"; conf_border = "#F6E27A"; conf_color = "#F6E27A"; conf_icon = "👁"
-                else:
-                    conf_bg = "#1a0a0a"; conf_border = "#C1121F"; conf_color = "#C1121F"; conf_icon = "⏳"
-
-                # Fibonacci confluence display in signals tab
-                if _fib_sig.get("confirmed"):
-                    _fl = _fib_sig.get("level", "")
-                    _fp = _fib_sig.get("level_price", 0)
-                    _fh = _fib_sig.get("swing_high", 0)
-                    _fw = _fib_sig.get("swing_low", 0)
-                    _fc = "#D4AF37" if _fl == "61.8%" else "#F6E27A"
-                    st.markdown(
-                        "<div style='background:#1A1A1D;border:1px solid %s;border-radius:8px;"
-                        "padding:10px 14px;margin-top:8px'>"
-                        "<div style='color:#A1A1A6;font-family:monospace;font-size:0.68rem;"
-                        "letter-spacing:1px;margin-bottom:4px'>FIBONACCI CONFLUENCE</div>"
-                        "<div style='font-size:0.9rem;font-weight:700;color:%s'>🔶 %s Retracement</div>"
-                        "<div style='font-size:0.75rem;color:#A1A1A6;margin-top:2px'>"
-                        "Level: $%.2f &nbsp;·&nbsp; Range: $%.2f — $%.2f</div>"
-                        "</div>" % (_fc, _fc, _fl, _fp, _fw, _fh),
-                        unsafe_allow_html=True
-                    )
-
-                try:
-                    _detail_ma = sig.get("detail", {}) or {}
-                    _ma_above  = _detail_ma.get("ma200_above")
-                    _ma_val    = _detail_ma.get("ma200_val")
-                    _ma_rising = _detail_ma.get("ma200_rising")
-                    _ma_pct    = _detail_ma.get("ma200_pct")
-                    if _ma_above is not None and _ma_val:
-                        _is_bull_ma = sig["direction"] == "bullish"
-                        _ma_col = (
-                            "#D4AF37" if ((_ma_above and _ma_rising and _is_bull_ma) or
-                                         (not _ma_above and not _ma_rising and not _is_bull_ma))
-                            else "#F6E27A" if ((_ma_above and _is_bull_ma) or
-                                              (not _ma_above and not _is_bull_ma))
-                            else "#C1121F"
-                        )
-                        _ma_state = (
-                            "Above Rising" if (_ma_above and _ma_rising) else
-                            "Above Flat"   if (_ma_above and not _ma_rising) else
-                            "Below Falling" if (not _ma_above and not _ma_rising) else
-                            "Below Rising"
-                        )
-                        _ma_pct_str = " (%+.1f%%)" % _ma_pct if _ma_pct is not None else ""
-                        st.markdown(
-                            "<div style='background:#1A1A1D;border:1px solid %s44;border-radius:8px;"
-                            "padding:10px 14px;margin-top:8px'>"
-                            "<div style='display:flex;justify-content:space-between;align-items:center'>"
-                            "<span style='color:#A1A1A6;font-family:monospace;font-size:0.68rem;"
-                            "letter-spacing:1px'>200-DAY MA</span>"
-                            "<span style='color:%s;font-weight:700;font-size:0.78rem'>%s%s</span>"
-                            "</div>"
-                            "<div style='font-size:0.75rem;color:#A1A1A6;margin-top:2px'>"
-                            "MA Value: <b style='color:#F5F5F5'>$%.2f</b></div>"
-                            "</div>" % (_ma_col, _ma_col, _ma_state, _ma_pct_str, _ma_val),
-                            unsafe_allow_html=True
-                        )
-                except Exception:
-                    pass
-
-                try:
-                    _detail_sr = sig.get("detail", {}) or {}
-                    _sr        = _detail_sr.get("sr_data", {})
-                    if _sr and _sr.get("label") not in ("S/R Unavailable", "S/R Error", "No Key S/R Nearby", ""):
-                        _sr_boost = _sr.get("conf_boost", 0)
-                        _sr_col   = (
-                            "#D4AF37" if _sr_boost >= 8 else
-                            "#22C55E" if _sr_boost > 0 else
-                            "#C1121F" if _sr_boost < 0 else
-                            "#A1A1A6"
-                        )
-                        _sup_str = "$%.2f" % _sr["nearest_support"]  if _sr.get("nearest_support")  else "—"
-                        _res_str = "$%.2f" % _sr["nearest_resistance"] if _sr.get("nearest_resistance") else "—"
-                        st.markdown(
-                            "<div style='background:#1A1A1D;border:1px solid %s44;border-radius:8px;"
-                            "padding:10px 14px;margin-top:8px'>"
-                            "<div style='display:flex;justify-content:space-between;align-items:center;"
-                            "margin-bottom:4px'>"
-                            "<span style='color:#A1A1A6;font-family:monospace;font-size:0.68rem;"
-                            "letter-spacing:1px'>SUPPORT / RESISTANCE</span>"
-                            "<span style='color:%s;font-size:0.75rem;font-weight:700'>%s</span>"
-                            "</div>"
-                            "<div style='font-size:0.75rem;color:#A1A1A6;margin-bottom:6px'>%s</div>"
-                            "<div style='display:flex;gap:16px;font-size:0.75rem'>"
-                            "<span>🟢 Support: <b style='color:#22C55E'>%s</b></span>"
-                            "<span>🔴 Resistance: <b style='color:#C1121F'>%s</b></span>"
-                            "</div>"
-                            "</div>" % (
-                                _sr_col, _sr_col, _sr.get("label", ""),
-                                _sr.get("detail", ""),
-                                _sup_str, _res_str,
-                            ),
-                            unsafe_allow_html=True
-                        )
-                except Exception:
-                    pass
-
-
-            if True:  # AI brief available in all sessions
-                if ANTHROPIC_API_KEY:
-                    ai_key = f"ai_result_{ticker}_{key_prefix}_{i}"
-                    if st.button(f"🤖 Get AI Brief #{i+1}", key=f"{key_prefix}_ai_{i}"):
-                        with st.spinner("Analyzing setup..."):
-                            try:
-                                ai_text   = get_ai_brief(ticker, sig, opt, gates, gates_passed, iv_rank, earnings_days, conf_status)
-                                ai_parsed = parse_ai_brief(ai_text)
-                                st.session_state[ai_key] = ai_parsed
-                            except Exception as e:
-                                st.session_state[ai_key] = {"error": str(e)}
-
-                    if ai_key in st.session_state:
-                        ai = st.session_state[ai_key]
-                        if "error" in ai:
-                            st.error(f"AI call failed: {ai['error']}")
-                        else:
-                            rating = ai.get("rating","")
-                            if "Strong" in rating:     r_color = "#D4AF37"; r_bg = "#1A1500"; r_border = "#D4AF37"
-                            elif "Moderate" in rating: r_color = "#F6E27A"; r_bg = "#1a150a"; r_border = "#F6E27A"
-                            else:                      r_color = "#C1121F"; r_bg = "#1a0a0a"; r_border = "#C1121F"
-                            st.markdown(f"""
-                            <div style='background:{r_bg};border:1px solid {r_border};border-radius:8px;padding:14px;margin-top:8px'>
-                                <div style='color:#A1A1A6;font-family:monospace;font-size:0.72rem;letter-spacing:1px;margin-bottom:6px'>AI TRADE BRIEF</div>
-                                <div style='font-size:1.1rem;font-weight:700;color:{r_color};margin-bottom:10px'>🤖 {rating}</div>
-                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#A1A1A6'>REASONING</span><br>{ai.get("reasoning","")}</div>
-                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#C1121F'>KEY RISK</span><br>{ai.get("risk","")}</div>
-                                <div style='margin:6px 0;font-size:0.85rem'><span style='color:#D4AF37'>EDGE</span><br>{ai.get("edge","")}</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                else:
-                    st.markdown("<div class='ai-placeholder'>🤖 AI Trade Brief - Add ANTHROPIC_API_KEY in Railway to enable</div>", unsafe_allow_html=True)
-
-            share_text = build_share_text(ticker,sig,opt,gates_passed,7,elevate,mtext)
-            st.download_button(f"📤 Share #{i+1}", data=share_text,
-                file_name=f"{ticker}_signal_{datetime.now().strftime('%m%d_%H%M')}.txt",
-                mime="text/plain", key=f"{key_prefix}_share_{i}")
-
-        if i < len(candidates) - 1:
-            st.markdown("<hr style='border-color:#2A2A2D;margin:12px 0'>", unsafe_allow_html=True)
-
-
 
 # PRECISION SCAN ENGINE
 
@@ -7011,6 +6394,1796 @@ def render_volatility_block_html(vol, pred, strike, fib, scan_time, style='swing
     return "\n".join(parts)
 
 
+# ORB ENGINE — Opening Range Breakout scanner core
+# Timeframes: 15m range (9:30-9:45 ET) + 5m break/retest tracking. No 1m.
+
+ORB_OPEN_H,  ORB_OPEN_M  = 9, 30
+ORB_CLOSE_H, ORB_CLOSE_M = 9, 45
+PM_START_H,  PM_START_M  = 4, 0
+RTH_END_H,   RTH_END_M   = 16, 0
+
+# Retest wick may penetrate at most this fraction of range depth back inside
+ORB_WICK_DEPTH_MAX = 0.33
+# Range width must sit inside this band as a fraction of daily ATR
+ORB_ATR_MIN_FRAC = 0.15
+ORB_ATR_MAX_FRAC = 0.50
+# Minimum reward:risk to the next structural level
+ORB_MIN_RR = 2.0
+# A retest counts as confluence if VWAP/9EMA sits within this % of the level
+ORB_CONFLUENCE_PCT = 0.0025
+# TRIGGER_LIVE window: retest within this many 5m bars of the latest bar
+ORB_LIVE_BARS = 2
+
+
+def _orb_minutes(ts):
+    """Minutes since midnight for a pandas Timestamp."""
+    try:
+        return int(ts.hour) * 60 + int(ts.minute)
+    except Exception:
+        return -1
+
+
+def orb_calc_vwap(df):
+    """Session VWAP over the supplied bars. Returns a list aligned to df rows."""
+    try:
+        out, cum_pv, cum_v = [], 0.0, 0.0
+        for _, row in df.iterrows():
+            tp = (float(row["high"]) + float(row["low"]) + float(row["close"])) / 3.0
+            v  = float(row["volume"]) or 0.0
+            cum_pv += tp * v
+            cum_v  += v
+            out.append(cum_pv / cum_v if cum_v > 0 else tp)
+        return out
+    except Exception:
+        return []
+
+
+def orb_calc_ema(values, period=9):
+    """Simple EMA over a list of floats. Returns list aligned to input."""
+    try:
+        if not values:
+            return []
+        k = 2.0 / (period + 1.0)
+        out = [float(values[0])]
+        for v in values[1:]:
+            out.append(float(v) * k + out[-1] * (1 - k))
+        return out
+    except Exception:
+        return []
+
+
+def orb_session_frames(df_5m, session_date=None):
+    """
+    Split a 5m frame into premarket and RTH bars for the most recent session.
+    Returns (df_pm, df_rth, session_date) — any may be None/empty.
+    """
+    try:
+        if df_5m is None or len(df_5m) == 0:
+            return None, None, None
+        d = df_5m.copy()
+        d["_date"] = d["datetime"].dt.date
+        if session_date is None:
+            session_date = d["_date"].max()
+        d = d[d["_date"] == session_date]
+        if len(d) == 0:
+            return None, None, session_date
+        d["_min"] = d["datetime"].apply(_orb_minutes)
+        pm_lo  = PM_START_H * 60 + PM_START_M
+        rth_lo = ORB_OPEN_H * 60 + ORB_OPEN_M
+        rth_hi = RTH_END_H * 60 + RTH_END_M
+        df_pm  = d[(d["_min"] >= pm_lo)  & (d["_min"] < rth_lo)].reset_index(drop=True)
+        df_rth = d[(d["_min"] >= rth_lo) & (d["_min"] < rth_hi)].reset_index(drop=True)
+        return df_pm, df_rth, session_date
+    except Exception:
+        return None, None, None
+
+
+def orb_calc_levels(ticker, df_5m=None, df_daily=None):
+    """
+    Build the day's structural levels.
+    Returns dict — always includes 'available' and 'state'.
+    state: NO_DATA | RANGE_BUILDING | RANGE_SET
+    """
+    res = {
+        "available": False, "state": "NO_DATA", "ticker": ticker,
+        "orb_high": 0.0, "orb_low": 0.0, "range_width": 0.0, "range_pct": 0.0,
+        "orb_volume": 0.0, "pm_high": None, "pm_low": None,
+        "pdh": None, "pdl": None, "atr": 0.0, "range_vs_atr": 0.0,
+        "ma50": None, "ma200": None, "ma400": None,
+        "last_price": 0.0, "last_bar_time": "", "session_date": None,
+        "pm_available": False, "note": "",
+    }
+    try:
+        if df_5m is None:
+            df_5m = _fmp_download(ticker, "5d", "5m")
+        if df_5m is None or len(df_5m) == 0:
+            res["note"] = "no intraday data"
+            return res
+
+        df_pm, df_rth, sess = orb_session_frames(df_5m)
+        res["session_date"] = str(sess) if sess else None
+        if df_rth is None or len(df_rth) == 0:
+            res["note"] = "no RTH bars yet"
+            return res
+
+        res["last_price"]    = float(df_rth["close"].iloc[-1])
+        res["last_bar_time"] = df_rth["datetime"].iloc[-1].strftime("%-I:%M %p")
+
+        # Premarket — only report if bars actually exist (FMP coverage varies)
+        if df_pm is not None and len(df_pm) > 0:
+            res["pm_high"] = float(df_pm["high"].max())
+            res["pm_low"]  = float(df_pm["low"].min())
+            res["pm_available"] = True
+
+        # Opening range = 9:30 through 9:45 (three 5m bars), wick to wick
+        orb_end = ORB_CLOSE_H * 60 + ORB_CLOSE_M
+        df_orb  = df_rth[df_rth["_min"] < orb_end]
+        if len(df_orb) == 0:
+            res["note"] = "range not started"
+            return res
+
+        res["orb_high"]   = float(df_orb["high"].max())
+        res["orb_low"]    = float(df_orb["low"].min())
+        res["orb_volume"] = float(df_orb["volume"].sum())
+        res["range_width"] = res["orb_high"] - res["orb_low"]
+        if res["orb_high"] > 0:
+            res["range_pct"] = (res["range_width"] / res["orb_high"]) * 100.0
+
+        # Range is only final once 9:45 has printed
+        last_min = int(df_rth["_min"].iloc[-1])
+        if last_min < orb_end:
+            res["state"] = "RANGE_BUILDING"
+            res["available"] = True
+            res["note"] = "range completes 9:45 ET"
+            return res
+
+        # Daily context — prev day levels, ATR, moving averages
+        if df_daily is None:
+            df_daily = _fmp_download(ticker, "2y", "1d")
+        if df_daily is not None and len(df_daily) >= 15:
+            dd = df_daily.copy()
+            dd["_date"] = dd["datetime"].dt.date
+            prior = dd[dd["_date"] < sess] if sess else dd.iloc[:-1]
+            if len(prior) > 0:
+                res["pdh"] = float(prior["high"].iloc[-1])
+                res["pdl"] = float(prior["low"].iloc[-1])
+            h, l, c = prior["high"], prior["low"], prior["close"]
+            tr  = (h - l).copy()
+            tr2 = (h - c.shift(1)).abs()
+            tr3 = (l - c.shift(1)).abs()
+            tr  = tr.combine(tr2, max).combine(tr3, max)
+            if len(tr) >= 14:
+                res["atr"] = float(tr.rolling(14).mean().iloc[-1])
+            for per, key in ((50, "ma50"), (200, "ma200"), (400, "ma400")):
+                if len(prior) >= per:
+                    res[key] = float(prior["close"].rolling(per).mean().iloc[-1])
+
+        if res["atr"] > 0:
+            res["range_vs_atr"] = res["range_width"] / res["atr"]
+
+        res["state"] = "RANGE_SET"
+        res["available"] = True
+        return res
+    except Exception as e:
+        res["note"] = "levels error: " + str(e)[:60]
+        return res
+
+
+def orb_detect_events(levels, df_5m=None):
+    """
+    Walk 5m bars after 9:45 and build the day's event timeline for BOTH boundaries.
+    Break  = 5m CLOSE beyond the level.
+    Retest = later bar touches the level (wick or body) but does NOT close back through it,
+             and the wick stays within ORB_WICK_DEPTH_MAX of range depth.
+    Returns dict with a 'high' and a 'low' side, each carrying its own timeline.
+    """
+    out = {
+        "available": False, "timeline": [],
+        "high": {"broken": False, "break_time": "", "break_price": 0.0, "break_vol_ratio": 0.0,
+                 "break_close_strength": 0.0, "retested": False, "retest_time": "",
+                 "retest_grade": "", "retest_level": "", "failed": False, "fail_time": "",
+                 "bars_since_retest": 999, "proximity": False, "retest_price": 0.0},
+        "low":  {"broken": False, "break_time": "", "break_price": 0.0, "break_vol_ratio": 0.0,
+                 "break_close_strength": 0.0, "retested": False, "retest_time": "",
+                 "retest_grade": "", "retest_level": "", "failed": False, "fail_time": "",
+                 "bars_since_retest": 999, "proximity": False, "retest_price": 0.0},
+    }
+    try:
+        if not levels.get("available") or levels.get("state") != "RANGE_SET":
+            return out
+        if df_5m is None:
+            df_5m = _fmp_download(levels["ticker"], "5d", "5m")
+        _, df_rth, _ = orb_session_frames(df_5m)
+        if df_rth is None or len(df_rth) == 0:
+            return out
+
+        vwaps = orb_calc_vwap(df_rth)
+        ema9  = orb_calc_ema([float(x) for x in df_rth["close"].tolist()], 9)
+
+        orb_end = ORB_CLOSE_H * 60 + ORB_CLOSE_M
+        post    = df_rth[df_rth["_min"] >= orb_end].reset_index(drop=True)
+        if len(post) == 0:
+            return out
+        offset = len(df_rth) - len(post)
+
+        oh, ol = levels["orb_high"], levels["orb_low"]
+        depth  = levels["range_width"] * ORB_WICK_DEPTH_MAX
+        # Proximity zone: a rejection this far short of the level still
+        # counts as a retest (price often rejects just before tagging).
+        rz_h = max(oh * 0.006, levels["range_width"] * 0.22)
+        rz_l = max(ol * 0.006, levels["range_width"] * 0.22)
+        # Baseline volume = average 5m bar volume inside the opening range
+        base_vol = levels.get("orb_volume", 0) / 3.0 if levels.get("orb_volume") else 0.0
+
+        tl = []
+        for i, row in post.iterrows():
+            gi   = offset + i
+            t    = row["datetime"].strftime("%-I:%M")
+            hi   = float(row["high"]);  lo = float(row["low"])
+            cl   = float(row["close"]); op = float(row["open"])
+            vol  = float(row["volume"]) or 0.0
+            vwap = vwaps[gi] if gi < len(vwaps) else cl
+            ema  = ema9[gi]  if gi < len(ema9)  else cl
+            vr   = (vol / base_vol) if base_vol > 0 else 0.0
+            bar_rng = max(hi - lo, 1e-9)
+
+            # ---- HIGH boundary (bullish) ----
+            H = out["high"]
+            if not H["broken"]:
+                if cl > oh:
+                    H["broken"] = True
+                    H["break_time"] = t
+                    H["break_price"] = cl
+                    H["break_vol_ratio"] = round(vr, 2)
+                    H["break_close_strength"] = round((cl - lo) / bar_rng, 2)
+                    tl.append({"t": t, "side": "high", "kind": "BREAK",
+                               "txt": "Broke ORB high $%.2f on %.1fx vol" % (oh, vr)})
+            elif not H["failed"] and not H["retested"]:
+                if cl < oh:
+                    H["failed"] = True
+                    H["fail_time"] = t
+                    tl.append({"t": t, "side": "high", "kind": "FAIL",
+                               "txt": "Closed back inside range — high break failed"})
+                elif lo <= oh:
+                    if lo >= oh - depth:
+                        near_vwap = abs(vwap - oh) / oh <= ORB_CONFLUENCE_PCT
+                        near_ema  = abs(ema  - oh) / oh <= ORB_CONFLUENCE_PCT
+                        if near_vwap or near_ema:
+                            grade, lvl = "A+", ("ORB high + VWAP" if near_vwap else "ORB high + 9EMA")
+                        elif lo >= oh - (depth * 0.35):
+                            grade, lvl = "A", "ORB high"
+                        else:
+                            grade, lvl = "B", "ORB high (deep wick)"
+                        H["retested"] = True
+                        H["retest_time"] = t
+                        H["retest_grade"] = grade
+                        H["retest_level"] = lvl
+                        H["bars_since_retest"] = len(post) - 1 - i
+                        tl.append({"t": t, "side": "high", "kind": "RETEST",
+                                   "txt": "Retest held at %s — grade %s" % (lvl, grade)})
+                    else:
+                        H["failed"] = True
+                        H["fail_time"] = t
+                        tl.append({"t": t, "side": "high", "kind": "FAIL",
+                                   "txt": "Wick cut too deep into range — break failed"})
+                elif lo <= oh + rz_h and cl > op:
+                    # Proximity retest: price pulled back to within the zone above the
+                    # ORB high and bounced (bullish close) without tagging the level.
+                    H["retested"] = True
+                    H["proximity"] = True
+                    H["retest_time"] = t
+                    H["retest_grade"] = "B"
+                    H["retest_level"] = "near ORB high (bounced $%.2f above)" % (lo - oh)
+                    H["retest_price"] = lo
+                    H["bars_since_retest"] = len(post) - 1 - i
+                    tl.append({"t": t, "side": "high", "kind": "RETEST",
+                               "txt": "Near retest — bounced at $%.2f, just above ORB high" % lo})
+            elif H["retested"]:
+                H["bars_since_retest"] = len(post) - 1 - i if i >= i else H["bars_since_retest"]
+
+            # ---- LOW boundary (bearish) ----
+            L = out["low"]
+            if not L["broken"]:
+                if cl < ol:
+                    L["broken"] = True
+                    L["break_time"] = t
+                    L["break_price"] = cl
+                    L["break_vol_ratio"] = round(vr, 2)
+                    L["break_close_strength"] = round((hi - cl) / bar_rng, 2)
+                    tl.append({"t": t, "side": "low", "kind": "BREAK",
+                               "txt": "Broke ORB low $%.2f on %.1fx vol" % (ol, vr)})
+            elif not L["failed"] and not L["retested"]:
+                if cl > ol:
+                    L["failed"] = True
+                    L["fail_time"] = t
+                    tl.append({"t": t, "side": "low", "kind": "FAIL",
+                               "txt": "Closed back inside range — low break failed"})
+                elif hi >= ol:
+                    if hi <= ol + depth:
+                        near_vwap = abs(vwap - ol) / ol <= ORB_CONFLUENCE_PCT
+                        near_ema  = abs(ema  - ol) / ol <= ORB_CONFLUENCE_PCT
+                        if near_vwap or near_ema:
+                            grade, lvl = "A+", ("ORB low + VWAP" if near_vwap else "ORB low + 9EMA")
+                        elif hi <= ol + (depth * 0.35):
+                            grade, lvl = "A", "ORB low"
+                        else:
+                            grade, lvl = "B", "ORB low (deep wick)"
+                        L["retested"] = True
+                        L["retest_time"] = t
+                        L["retest_grade"] = grade
+                        L["retest_level"] = lvl
+                        L["bars_since_retest"] = len(post) - 1 - i
+                        tl.append({"t": t, "side": "low", "kind": "RETEST",
+                                   "txt": "Retest held at %s — grade %s" % (lvl, grade)})
+                    else:
+                        L["failed"] = True
+                        L["fail_time"] = t
+                        tl.append({"t": t, "side": "low", "kind": "FAIL",
+                                   "txt": "Wick cut too deep into range — break failed"})
+                elif hi >= ol - rz_l and cl < op:
+                    # Proximity retest: price rallied to within the zone below the
+                    # ORB low and rejected (bearish close) without tagging the level.
+                    L["retested"] = True
+                    L["proximity"] = True
+                    L["retest_time"] = t
+                    L["retest_grade"] = "B"
+                    L["retest_level"] = "near ORB low (rejected $%.2f below)" % (ol - hi)
+                    L["retest_price"] = hi
+                    L["bars_since_retest"] = len(post) - 1 - i
+                    tl.append({"t": t, "side": "low", "kind": "RETEST",
+                               "txt": "Near retest — rejected at $%.2f, just below ORB low" % hi})
+
+        # Recompute bars_since_retest cleanly from stored times
+        for side in ("high", "low"):
+            S = out[side]
+            if S["retested"]:
+                for j, row in post.iterrows():
+                    if row["datetime"].strftime("%-I:%M") == S["retest_time"]:
+                        S["bars_since_retest"] = len(post) - 1 - j
+                        break
+
+        out["timeline"] = tl
+        out["last_vwap"] = vwaps[-1] if vwaps else 0.0
+        out["last_ema9"] = ema9[-1] if ema9 else 0.0
+        out["bars_post"] = len(post)
+        out["available"] = True
+        return out
+    except Exception as e:
+        out["note"] = "events error: " + str(e)[:60]
+        return out
+
+
+def orb_evaluate_structure(levels, events, side, df_5m=None):
+    """
+    Is the trade still alive? Structure decides, not the clock.
+    TRIGGER_LIVE     — retest held within the last ORB_LIVE_BARS bars
+    TREND_INTACT     — retest held earlier, price still respecting 9EMA and correct side of VWAP
+    STRUCTURE_BROKEN — closed through VWAP, or lost the 9EMA on 2+ consecutive closes
+    NO_TRIGGER       — no break, or broke but has not retested yet
+    """
+    res = {"state": "NO_TRIGGER", "reason": "", "vwap_ok": False, "ema_ok": False,
+           "last_vwap": 0.0, "last_ema9": 0.0, "ema_breach_count": 0}
+    try:
+        S = events.get(side, {})
+        if not S.get("broken"):
+            res["reason"] = "no break yet"
+            return res
+        if S.get("failed"):
+            res["state"] = "STRUCTURE_BROKEN"
+            res["reason"] = "break failed at " + (S.get("fail_time") or "")
+            return res
+        if not S.get("retested"):
+            res["state"] = "NO_TRIGGER"
+            res["reason"] = "broke, awaiting retest"
+            return res
+
+        if df_5m is None:
+            df_5m = _fmp_download(levels["ticker"], "5d", "5m")
+        _, df_rth, _ = orb_session_frames(df_5m)
+        if df_rth is None or len(df_rth) == 0:
+            return res
+
+        vwaps = orb_calc_vwap(df_rth)
+        ema9  = orb_calc_ema([float(x) for x in df_rth["close"].tolist()], 9)
+        res["last_vwap"] = vwaps[-1] if vwaps else 0.0
+        res["last_ema9"] = ema9[-1]  if ema9  else 0.0
+
+        # Bars from the retest forward
+        start = 0
+        for j, row in df_rth.iterrows():
+            if row["datetime"].strftime("%-I:%M") == S.get("retest_time"):
+                start = j
+                break
+        bullish = (side == "high")
+
+        vwap_ok, ema_streak, worst_streak = True, 0, 0
+        for j in range(start, len(df_rth)):
+            cl = float(df_rth["close"].iloc[j])
+            vw = vwaps[j] if j < len(vwaps) else cl
+            em = ema9[j]  if j < len(ema9)  else cl
+            if (bullish and cl < vw) or ((not bullish) and cl > vw):
+                vwap_ok = False
+            if (bullish and cl < em) or ((not bullish) and cl > em):
+                ema_streak += 1
+                worst_streak = max(worst_streak, ema_streak)
+            else:
+                ema_streak = 0
+
+        res["vwap_ok"] = vwap_ok
+        res["ema_ok"]  = worst_streak < 2
+        res["ema_breach_count"] = worst_streak
+
+        if not vwap_ok:
+            res["state"] = "STRUCTURE_BROKEN"
+            res["reason"] = "closed through VWAP"
+        elif worst_streak >= 2:
+            res["state"] = "STRUCTURE_BROKEN"
+            res["reason"] = "lost the 9EMA (%d consecutive closes)" % worst_streak
+        elif S.get("bars_since_retest", 999) <= ORB_LIVE_BARS:
+            res["state"] = "TRIGGER_LIVE"
+            res["reason"] = "retest just held — entry at the level"
+        else:
+            res["state"] = "TREND_INTACT"
+            res["reason"] = "riding 9EMA on the right side of VWAP — entry on pullback to 9EMA"
+        return res
+    except Exception as e:
+        res["reason"] = "structure error: " + str(e)[:50]
+        return res
+
+
+def orb_next_level_up(levels, price):
+    """Nearest structural level above price. Returns (value, label) or (None, '')."""
+    cands = []
+    for key, lbl in (("pdh", "PDH"), ("pm_high", "PM High"),
+                     ("ma50", "50MA"), ("ma200", "200MA"), ("ma400", "400MA")):
+        v = levels.get(key)
+        if v and v > price:
+            cands.append((float(v), lbl))
+    if not cands:
+        return None, ""
+    cands.sort(key=lambda x: x[0])
+    return cands[0]
+
+
+def orb_next_level_down(levels, price):
+    """Nearest structural level below price. Returns (value, label) or (None, '')."""
+    cands = []
+    for key, lbl in (("pdl", "PDL"), ("pm_low", "PM Low"),
+                     ("ma50", "50MA"), ("ma200", "200MA"), ("ma400", "400MA")):
+        v = levels.get(key)
+        if v and v < price:
+            cands.append((float(v), lbl))
+    if not cands:
+        return None, ""
+    cands.sort(key=lambda x: -x[0])
+    return cands[0]
+
+
+def orb_calc_trade_geometry(levels, side, events=None):
+    """
+    Entry / stop / target for a retest entry on the given boundary.
+    Stop sits at the same depth that invalidates the retest, so the
+    invalidation level and the stop are the same price.
+    """
+    g = {"entry": 0.0, "stop": 0.0, "target": 0.0, "risk": 0.0, "reward": 0.0,
+         "rr": 0.0, "target_label": "", "rr_ok": False, "atr_ok": False,
+         "atr_note": "", "ma_in_path": "", "ma_in_path_pct": 0.0,
+         "target2": 0.0, "target2_label": "", "rr2": 0.0}
+    try:
+        rw = levels.get("range_width", 0)
+        if rw <= 0:
+            return g
+        risk = rw * ORB_WICK_DEPTH_MAX
+        atr  = levels.get("atr", 0) or 0
+        # Ceilings: an intraday trade can't realistically travel more than ~1x
+        # the daily ATR from the break. The runner target may reach ~1.5x ATR.
+        # Without ATR, fall back to range multiples.
+        cap_primary = atr * 1.0 if atr > 0 else rw * 3.0
+        cap_ext     = atr * 1.5 if atr > 0 else rw * 4.0
+
+        bull  = (side == "high")
+        orb_level = levels["orb_high"] if bull else levels["orb_low"]
+        # Invalidation stop is anchored to the ORB level regardless of entry.
+        stop  = orb_level - risk if bull else orb_level + risk
+        # Default entry is the ORB level. For a proximity retest, price rejected
+        # short of the level — enter at the rejection, not the untagged level.
+        entry = orb_level
+        _prox = False
+        if events:
+            _sd = events.get(side, {})
+            if _sd.get("proximity") and _sd.get("retest_price"):
+                entry = float(_sd["retest_price"])
+                _prox = True
+
+        # 1x measured move — the opening range projected from the break point.
+        # This scales with the stock's own volatility that day and is the
+        # natural, conservative first target for an ORB break.
+        mm = orb_level + rw if bull else orb_level - rw
+
+        # Structural levels in the trade direction (from daily/prev-day data).
+        struct = []
+        for key, slbl in (("pdh", "PDH"), ("pdl", "PDL"), ("pm_high", "PM High"),
+                          ("pm_low", "PM Low"), ("ma50", "50MA"),
+                          ("ma200", "200MA"), ("ma400", "400MA")):
+            v = levels.get(key)
+            if not v:
+                continue
+            if (bull and v > orb_level) or ((not bull) and v < orb_level):
+                struct.append((float(v), slbl))
+
+        def _dist(v):
+            return (v - entry) if bull else (entry - v)
+
+        # Candidate targets: measured move + in-direction structural levels,
+        # each with its positive in-direction distance.
+        cands = [(mm, "measured move")] + struct
+        cands = [(v, l, _dist(v)) for (v, l) in cands if _dist(v) > 0]
+
+        # Primary target = nearest candidate within the 1x-ATR ceiling.
+        # This is what the R:R is judged on — a level too far to reach
+        # intraday (e.g. the 200MA $17 away) is filtered out here.
+        prim_pool = [c for c in cands if c[2] <= cap_primary] or cands
+        prim_pool.sort(key=lambda c: c[2])
+        target, lbl, reward = prim_pool[0][0], prim_pool[0][1], prim_pool[0][2]
+
+        # Runner target = nearest candidate beyond the primary, within 1.5x ATR;
+        # if none, default to 2x the measured move.
+        ext_pool = [c for c in cands if c[2] > reward and c[2] <= cap_ext]
+        ext_pool.sort(key=lambda c: c[2])
+        if ext_pool:
+            t2, l2, r2 = ext_pool[0]
+        else:
+            t2 = entry + rw * 2 if bull else entry - rw * 2
+            l2, r2 = "2x measured move", (rw * 2)
+
+        g.update({"entry": entry, "stop": stop, "target": target,
+                  "risk": risk, "reward": reward, "target_label": lbl,
+                  "rr": (reward / risk) if risk > 0 else 0.0,
+                  "target2": t2, "target2_label": l2,
+                  "rr2": (r2 / risk) if risk > 0 else 0.0})
+        g["rr_ok"] = g["rr"] >= ORB_MIN_RR
+        g["proximity"] = _prox
+        g["orb_level"] = orb_level
+
+        # ATR band — range must be meaningful but not already exhausted
+        rva = levels.get("range_vs_atr", 0)
+        if rva <= 0:
+            g["atr_note"] = "ATR unavailable"
+        elif rva < ORB_ATR_MIN_FRAC:
+            g["atr_note"] = "Range only %.0f%% of ATR — chop risk, no room" % (rva * 100)
+        elif rva > ORB_ATR_MAX_FRAC:
+            g["atr_note"] = "Range already %.0f%% of ATR — day's move may be spent" % (rva * 100)
+        else:
+            g["atr_ok"] = True
+            g["atr_note"] = "Range %.0f%% of ATR — healthy" % (rva * 100)
+
+        # Is a major MA sitting in the path between entry and target?
+        lo_b, hi_b = (min(entry, target), max(entry, target))
+        for key, lbl2 in (("ma50", "50MA"), ("ma200", "200MA"), ("ma400", "400MA")):
+            v = levels.get(key)
+            if v and lo_b < v < hi_b:
+                g["ma_in_path"] = lbl2
+                g["ma_in_path_pct"] = abs(v - entry) / entry * 100 if entry else 0
+                break
+        return g
+    except Exception:
+        return g
+
+
+def orb_time_modifier(bar_time_str):
+    """Prime-window multiplier. Same break at 9:50 and 12:30 are not the same trade."""
+    try:
+        parts = bar_time_str.replace("AM", "").replace("PM", "").strip().split(":")
+        h, m = int(parts[0]), int(parts[1])
+        if "PM" in bar_time_str and h != 12:
+            h += 12
+        mins = h * 60 + m
+        if mins < 11 * 60:        return 1.00, "prime window"
+        if mins < 14 * 60:        return 0.85, "lunch chop — discounted"
+        if mins < 15 * 60 + 30:   return 0.92, "afternoon"
+        return 0.80, "late day — discounted"
+    except Exception:
+        return 1.00, ""
+
+
+def orb_score_setup(levels, events, structure, side, geo, context=None):
+    """
+    70 structure / 30 context. Context can subtract but never manufacture a signal.
+    Returns dict with score, bucket, and a full component breakdown.
+    """
+    ctx = context or {}
+    res = {"score": 0, "bucket": "", "structure_pts": 0, "context_pts": 0,
+           "components": [], "penalties": [], "direction": "",
+           "time_note": "", "time_mult": 1.0, "gated": False, "gate_reason": ""}
+    try:
+        S = events.get(side, {})
+        res["direction"] = "bullish" if side == "high" else "bearish"
+        if not S.get("broken"):
+            res["gate_reason"] = "no break"
+            return res
+
+        # ---------- STRUCTURE (70) ----------
+        pts = 0
+
+        # Break confirmation — 22
+        bp = 16
+        cs = S.get("break_close_strength", 0)
+        bp += min(6, int(round(cs * 6)))
+        if S.get("failed"):
+            bp = 0
+        pts += bp
+        res["components"].append(("Break confirmed (5m close)", bp, 22))
+
+        # Volume on break — 22
+        vr = S.get("break_vol_ratio", 0)
+        if   vr >= 2.0: vp, vtxt = 22, "%.1fx — heavy" % vr
+        elif vr >= 1.5: vp, vtxt = 17, "%.1fx — solid" % vr
+        elif vr >= 1.2: vp, vtxt = 12, "%.1fx — adequate" % vr
+        elif vr >= 1.0: vp, vtxt = 7,  "%.1fx — light" % vr
+        else:           vp, vtxt = 0,  "%.1fx — no participation" % vr
+        pts += vp
+        res["components"].append(("Break volume " + vtxt, vp, 22))
+
+        # Retest quality — 16
+        grade = S.get("retest_grade", "")
+        rp = {"A+": 16, "A": 13, "B": 9}.get(grade, 0)
+        if S.get("failed"):
+            rp = 0
+        pts += rp
+        rlbl = ("Retest %s at %s" % (grade, S.get("retest_level", ""))) if grade else "No retest yet"
+        res["components"].append((rlbl, rp, 16))
+
+        # Range geometry — 10
+        gp = (6 if geo.get("atr_ok") else (3 if levels.get("range_vs_atr", 0) > 0 else 0))
+        gp += 4 if geo.get("rr_ok") else 0
+        pts += gp
+        res["components"].append(("Range geometry / %.1f:1 to %s" % (geo.get("rr", 0), geo.get("target_label", "")), gp, 10))
+
+        res["structure_pts"] = pts
+
+        # ---------- CONTEXT (30) — modifies only ----------
+        cpts = 0
+        want_bull = (side == "high")
+
+        news_dir = ctx.get("news_direction", "")
+        news_str = ctx.get("news_strength", 0)
+        if news_dir and news_dir != "neutral":
+            aligned = (news_dir == "bullish") == want_bull
+            if aligned:
+                np_ = min(10, int(round(news_str * 10)))
+                cpts += np_
+                res["components"].append(("News catalyst aligned", np_, 10))
+            else:
+                res["penalties"].append(("News catalyst points against the trade", -6))
+                cpts -= 6
+        else:
+            res["components"].append(("No news catalyst", 0, 10))
+
+        if ctx.get("squeeze_active") and ctx.get("squeeze_direction", "") in ("", "both",
+                "bullish" if want_bull else "bearish"):
+            cpts += 6
+            res["components"].append(("Squeeze firing in break direction", 6, 6))
+        else:
+            res["components"].append(("No squeeze", 0, 6))
+
+        lc = 0
+        if geo.get("rr_ok"):        lc += 3
+        if not geo.get("ma_in_path"): lc += 3
+        cpts += lc
+        lctxt = "Clear path to target" if lc == 6 else (
+                "%s sits in the path" % geo["ma_in_path"] if geo.get("ma_in_path") else "Limited running room")
+        res["components"].append((lctxt, lc, 6))
+
+        mb = ctx.get("market_bias", "")
+        if mb in ("bullish", "bearish"):
+            if (mb == "bullish") == want_bull:
+                cpts += 4
+                res["components"].append(("Market regime backs the trade", 4, 4))
+            else:
+                res["components"].append(("Trading against market regime", 0, 4))
+        else:
+            cpts += 2
+            res["components"].append(("Market regime neutral", 2, 4))
+
+        vc = ctx.get("vol_tier", "")
+        if vc in ("MODERATE", "HIGH", "ETF"):
+            cpts += 4
+            res["components"].append(("Volatility profile fits intraday", 4, 4))
+        else:
+            res["components"].append(("Low volatility — limited follow-through", 0, 4))
+
+        if ctx.get("block_in_path"):
+            cpts -= 10
+            res["penalties"].append(("Institutional block sits in the path", -10))
+
+        res["context_pts"] = cpts
+
+        # ---------- TIME MODIFIER ----------
+        anchor = S.get("retest_time") or S.get("break_time") or ""
+        tm, tnote = orb_time_modifier(anchor)
+        res["time_mult"], res["time_note"] = tm, tnote
+
+        raw = max(0, res["structure_pts"] + res["context_pts"])
+        res["score"] = int(round(raw * tm))
+
+        # ---------- BUCKET (retest-gated) ----------
+        st = structure.get("state", "NO_TRIGGER")
+        if st == "STRUCTURE_BROKEN":
+            res["bucket"] = "ON DECK"
+            res["gated"] = True
+            res["gate_reason"] = structure.get("reason", "structure broken")
+            res["score"] = min(res["score"], 45)
+        elif not S.get("retested"):
+            res["bucket"] = "WATCHING" if res["score"] >= 50 else "ON DECK"
+            res["gated"] = True
+            res["gate_reason"] = "broke but has not retested — retest is the entry"
+            res["score"] = min(res["score"], 74)
+        elif st in ("TRIGGER_LIVE", "TREND_INTACT"):
+            if   res["score"] >= 75: res["bucket"] = "GO NOW"
+            elif res["score"] >= 50: res["bucket"] = "WATCHING"
+            else:                    res["bucket"] = "ON DECK"
+        else:
+            res["bucket"] = "ON DECK"
+        return res
+    except Exception as e:
+        res["gate_reason"] = "score error: " + str(e)[:50]
+        return res
+
+
+ORB_STATE_STYLE = {
+    "TRIGGER_LIVE":     ("#22C55E", "TRIGGER LIVE",     "Entry at the level right now"),
+    "TREND_INTACT":     ("#D4AF37", "TREND INTACT",     "Entry on pullback to the 9EMA"),
+    "STRUCTURE_BROKEN": ("#6B6B6B", "STRUCTURE BROKEN", "No entry — timeline only"),
+    "NO_TRIGGER":       ("#7AA2F7", "AWAITING RETEST",  "Broke — wait for the pullback"),
+}
+ORB_BUCKET_COLOR = {"GO NOW": "#22C55E", "WATCHING": "#D4AF37", "ON DECK": "#7AA2F7"}
+
+
+def render_orb_card_html(levels, events, structure, score, geo, side):
+    """Full ORB card — range, state, geometry, timeline, levels, score breakdown."""
+    try:
+        S     = events.get(side, {})
+        bull  = (side == "high")
+        arrow = "CALLS" if bull else "PUTS"
+        acol  = "#22C55E" if bull else "#C1121F"
+        scol, slabel, saction = ORB_STATE_STYLE.get(
+            structure.get("state", "NO_TRIGGER"), ORB_STATE_STYLE["NO_TRIGGER"])
+        bcol = ORB_BUCKET_COLOR.get(score.get("bucket", ""), "#7AA2F7")
+
+        h = ("<div style='background:#0A0A0A;border:1px solid #1F1F1F;border-left:3px solid "
+             + bcol + ";border-radius:6px;padding:14px 16px;margin:10px 0'>")
+
+        # Header
+        h += ("<div style='display:flex;align-items:center;justify-content:space-between;"
+              "flex-wrap:wrap;gap:8px;margin-bottom:12px'>"
+              "<div style='display:flex;align-items:center;gap:10px'>"
+              "<span style='color:#F5F5F5;font-size:1.15rem;font-weight:800;letter-spacing:1px'>"
+              + str(levels.get("ticker", "")) + "</span>"
+              "<span style='background:" + acol + "22;color:" + acol + ";border:1px solid " + acol
+              + ";border-radius:3px;padding:2px 7px;font-size:0.62rem;font-weight:700;letter-spacing:1px'>"
+              + arrow + "</span></div>"
+              "<div style='display:flex;align-items:center;gap:8px'>"
+              "<span style='background:" + bcol + "22;color:" + bcol + ";border:1px solid " + bcol
+              + ";border-radius:3px;padding:2px 8px;font-size:0.62rem;font-weight:700;letter-spacing:1px'>"
+              + str(score.get("bucket", "")) + "</span>"
+              "<span style='color:" + bcol + ";font-size:1.15rem;font-weight:800'>"
+              + str(score.get("score", 0)) + "</span></div></div>")
+
+        # State banner
+        h += ("<div style='background:" + scol + "14;border:1px solid " + scol
+              + "55;border-radius:4px;padding:8px 11px;margin-bottom:11px'>"
+              "<div style='color:" + scol + ";font-size:0.68rem;font-weight:700;letter-spacing:1.2px;"
+              "margin-bottom:3px'>" + slabel + "</div>"
+              "<div style='color:#F5F5F5;font-size:0.74rem;line-height:1.45'>" + saction
+              + " &middot; " + str(structure.get("reason", "")) + "</div></div>")
+
+        # Opening range
+        rng_note = levels.get("range_vs_atr", 0)
+        h += ("<div style='display:flex;gap:8px;flex-wrap:wrap;margin-bottom:11px'>"
+              "<div style='flex:1;min-width:88px;background:#111;border:1px solid #1F1F1F;"
+              "border-radius:4px;padding:7px 9px'>"
+              "<div style='color:#6B6B6B;font-size:0.58rem;letter-spacing:1px'>ORB HIGH</div>"
+              "<div style='color:#22C55E;font-size:0.92rem;font-weight:700'>$%.2f</div></div>" % levels.get("orb_high", 0)
+              + "<div style='flex:1;min-width:88px;background:#111;border:1px solid #1F1F1F;"
+              "border-radius:4px;padding:7px 9px'>"
+              "<div style='color:#6B6B6B;font-size:0.58rem;letter-spacing:1px'>ORB LOW</div>"
+              "<div style='color:#C1121F;font-size:0.92rem;font-weight:700'>$%.2f</div></div>" % levels.get("orb_low", 0)
+              + "<div style='flex:1;min-width:88px;background:#111;border:1px solid #1F1F1F;"
+              "border-radius:4px;padding:7px 9px'>"
+              "<div style='color:#6B6B6B;font-size:0.58rem;letter-spacing:1px'>WIDTH</div>"
+              "<div style='color:#F5F5F5;font-size:0.92rem;font-weight:700'>$%.2f</div></div></div>"
+              % levels.get("range_width", 0))
+
+        if geo.get("atr_note"):
+            acolor = "#22C55E" if geo.get("atr_ok") else "#F6E27A"
+            h += ("<div style='color:" + acolor + ";font-size:0.7rem;margin-bottom:11px'>"
+                  + geo["atr_note"] + "</div>")
+
+        # Trade geometry
+        rr_col = "#22C55E" if geo.get("rr_ok") else "#C1121F"
+        h += ("<div style='background:#0D0D0D;border:1px solid #1F1F1F;border-radius:4px;"
+              "padding:9px 11px;margin-bottom:11px'>"
+              "<div style='color:#D4AF37;font-size:0.62rem;font-weight:700;letter-spacing:1.2px;"
+              "margin-bottom:6px'>TRADE GEOMETRY</div>"
+              "<div style='display:flex;gap:12px;flex-wrap:wrap;font-size:0.73rem'>"
+              "<span style='color:#A1A1A6'>Entry <b style='color:#F5F5F5'>$%.2f</b></span>"
+              "<span style='color:#A1A1A6'>Stop <b style='color:#C1121F'>$%.2f</b></span>"
+              "<span style='color:#A1A1A6'>Target <b style='color:#22C55E'>$%.2f</b></span>"
+              "<span style='color:#A1A1A6'>R:R <b style='color:%s'>%.1f:1</b></span></div>"
+              % (geo.get("entry", 0), geo.get("stop", 0), geo.get("target", 0),
+                 rr_col, geo.get("rr", 0))
+              + "<div style='color:#6B6B6B;font-size:0.66rem;margin-top:5px'>Target is "
+              + str(geo.get("target_label", "")) + " (nearest realistic level) &middot; "
+              "stop is the retest invalidation level</div>")
+        if geo.get("proximity"):
+            h += ("<div style='color:#F6E27A;font-size:0.66rem;margin-top:2px'>"
+                  "Proximity entry &mdash; price rejected before tagging the level; "
+                  "stop still sits at the ORB-level invalidation, so R:R is tighter</div>")
+        if geo.get("target2") and geo.get("rr2", 0) > 0:
+            h += ("<div style='color:#6B6B6B;font-size:0.66rem;margin-top:2px'>"
+                  "Runner: ${t2:.2f} ({l2}) &mdash; {rr2:.1f}:1 if it trends</div>").format(
+                      t2=geo.get("target2", 0), l2=geo.get("target2_label", ""),
+                      rr2=geo.get("rr2", 0))
+        if geo.get("ma_in_path"):
+            h += ("<div style='color:#F6E27A;font-size:0.68rem;margin-top:4px'>"
+                  + geo["ma_in_path"] + " sits between entry and target — expect resistance there</div>")
+        h += "</div>"
+
+        # Strike & expiration — driven by the trade geometry
+        try:
+            _sd = orb_strike_expiration(levels, geo, side)
+            h += render_orb_strike_html(_sd, side)
+        except Exception:
+            pass
+
+        # Timeline
+        tl = [e for e in events.get("timeline", []) if e.get("side") == side]
+        if tl:
+            h += ("<div style='background:#0D0D0D;border:1px solid #1F1F1F;border-radius:4px;"
+                  "padding:9px 11px;margin-bottom:11px'>"
+                  "<div style='color:#D4AF37;font-size:0.62rem;font-weight:700;letter-spacing:1.2px;"
+                  "margin-bottom:6px'>SESSION TIMELINE</div>")
+            for e in tl:
+                kcol = {"BREAK": "#7AA2F7", "RETEST": "#22C55E", "FAIL": "#C1121F"}.get(e["kind"], "#A1A1A6")
+                h += ("<div style='display:flex;gap:9px;font-size:0.72rem;line-height:1.65'>"
+                      "<span style='color:#6B6B6B;min-width:44px'>" + e["t"] + "</span>"
+                      "<span style='color:" + kcol + ";min-width:52px;font-weight:700;font-size:0.62rem;"
+                      "letter-spacing:0.8px;padding-top:2px'>" + e["kind"] + "</span>"
+                      "<span style='color:#F5F5F5'>" + e["txt"] + "</span></div>")
+            h += "</div>"
+
+        # Level context
+        def _lvl(lbl, val):
+            if val is None or not val:
+                return ""
+            return ("<span style='color:#A1A1A6'>" + lbl
+                    + " <b style='color:#F5F5F5'>$%.2f</b></span>" % float(val))
+        chips = [_lvl("PDH", levels.get("pdh")), _lvl("PDL", levels.get("pdl"))]
+        if levels.get("pm_available"):
+            chips += [_lvl("PM Hi", levels.get("pm_high")), _lvl("PM Lo", levels.get("pm_low"))]
+        chips += [_lvl("VWAP", structure.get("last_vwap")), _lvl("9EMA", structure.get("last_ema9")),
+                  _lvl("50MA", levels.get("ma50")), _lvl("200MA", levels.get("ma200")),
+                  _lvl("400MA", levels.get("ma400"))]
+        chips = [c for c in chips if c]
+        if chips:
+            h += ("<div style='display:flex;gap:11px;flex-wrap:wrap;font-size:0.71rem;"
+                  "padding:8px 0;border-top:1px solid #1A1A1A;margin-bottom:8px'>"
+                  + "".join(chips) + "</div>")
+        if not levels.get("pm_available"):
+            h += ("<div style='color:#6B6B6B;font-size:0.66rem;margin-bottom:8px'>"
+                  "Premarket bars unavailable from the data feed for this ticker</div>")
+
+        # Score breakdown
+        h += ("<details style='margin-top:4px'>"
+              "<summary style='color:#6B6B6B;font-size:0.68rem;cursor:pointer;letter-spacing:0.6px'>"
+              "SCORE BREAKDOWN &middot; structure " + str(score.get("structure_pts", 0))
+              + "/70 &middot; context " + str(score.get("context_pts", 0)) + "/30</summary>"
+              "<div style='padding:8px 0 2px 0'>")
+        for name, p, mx in score.get("components", []):
+            pcol = "#22C55E" if p >= mx * 0.75 else ("#D4AF37" if p > 0 else "#6B6B6B")
+            h += ("<div style='display:flex;justify-content:space-between;font-size:0.7rem;"
+                  "line-height:1.7'><span style='color:#A1A1A6'>" + name + "</span>"
+                  "<span style='color:" + pcol + ";font-weight:700'>%d/%d</span></div>" % (p, mx))
+        for name, p in score.get("penalties", []):
+            h += ("<div style='display:flex;justify-content:space-between;font-size:0.7rem;"
+                  "line-height:1.7'><span style='color:#C1121F'>" + name + "</span>"
+                  "<span style='color:#C1121F;font-weight:700'>%d</span></div>" % p)
+        if score.get("time_mult", 1.0) != 1.0:
+            h += ("<div style='color:#F6E27A;font-size:0.68rem;margin-top:5px'>Time-of-day x%.2f — %s</div>"
+                  % (score.get("time_mult", 1.0), score.get("time_note", "")))
+        if score.get("gated"):
+            h += ("<div style='color:#F6E27A;font-size:0.68rem;margin-top:5px'>Capped: "
+                  + str(score.get("gate_reason", "")) + "</div>")
+        h += "</div></details></div>"
+        return h
+    except Exception as e:
+        return ("<div style='color:#C1121F;font-size:0.72rem'>ORB card render error: "
+                + str(e)[:80] + "</div>")
+
+
+def render_orb_building_html(levels):
+    """Pre-9:45 state — range not final yet, show context so you're prepped."""
+    try:
+        h = ("<div style='background:#0A0A0A;border:1px solid #1F1F1F;border-left:3px solid #7AA2F7;"
+             "border-radius:6px;padding:13px 16px;margin:10px 0'>"
+             "<div style='display:flex;align-items:center;gap:10px;margin-bottom:9px'>"
+             "<span style='color:#F5F5F5;font-size:1.05rem;font-weight:800;letter-spacing:1px'>"
+             + str(levels.get("ticker", "")) + "</span>"
+             "<span style='background:#7AA2F722;color:#7AA2F7;border:1px solid #7AA2F7;border-radius:3px;"
+             "padding:2px 8px;font-size:0.6rem;font-weight:700;letter-spacing:1px'>RANGE BUILDING</span></div>"
+             "<div style='color:#A1A1A6;font-size:0.75rem;line-height:1.5;margin-bottom:9px'>"
+             "Opening range completes at 9:45 ET. Running high/low so far: "
+             "<b style='color:#22C55E'>$%.2f</b> / <b style='color:#C1121F'>$%.2f</b></div>"
+             % (levels.get("orb_high", 0), levels.get("orb_low", 0)))
+        chips = []
+        for lbl, key in (("PDH", "pdh"), ("PDL", "pdl"), ("PM Hi", "pm_high"), ("PM Lo", "pm_low")):
+            v = levels.get(key)
+            if v:
+                chips.append("<span style='color:#A1A1A6'>" + lbl
+                             + " <b style='color:#F5F5F5'>$%.2f</b></span>" % float(v))
+        if chips:
+            h += ("<div style='display:flex;gap:12px;flex-wrap:wrap;font-size:0.71rem'>"
+                  + "".join(chips) + "</div>")
+        h += "</div>"
+        return h
+    except Exception:
+        return ""
+
+
+def scan_orb_ticker(ticker, context_fn=None):
+    """
+    Full ORB read for one ticker. Returns a list of candidate dicts (0, 1, or 2 —
+    one per boundary that actually broke). context_fn(ticker, direction) -> ctx dict.
+    """
+    out = []
+    try:
+        df_5m = _fmp_download(ticker, "5d", "5m")
+        if df_5m is None or len(df_5m) == 0:
+            return out
+        levels = orb_calc_levels(ticker, df_5m=df_5m)
+        if not levels.get("available"):
+            return out
+        if levels.get("state") == "RANGE_BUILDING":
+            return [{"ticker": ticker, "state": "RANGE_BUILDING", "levels": levels,
+                     "score": 0, "bucket": "ON DECK", "side": ""}]
+
+        events = orb_detect_events(levels, df_5m=df_5m)
+        if not events.get("available"):
+            return out
+
+        for side in ("high", "low"):
+            S = events.get(side, {})
+            if not S.get("broken"):
+                continue
+            structure = orb_evaluate_structure(levels, events, side, df_5m=df_5m)
+            structure["last_vwap"] = structure.get("last_vwap") or events.get("last_vwap", 0)
+            structure["last_ema9"] = structure.get("last_ema9") or events.get("last_ema9", 0)
+            geo = orb_calc_trade_geometry(levels, side, events=events)
+            ctx = {}
+            if context_fn:
+                try:
+                    ctx = context_fn(ticker, "bullish" if side == "high" else "bearish") or {}
+                except Exception:
+                    ctx = {}
+            score = orb_score_setup(levels, events, structure, side, geo, ctx)
+            out.append({
+                "ticker": ticker, "side": side, "state": structure.get("state", ""),
+                "levels": levels, "events": events, "structure": structure,
+                "geo": geo, "score_data": score, "score": score.get("score", 0),
+                "bucket": score.get("bucket", ""),
+                "direction": "bullish" if side == "high" else "bearish",
+                "last_price": levels.get("last_price", 0),
+            })
+        return out
+    except Exception:
+        return out
+
+
+def orb_lookup_ticker(ticker, context_fn=None):
+    """
+    Single-ticker deep read. Unlike the scan, this ALWAYS returns a result even
+    when nothing has broken — the pre-trigger state is the whole point of a lookup.
+    Returns a dict with 'mode' one of: NO_DATA | RANGE_BUILDING | WATCHING_PRE |
+    BROKE (has candidates). For BROKE, 'candidates' holds the same rows the scan builds.
+    """
+    res = {"ticker": ticker, "mode": "NO_DATA", "levels": {}, "candidates": [],
+           "pre": {}, "note": ""}
+    try:
+        df_5m = _fmp_download(ticker, "5d", "5m")
+        if df_5m is None or len(df_5m) == 0:
+            res["note"] = "No intraday data for " + ticker
+            return res
+
+        levels = orb_calc_levels(ticker, df_5m=df_5m)
+        res["levels"] = levels
+        if not levels.get("available"):
+            res["note"] = levels.get("note", "No range data")
+            return res
+
+        if levels.get("state") == "RANGE_BUILDING":
+            res["mode"] = "RANGE_BUILDING"
+            return res
+
+        events = orb_detect_events(levels, df_5m=df_5m)
+        broke_any = events.get("high", {}).get("broken") or events.get("low", {}).get("broken")
+
+        if broke_any:
+            res["mode"] = "BROKE"
+            for side in ("high", "low"):
+                if not events.get(side, {}).get("broken"):
+                    continue
+                structure = orb_evaluate_structure(levels, events, side, df_5m=df_5m)
+                if not structure.get("last_vwap"):
+                    structure["last_vwap"] = events.get("last_vwap", 0)
+                if not structure.get("last_ema9"):
+                    structure["last_ema9"] = events.get("last_ema9", 0)
+                geo = orb_calc_trade_geometry(levels, side, events=events)
+                ctx = {}
+                if context_fn:
+                    try:
+                        ctx = context_fn(ticker, "bullish" if side == "high" else "bearish") or {}
+                    except Exception:
+                        ctx = {}
+                score = orb_score_setup(levels, events, structure, side, geo, ctx)
+                res["candidates"].append({
+                    "ticker": ticker, "side": side, "state": structure.get("state", ""),
+                    "levels": levels, "events": events, "structure": structure,
+                    "geo": geo, "score_data": score, "score": score.get("score", 0),
+                    "bucket": score.get("bucket", ""),
+                    "direction": "bullish" if side == "high" else "bearish",
+                    "last_price": levels.get("last_price", 0),
+                })
+            res["candidates"].sort(key=lambda r: -r.get("score", 0))
+            return res
+
+        # No break yet — build the pre-trigger watch read
+        res["mode"] = "WATCHING_PRE"
+        price = levels.get("last_price", 0)
+        oh, ol = levels.get("orb_high", 0), levels.get("orb_low", 0)
+        vwap = events.get("last_vwap", 0)
+        ema9 = events.get("last_ema9", 0)
+        dist_high = ((oh - price) / price * 100) if price else 0
+        dist_low  = ((price - ol) / price * 100) if price else 0
+        # Which boundary is price nearer to?
+        if abs(oh - price) <= abs(price - ol):
+            near = "high"; trigger = oh; trig_dist = dist_high
+        else:
+            near = "low"; trigger = ol; trig_dist = dist_low
+        res["pre"] = {
+            "price": price, "orb_high": oh, "orb_low": ol,
+            "dist_to_high_pct": dist_high, "dist_to_low_pct": dist_low,
+            "near": near, "trigger": trigger, "trigger_dist_pct": trig_dist,
+            "vwap": vwap, "ema9": ema9,
+            "above_vwap": price >= vwap if vwap else None,
+            "inside_range": ol <= price <= oh,
+        }
+        return res
+    except Exception as e:
+        res["note"] = "lookup error: " + str(e)[:60]
+        return res
+
+
+def render_orb_pre_html(res):
+    """Pre-trigger watch card — price hasn't broken the range yet, but here's the read."""
+    try:
+        levels = res.get("levels", {})
+        pre    = res.get("pre", {})
+        tk     = res.get("ticker", "")
+        near   = pre.get("near", "high")
+        ncol   = "#22C55E" if near == "high" else "#C1121F"
+        ndir   = "CALLS on a break above" if near == "high" else "PUTS on a break below"
+
+        vwap_txt = ""
+        if pre.get("above_vwap") is not None:
+            vwap_txt = ("above VWAP" if pre["above_vwap"] else "below VWAP")
+
+        h = ("<div style='background:#0A0A0A;border:1px solid #1F1F1F;border-left:3px solid #7AA2F7;"
+             "border-radius:6px;padding:14px 16px;margin:10px 0'>"
+             "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:11px'>"
+             "<span style='color:#F5F5F5;font-size:1.15rem;font-weight:800;letter-spacing:1px'>" + tk + "</span>"
+             "<span style='background:#7AA2F722;color:#7AA2F7;border:1px solid #7AA2F7;border-radius:3px;"
+             "padding:2px 8px;font-size:0.6rem;font-weight:700;letter-spacing:1px'>NO BREAK YET</span></div>")
+
+        h += ("<div style='color:#F5F5F5;font-size:0.78rem;line-height:1.5;margin-bottom:11px'>"
+              "Price <b>${price:.2f}</b>{inside}. Watching for a 5m close "
+              "<b style='color:{ncol}'>{trigdir} ${trigger:.2f}</b> "
+              "&mdash; that&rsquo;s <b>{tdist:.2f}%</b> away. {vwap}</div>").format(
+                  price=pre.get("price", 0),
+                  inside=(" sitting inside the range" if pre.get("inside_range") else " outside the range"),
+                  ncol=ncol, trigdir=("above" if near == "high" else "below"),
+                  trigger=pre.get("trigger", 0), tdist=abs(pre.get("trigger_dist_pct", 0)),
+                  vwap=("Currently " + vwap_txt + "." if vwap_txt else ""))
+
+        # Range + levels row
+        h += ("<div style='display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px'>"
+              "<div style='flex:1;min-width:84px;background:#111;border:1px solid #1F1F1F;border-radius:4px;padding:7px 9px'>"
+              "<div style='color:#6B6B6B;font-size:0.58rem;letter-spacing:1px'>ORB HIGH</div>"
+              "<div style='color:#22C55E;font-size:0.9rem;font-weight:700'>${oh:.2f}</div></div>"
+              "<div style='flex:1;min-width:84px;background:#111;border:1px solid #1F1F1F;border-radius:4px;padding:7px 9px'>"
+              "<div style='color:#6B6B6B;font-size:0.58rem;letter-spacing:1px'>ORB LOW</div>"
+              "<div style='color:#C1121F;font-size:0.9rem;font-weight:700'>${ol:.2f}</div></div>"
+              "<div style='flex:1;min-width:84px;background:#111;border:1px solid #1F1F1F;border-radius:4px;padding:7px 9px'>"
+              "<div style='color:#6B6B6B;font-size:0.58rem;letter-spacing:1px'>PRICE</div>"
+              "<div style='color:#F5F5F5;font-size:0.9rem;font-weight:700'>${px:.2f}</div></div></div>").format(
+                  oh=pre.get("orb_high", 0), ol=pre.get("orb_low", 0), px=pre.get("price", 0))
+
+        def _lvl(lbl, val):
+            if not val:
+                return ""
+            return "<span style='color:#A1A1A6'>{l} <b style='color:#F5F5F5'>${v:.2f}</b></span>".format(l=lbl, v=float(val))
+        chips = [_lvl("VWAP", pre.get("vwap")), _lvl("9EMA", pre.get("ema9")),
+                 _lvl("PDH", levels.get("pdh")), _lvl("PDL", levels.get("pdl")),
+                 _lvl("200MA", levels.get("ma200")), _lvl("400MA", levels.get("ma400"))]
+        chips = [c for c in chips if c]
+        if chips:
+            h += ("<div style='display:flex;gap:11px;flex-wrap:wrap;font-size:0.71rem;"
+                  "padding-top:8px;border-top:1px solid #1A1A1A'>" + "".join(chips) + "</div>")
+        h += "</div>"
+        return h
+    except Exception as e:
+        return "<div style='color:#C1121F;font-size:0.7rem'>pre-card error: " + str(e)[:70] + "</div>"
+
+
+
+
+def orb_strike_expiration(levels, geo, side, vol_class=None):
+    """
+    Strike + expiration + estimated contract move, driven by the ORB trade geometry.
+    Entry = ORB level, Target = next structural level, Move = target - entry.
+    Uses a delta approximation (no live chain). Returns three sized options.
+    NOTE: contract-move dollars are ESTIMATES from delta, not live option prices.
+    """
+    res = {"available": False, "entry": 0.0, "target": 0.0, "stop": 0.0,
+           "move": 0.0, "move_pct": 0.0, "options": [], "note": ""}
+    try:
+        entry  = geo.get("entry", 0.0)
+        target = geo.get("target", 0.0)
+        stop   = geo.get("stop", 0.0)
+        if entry <= 0 or target <= 0:
+            res["note"] = "geometry unavailable"
+            return res
+
+        bull = (side == "high")
+        move = (target - entry) if bull else (entry - target)
+        if move <= 0:
+            res["note"] = "no room to target"
+            return res
+
+        res.update({"entry": entry, "target": target, "stop": stop,
+                    "move": move, "move_pct": (move / entry) * 100.0})
+
+        def _incr(p):
+            if p >= 500: return 5.0
+            if p >= 100: return 1.0
+            if p >= 25:  return 0.5
+            return 1.0
+        inc = _incr(entry)
+        def _round(v):
+            return round(round(v / inc) * inc, 2)
+
+        mp = res["move_pct"]
+        if mp <= 0.6:
+            dte_c, dte_b, dte_a = "1-2 DTE", "0-1 DTE", "0 DTE"
+        elif mp <= 1.2:
+            dte_c, dte_b, dte_a = "2-3 DTE", "1-2 DTE", "0-1 DTE"
+        else:
+            dte_c, dte_b, dte_a = "3-5 DTE", "2-3 DTE", "1-2 DTE"
+
+        if bull:
+            k_cons, k_bal, k_aggr = _round(entry - inc), _round(entry), _round(entry + inc)
+        else:
+            k_cons, k_bal, k_aggr = _round(entry + inc), _round(entry), _round(entry - inc)
+
+        specs = [
+            ("Conservative", k_cons, 0.65, dte_c,
+             "Slightly ITM — higher delta, less theta risk, costs more."),
+            ("Balanced",     k_bal,  0.50, dte_b,
+             "At the money — balanced cost and sensitivity."),
+            ("Aggressive",   k_aggr, 0.38, dte_a,
+             "Slightly OTM — cheaper, needs the move to actually hit."),
+        ]
+        opts = []
+        for label, strike, delta, dte, why in specs:
+            opts.append({
+                "label": label, "strike": strike, "delta": delta,
+                "dte": dte, "why": why,
+                "est_contract_move": round(move * delta * 100.0, 0),
+                "type": "CALL" if bull else "PUT",
+            })
+        res["options"] = opts
+        res["available"] = True
+        return res
+    except Exception as e:
+        res["note"] = "strike calc error: " + str(e)[:50]
+        return res
+
+
+def render_orb_strike_html(strike_data, side):
+    """Render the strike/expiration block. Uses .format() throughout to avoid
+    the %-operator precedence trap with string concatenation."""
+    try:
+        if not strike_data.get("available"):
+            return ""
+        acol = "#22C55E" if side == "high" else "#C1121F"
+
+        rows = ""
+        for o in strike_data.get("options", []):
+            rows += (
+                "<div style='display:flex;justify-content:space-between;align-items:baseline;"
+                "gap:8px;padding:5px 0;border-top:1px solid #151515;font-size:0.72rem'>"
+                "<span style='color:#A1A1A6;min-width:78px'>{label}</span>"
+                "<span style='color:{acol};font-weight:700;min-width:92px'>${strike:.2f} {typ}</span>"
+                "<span style='color:#6B6B6B;min-width:64px'>{dte}</span>"
+                "<span style='color:#6B6B6B'>~{delta:.0f}&Delta;</span>"
+                "<span style='color:#22C55E;font-weight:700'>&asymp;${est}/contract</span></div>"
+            ).format(label=o["label"], acol=acol, strike=o["strike"], typ=o["type"],
+                     dte=o["dte"], delta=o["delta"] * 100,
+                     est="{:,.0f}".format(o["est_contract_move"]))
+
+        html = (
+            "<div style='background:#0D0D0D;border:1px solid #1F1F1F;border-radius:4px;"
+            "padding:9px 11px;margin-bottom:11px'>"
+            "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:7px'>"
+            "<span style='color:#D4AF37;font-size:0.62rem;font-weight:700;letter-spacing:1.2px'>"
+            "STRIKE &amp; EXPIRATION</span>"
+            "<span style='color:#6B6B6B;font-size:0.62rem'>move to target ${move:.2f} ({movepct:.1f}%)</span></div>"
+            "{rows}"
+            "<div style='color:#6B6B6B;font-size:0.63rem;margin-top:6px;line-height:1.4'>"
+            "Contract move is estimated from delta for the full run to target &mdash; "
+            "not a live option quote. Strikes rounded to tradeable increments.</div></div>"
+        ).format(move=strike_data.get("move", 0), movepct=strike_data.get("move_pct", 0), rows=rows)
+        return html
+    except Exception as e:
+        return "<div style='color:#C1121F;font-size:0.7rem'>strike render error: " + str(e)[:70] + "</div>"
+
+
+
+
+def orb_build_context(ticker, direction, df_5m=None, last_price=0.0):
+    """
+    Bridge the ORB scorer to the features already in the screener.
+    Every source is isolated — a failure records itself in _errors instead of
+    silently returning empty. Context modifies the score; it never creates a signal.
+    """
+    ctx = {"news_direction": "", "news_strength": 0.0, "squeeze_active": False,
+           "squeeze_direction": "", "market_bias": "", "vol_tier": "",
+           "block_in_path": False, "_errors": []}
+
+    try:
+        untradeable, _reason, news, _adj, _flip, _fr = run_news_check(ticker, direction)
+        sent = (news or {}).get("sentiment", "neutral")
+        raw  = abs(float((news or {}).get("score", 0)))
+        ctx["news_direction"] = sent
+        ctx["news_strength"]  = max(0.0, min(1.0, raw / 60.0))
+        if untradeable:
+            ctx["news_direction"] = "bearish" if direction == "bullish" else "bullish"
+            ctx["news_strength"]  = 1.0
+    except Exception as e:
+        ctx["_errors"].append("news: " + str(e)[:45])
+
+    try:
+        mb = get_weekly_macro_bias() or {}
+        ov = str(mb.get("overall", "NEUTRAL")).lower()
+        ctx["market_bias"] = ov if ov in ("bullish", "bearish") else "neutral"
+    except Exception as e:
+        ctx["_errors"].append("bias: " + str(e)[:45])
+
+    try:
+        vc = classify_stock_volatility(ticker, last_price or None) or {}
+        ctx["vol_tier"] = vc.get("tier", "")
+    except Exception as e:
+        ctx["_errors"].append("vol: " + str(e)[:45])
+
+    try:
+        if df_5m is None:
+            df_5m = _fmp_download(ticker, "5d", "5m")
+        if df_5m is not None and len(df_5m) >= 25:
+            state, comp = detect_squeeze(df_5m, direction)
+            ctx["squeeze_active"]    = state in ("fired", "firing", "confirmed", "squeeze")
+            ctx["squeeze_direction"] = direction if ctx["squeeze_active"] else ""
+    except Exception as e:
+        ctx["_errors"].append("squeeze: " + str(e)[:45])
+
+    try:
+        _, df_rth, _ = orb_session_frames(df_5m)
+        if df_rth is not None and len(df_rth) >= 6:
+            vols = [float(v) for v in df_rth["volume"].tolist()]
+            avg  = sum(vols[:-1]) / max(1, len(vols) - 1)
+            recent = vols[-3:]
+            if avg > 0 and max(recent) >= avg * 2.5:
+                idx  = vols.index(max(recent))
+                bar  = df_rth.iloc[idx]
+                rng  = float(bar["high"]) - float(bar["low"])
+                body = abs(float(bar["close"]) - float(bar["open"]))
+                # Heavy volume with a small body = absorption sitting in the path
+                if rng > 0 and (body / rng) < 0.35:
+                    ctx["block_in_path"] = True
+    except Exception as e:
+        ctx["_errors"].append("block: " + str(e)[:45])
+
+    return ctx
+
+
+def run_orb_scan(tickers, max_workers=4, progress_cb=None):
+    """Scan the universe for ORB structure. Returns (candidates, building, stats)."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    cands, building = [], []
+    done, errors = 0, 0
+
+    def _one(tk):
+        try:
+            df_5m = _fmp_download(tk, "5d", "5m")
+            if df_5m is None or len(df_5m) == 0:
+                return tk, []
+            levels = orb_calc_levels(tk, df_5m=df_5m)
+            if not levels.get("available"):
+                return tk, []
+            if levels.get("state") == "RANGE_BUILDING":
+                return tk, [{"_building": True, "levels": levels}]
+
+            events = orb_detect_events(levels, df_5m=df_5m)
+            if not events.get("available"):
+                return tk, []
+            rows = []
+            for side in ("high", "low"):
+                if not events.get(side, {}).get("broken"):
+                    continue
+                structure = orb_evaluate_structure(levels, events, side, df_5m=df_5m)
+                if not structure.get("last_vwap"):
+                    structure["last_vwap"] = events.get("last_vwap", 0)
+                if not structure.get("last_ema9"):
+                    structure["last_ema9"] = events.get("last_ema9", 0)
+                geo = orb_calc_trade_geometry(levels, side, events=events)
+                ctx = orb_build_context(tk, "bullish" if side == "high" else "bearish",
+                                        df_5m=df_5m, last_price=levels.get("last_price", 0))
+                score = orb_score_setup(levels, events, structure, side, geo, ctx)
+                rows.append({
+                    "ticker": tk, "side": side, "state": structure.get("state", ""),
+                    "levels": levels, "events": events, "structure": structure,
+                    "geo": geo, "score_data": score, "score": score.get("score", 0),
+                    "bucket": score.get("bucket", ""), "ctx": ctx,
+                    "direction": "bullish" if side == "high" else "bearish",
+                    "last_price": levels.get("last_price", 0),
+                })
+            return tk, rows
+        except Exception:
+            return tk, None
+
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="pbp_orb") as ex:
+        futs = {ex.submit(_one, t): t for t in tickers}
+        for f in as_completed(futs):
+            tk, rows = f.result()
+            done += 1
+            if rows is None:
+                errors += 1
+            elif rows:
+                for r in rows:
+                    (building if r.get("_building") else cands).append(r)
+            if progress_cb:
+                try:
+                    progress_cb(done, len(tickers), tk)
+                except Exception:
+                    pass
+
+    cands.sort(key=lambda r: (-r.get("score", 0), r.get("ticker", "")))
+    stats = {"scanned": len(tickers), "errors": errors,
+             "with_breaks": len(set(c["ticker"] for c in cands)),
+             "building": len(building)}
+    return cands, building, stats
+
+
+# OPENING MOMENTUM ENGINE — pre-range thrust detection (9:30–9:45 window only)
+# Calibrated on 7/27/2026 exact 09:30 candles:
+#   AMD  range $8.41, closed $1 below VWAP  -> ran ~$48  (Signal A, immediate thrust)
+#   TSLA range $4.38, closed above VWAP, broke by 9:50   (Signal B, delayed break)
+#   SPY  range $1.23, pinned to VWAP        -> bled ~$6  (null / lowest conviction)
+# This mode SHOWS momentum with loud caution labeling — it does not gate it out.
+
+MOM_WINDOW_START = 9 * 60 + 30      # 9:30
+MOM_WINDOW_END   = 9 * 60 + 45      # 9:45 — mode goes dormant after this
+# Candle-one range must be this multiple of the name's normal opening range to count as a thrust.
+MOM_RANGE_MULT_STRONG = 2.5         # AMD-class
+MOM_RANGE_MULT_MOD    = 1.6         # meaningful but not violent
+# Relative volume multiples (vs the name's own recent opening-bar volume).
+MOM_RVOL_STRONG = 3.0
+MOM_RVOL_MOD    = 1.8
+# How decisively candle one must close beyond VWAP, as a fraction of that candle's range.
+MOM_VWAP_DECISIVE = 0.15            # close is ≥15% of the bar's range beyond VWAP
+# Suggested starter size as a PERCENTAGE of the trader's normal ORB size.
+MOM_SIZE_STRONG = 50                # STRONG conviction -> up to 50%
+MOM_SIZE_MOD    = 33
+MOM_SIZE_SPEC   = 20                # SPECULATIVE -> 20% or less
+
+
+def _mom_minutes(ts):
+    try:
+        return int(ts.hour) * 60 + int(ts.minute)
+    except Exception:
+        return -1
+
+
+def mom_normal_open_range(ticker, df_5m, session_date):
+    """
+    The name's TYPICAL 9:30 candle range and volume, from prior sessions.
+    Returns (avg_range, avg_vol) — the baseline the live open is judged against.
+    Falls back to (0,0) if not enough history.
+    """
+    try:
+        d = df_5m.copy()
+        d["_date"] = d["datetime"].dt.date
+        d["_min"]  = d["datetime"].apply(_mom_minutes)
+        opens = d[(d["_min"] == MOM_WINDOW_START) & (d["_date"] < session_date)]
+        if len(opens) == 0:
+            return 0.0, 0.0
+        rng = (opens["high"].astype(float) - opens["low"].astype(float))
+        vol = opens["volume"].astype(float)
+        # Use median — robust to the odd gap day skewing the mean.
+        return float(rng.median()), float(vol.median())
+    except Exception:
+        return 0.0, 0.0
+
+
+def mom_scan_open(ticker, df_5m=None, market_ctx=None):
+    """
+    Read the 9:30–9:45 window for an opening-momentum setup.
+    market_ctx (optional): {"spy_dir": "up"|"down"|"flat", "sector_dir": ...,
+                            "catalyst": bool, "catalyst_dir": "bullish"|"bearish"}
+    Returns dict; 'available' False when outside the window or no data.
+    'signal' one of: NONE | A_THRUST | B_DELAYED
+    """
+    res = {"available": False, "ticker": ticker, "signal": "NONE",
+           "direction": "", "conviction": "", "score": 0, "size_pct": 0,
+           "factors": [], "candle1": {}, "note": "", "in_window": False,
+           "vwap_c1": 0.0, "range_c1": 0.0, "rvol": 0.0}
+    try:
+        if df_5m is None:
+            df_5m = _fmp_download(ticker, "5d", "5m")
+        if df_5m is None or len(df_5m) == 0:
+            res["note"] = "no intraday data"
+            return res
+
+        d = df_5m.copy()
+        d["_date"] = d["datetime"].dt.date
+        sess = d["_date"].max()
+        d = d[d["_date"] == sess].copy()
+        d["_min"] = d["datetime"].apply(_mom_minutes)
+        rth = d[(d["_min"] >= MOM_WINDOW_START) & (d["_min"] < 16 * 60)].reset_index(drop=True)
+        if len(rth) == 0:
+            res["note"] = "no RTH bars"
+            return res
+
+        last_min = int(rth["_min"].iloc[-1])
+        # Mode is only live during the opening window. After 9:45 it's dormant
+        # (ORB takes over) — but we still report what it WOULD have flagged for the handoff.
+        res["in_window"] = last_min < MOM_WINDOW_END
+
+        c1 = rth.iloc[0]
+        o1, h1, l1, cl1 = float(c1["open"]), float(c1["high"]), float(c1["low"]), float(c1["close"])
+        v1 = float(c1["volume"]) or 0.0
+        rng1 = h1 - l1
+        res["candle1"] = {"open": o1, "high": h1, "low": l1, "close": cl1, "volume": v1}
+        res["range_c1"] = rng1
+
+        # VWAP over the window so far
+        vwaps = orb_calc_vwap(rth)  # reuse ORB's VWAP
+        vwap1 = vwaps[0] if vwaps else cl1
+        res["vwap_c1"] = vwap1
+
+        # Baselines from prior sessions
+        norm_rng, norm_vol = mom_normal_open_range(ticker, df_5m, sess)
+        rvol = (v1 / norm_vol) if norm_vol > 0 else 0.0
+        range_mult = (rng1 / norm_rng) if norm_rng > 0 else 0.0
+        res["rvol"] = round(rvol, 2)
+
+        bar_rng = max(rng1, 1e-9)
+        # Direction + decisiveness of candle-one VWAP close
+        below = cl1 < vwap1
+        above = cl1 > vwap1
+        vwap_dist_frac = abs(cl1 - vwap1) / bar_rng
+        decisive = vwap_dist_frac >= MOM_VWAP_DECISIVE
+        direction = "bearish" if below else ("bullish" if above else "")
+        res["direction"] = direction
+
+        # ---- Factor scorecard (lit/dark) ----
+        factors = []
+        # X — relative volume
+        if rvol >= MOM_RVOL_STRONG:
+            factors.append(("X", True,  "RVOL %.1fx — heavy" % rvol))
+        elif rvol >= MOM_RVOL_MOD:
+            factors.append(("X", True,  "RVOL %.1fx — elevated" % rvol))
+        elif rvol > 0:
+            factors.append(("X", False, "RVOL %.1fx — ordinary" % rvol))
+        else:
+            factors.append(("X", False, "RVOL unavailable"))
+        # (range multiple rides alongside X as the "how big is candle one" read)
+        if range_mult >= MOM_RANGE_MULT_STRONG:
+            factors.append(("range", True,  "Opening candle %.1fx normal — violent" % range_mult))
+        elif range_mult >= MOM_RANGE_MULT_MOD:
+            factors.append(("range", True,  "Opening candle %.1fx normal" % range_mult))
+        elif range_mult > 0:
+            factors.append(("range", False, "Opening candle %.1fx normal — quiet" % range_mult))
+        else:
+            factors.append(("range", False, "No range baseline"))
+        # Y — VWAP held / decisive close
+        if direction and decisive:
+            factors.append(("Y", True,  "Closed decisively %s VWAP" % ("below" if below else "above")))
+        elif direction:
+            factors.append(("Y", False, "Near VWAP — not decisive"))
+        else:
+            factors.append(("Y", False, "Pinned to VWAP — no commit"))
+        # Z — one-directional candle (open near one end, close near the other)
+        if direction == "bearish":
+            body_pos = (o1 - l1) / bar_rng   # open near high, close near low = strong
+            clean = (o1 >= h1 - bar_rng * 0.35) and (cl1 <= l1 + bar_rng * 0.35)
+        elif direction == "bullish":
+            clean = (o1 <= l1 + bar_rng * 0.35) and (cl1 >= h1 - bar_rng * 0.35)
+        else:
+            clean = False
+        factors.append(("Z", clean, "Clean one-way candle" if clean else "Wicky / two-sided candle"))
+        # Z1 — catalyst
+        mc = market_ctx or {}
+        cat = bool(mc.get("catalyst"))
+        cat_aligned = cat and (mc.get("catalyst_dir", "") == direction)
+        factors.append(("Z1", cat_aligned,
+                        "Catalyst aligned" if cat_aligned else ("Catalyst opposes" if cat else "No catalyst")))
+        # Z2 — broad-market agreement
+        want = "down" if direction == "bearish" else ("up" if direction == "bullish" else "")
+        spy_ok = want and (mc.get("spy_dir", "") == want)
+        sec_ok = want and (mc.get("sector_dir", "") == want)
+        market_agree = bool(spy_ok or sec_ok)
+        factors.append(("Z2", market_agree,
+                        "Market/sector agrees" if market_agree else "No broad-market confirmation"))
+        # Z3 — room to run (not already exhausted on candle one)
+        # If candle one already moved > ~1.2x the name's normal FULL opening range, it may be spent.
+        exhausted = norm_rng > 0 and (rng1 > norm_rng * 3.5)
+        factors.append(("Z3", not exhausted,
+                        "Room to run" if not exhausted else "May be exhausted — big candle already"))
+        res["factors"] = factors
+
+        # ---- Signal classification ----
+        core_ok = (rvol >= MOM_RVOL_MOD or range_mult >= MOM_RANGE_MULT_MOD)
+        if not direction:
+            res["signal"] = "NONE"
+            res["note"] = "Opening candle pinned to VWAP — no directional thrust"
+            # SPY-type null still returns available so the board can show "nothing here"
+            res["available"] = True
+            return res
+
+        # Signal A — immediate thrust: big candle, decisive VWAP break, whole move in candle one
+        strong_range = range_mult >= MOM_RANGE_MULT_STRONG or rng1 >= (norm_rng * 2.5 if norm_rng else rng1)
+        if strong_range and decisive and clean:
+            res["signal"] = "A_THRUST"
+        elif core_ok and direction:
+            # Signal B — delayed/forming: meaningful candle, direction set, but not the
+            # violent one-candle break. Often resolves into the ORB break by 9:45–9:50.
+            res["signal"] = "B_DELAYED"
+        else:
+            res["signal"] = "NONE"
+            res["note"] = "Directional but below momentum thresholds — likely just noise"
+            res["available"] = True
+            return res
+
+        # ---- Conviction + score from factors lit ----
+        lit = sum(1 for _, ok, _ in factors if ok)
+        total = len(factors)
+        res["score"] = int(round(lit / total * 100))
+        if res["signal"] == "A_THRUST" and lit >= 5:
+            res["conviction"], res["size_pct"] = "STRONG", MOM_SIZE_STRONG
+        elif lit >= 4:
+            res["conviction"], res["size_pct"] = "MODERATE", MOM_SIZE_MOD
+        else:
+            res["conviction"], res["size_pct"] = "SPECULATIVE", MOM_SIZE_SPEC
+
+        res["available"] = True
+        return res
+    except Exception as e:
+        res["note"] = "momentum error: " + str(e)[:60]
+        return res
+
+
+MOM_SIG_STYLE = {
+    "A_THRUST":  ("#C1121F", "IMMEDIATE THRUST"),
+    "B_DELAYED": ("#F6E27A", "DELAYED / FORMING"),
+    "NONE":      ("#6B6B6B", "NO THRUST"),
+}
+MOM_CONV_COLOR = {"STRONG": "#22C55E", "MODERATE": "#D4AF37", "SPECULATIVE": "#F6E27A"}
+
+
+def render_momentum_card_html(m):
+    """Opening-momentum card — loud caution, factor scorecard, two-leg sizing."""
+    try:
+        sig = m.get("signal", "NONE")
+        if sig == "NONE":
+            return ""  # nulls handled by the tab as a summary line, not a card
+        scol, slabel = MOM_SIG_STYLE.get(sig, MOM_SIG_STYLE["NONE"])
+        direction = m.get("direction", "")
+        acol = "#22C55E" if direction == "bullish" else "#C1121F"
+        adir = "CALLS" if direction == "bullish" else "PUTS"
+        conv = m.get("conviction", "")
+        ccol = MOM_CONV_COLOR.get(conv, "#6B6B6B")
+
+        h = ("<div style='background:#0A0A0A;border:1px solid #1F1F1F;border-left:3px solid "
+             + scol + ";border-radius:6px;padding:14px 16px;margin:10px 0'>")
+
+        # Header
+        h += ("<div style='display:flex;align-items:center;justify-content:space-between;"
+              "flex-wrap:wrap;gap:8px;margin-bottom:10px'>"
+              "<div style='display:flex;align-items:center;gap:9px'>"
+              "<span style='color:#F5F5F5;font-size:1.12rem;font-weight:800;letter-spacing:1px'>"
+              + str(m.get("ticker", "")) + "</span>"
+              "<span style='background:" + acol + "22;color:" + acol + ";border:1px solid " + acol
+              + ";border-radius:3px;padding:2px 7px;font-size:0.6rem;font-weight:700;letter-spacing:1px'>"
+              + adir + "</span>"
+              "<span style='background:" + scol + "22;color:" + scol + ";border:1px solid " + scol
+              + ";border-radius:3px;padding:2px 7px;font-size:0.58rem;font-weight:700;letter-spacing:1px'>"
+              "\u26A1 " + slabel + "</span></div>"
+              "<div style='display:flex;align-items:center;gap:8px'>"
+              "<span style='background:" + ccol + "22;color:" + ccol + ";border:1px solid " + ccol
+              + ";border-radius:3px;padding:2px 8px;font-size:0.6rem;font-weight:700;letter-spacing:1px'>"
+              + conv + "</span></div></div>")
+
+        # LOUD caution line — on every card, every time
+        h += ("<div style='background:#C1121F14;border:1px solid #C1121F55;border-radius:4px;"
+              "padding:7px 10px;margin-bottom:11px'>"
+              "<div style='color:#F87171;font-size:0.7rem;line-height:1.45'>"
+              "\u26A0 <b>EARLY &middot; UNCONFIRMED &middot; CAN REVERSE.</b> The open is the most "
+              "violent part of the day. This has NOT been confirmed by the opening range yet. "
+              "Size small, confirm with the range.</div></div>")
+
+        # Two-leg plan
+        h += ("<div style='background:#0D0D0D;border:1px solid #1F1F1F;border-radius:4px;"
+              "padding:9px 11px;margin-bottom:11px'>"
+              "<div style='color:#D4AF37;font-size:0.62rem;font-weight:700;letter-spacing:1.2px;"
+              "margin-bottom:6px'>TWO-LEG PLAN</div>"
+              "<div style='font-size:0.73rem;line-height:1.55'>"
+              "<div style='color:#F5F5F5'><b style='color:" + ccol + "'>Leg 1 (now):</b> starter at "
+              "<b>" + str(m.get("size_pct", 0)) + "% of your normal ORB size</b> — this is the "
+              "unconfirmed momentum entry.</div>"
+              "<div style='color:#F5F5F5;margin-top:3px'><b style='color:#22C55E'>Leg 2 (on ORB "
+              "confirm):</b> if the range breaks the same direction after 9:45, add the second "
+              "leg — your starter is already working.</div></div></div>")
+
+        # Factor scorecard (lit/dark)
+        h += ("<div style='background:#0D0D0D;border:1px solid #1F1F1F;border-radius:4px;"
+              "padding:9px 11px;margin-bottom:8px'>"
+              "<div style='color:#D4AF37;font-size:0.62rem;font-weight:700;letter-spacing:1.2px;"
+              "margin-bottom:6px'>MOMENTUM FACTORS &middot; " + str(m.get("score", 0)) + "/100</div>")
+        for tag, ok, txt in m.get("factors", []):
+            dot = "#22C55E" if ok else "#3A3A3A"
+            tcol = "#F5F5F5" if ok else "#6B6B6B"
+            mark = "\u2713" if ok else "\u00B7"
+            h += ("<div style='display:flex;align-items:center;gap:8px;font-size:0.71rem;line-height:1.7'>"
+                  "<span style='color:" + dot + ";font-weight:700;min-width:12px'>" + mark + "</span>"
+                  "<span style='color:#6B6B6B;min-width:40px;font-size:0.6rem;letter-spacing:0.5px'>"
+                  + str(tag).upper() + "</span>"
+                  "<span style='color:" + tcol + "'>" + txt + "</span></div>")
+        h += "</div>"
+
+        # Candle-one facts
+        c1 = m.get("candle1", {})
+        h += ("<div style='display:flex;gap:11px;flex-wrap:wrap;font-size:0.68rem;color:#6B6B6B;"
+              "padding-top:6px;border-top:1px solid #1A1A1A'>"
+              "<span>Open candle range <b style='color:#F5F5F5'>$%.2f</b></span>"
+              "<span>Close <b style='color:%s'>$%.2f</b></span>"
+              "<span>VWAP <b style='color:#F5F5F5'>$%.2f</b></span>"
+              "<span>RVOL <b style='color:#F5F5F5'>%.1fx</b></span></div>"
+              % (m.get("range_c1", 0), acol, c1.get("close", 0),
+                 m.get("vwap_c1", 0), m.get("rvol", 0)))
+        h += "</div>"
+        return h
+    except Exception as e:
+        return ("<div style='color:#C1121F;font-size:0.72rem'>momentum card error: "
+                + str(e)[:80] + "</div>")
+
+
+
+
+def mom_market_context(direction_hint=None):
+    """
+    Broad-market read for the momentum factors, computed ONCE per scan and reused
+    for every ticker (SPY/sector direction doesn't change per name).
+    Returns {"spy_dir","sector_dir","catalyst_by_ticker_fn"...}. Isolated failures.
+    """
+    ctx = {"spy_dir": "flat", "qqq_dir": "flat", "_errors": []}
+    try:
+        # SPY opening-candle direction from its own 5m
+        spy = _fmp_download("SPY", "5d", "5m")
+        if spy is not None and len(spy) > 0:
+            d = spy.copy(); d["_date"] = d["datetime"].dt.date
+            d = d[d["_date"] == d["_date"].max()]
+            if len(d) > 0:
+                c1 = d.iloc[0]
+                op, cl = float(c1["open"]), float(c1["close"])
+                ch = (cl - op) / op * 100 if op else 0
+                ctx["spy_dir"] = "up" if ch > 0.05 else ("down" if ch < -0.05 else "flat")
+    except Exception as e:
+        ctx["_errors"].append("spy: " + str(e)[:40])
+    try:
+        qqq = _fmp_download("QQQ", "5d", "5m")
+        if qqq is not None and len(qqq) > 0:
+            d = qqq.copy(); d["_date"] = d["datetime"].dt.date
+            d = d[d["_date"] == d["_date"].max()]
+            if len(d) > 0:
+                c1 = d.iloc[0]
+                op, cl = float(c1["open"]), float(c1["close"])
+                ch = (cl - op) / op * 100 if op else 0
+                ctx["qqq_dir"] = "up" if ch > 0.05 else ("down" if ch < -0.05 else "flat")
+    except Exception as e:
+        ctx["_errors"].append("qqq: " + str(e)[:40])
+    return ctx
+
+
+def mom_ticker_context(ticker, direction, base_ctx):
+    """Per-ticker momentum context: sector proxy = QQQ for tech names, plus news catalyst."""
+    mc = {"spy_dir": base_ctx.get("spy_dir", "flat"),
+          "sector_dir": base_ctx.get("qqq_dir", "flat"),
+          "catalyst": False, "catalyst_dir": ""}
+    try:
+        untradeable, _r, news, _a, _f, _fr = run_news_check(ticker, direction)
+        sent = (news or {}).get("sentiment", "neutral")
+        strong = abs(float((news or {}).get("score", 0))) >= 25
+        if sent in ("bullish", "bearish") and strong:
+            mc["catalyst"] = True
+            mc["catalyst_dir"] = sent
+    except Exception:
+        pass
+    return mc
+
+
+def run_momentum_scan(tickers, max_workers=4, progress_cb=None):
+    """Scan the universe for opening-momentum setups. Returns (thrust, delayed, nulls, stats)."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    base = mom_market_context()
+    thrust, delayed, nulls = [], [], []
+    done, errors = 0, 0
+
+    def _one(tk):
+        try:
+            df5 = _fmp_download(tk, "5d", "5m")
+            if df5 is None or len(df5) == 0:
+                return tk, None
+            # Direction hint from candle one so news context can align
+            d = df5.copy(); d["_date"] = d["datetime"].dt.date
+            d = d[d["_date"] == d["_date"].max()].reset_index(drop=True)
+            hint = ""
+            if len(d) > 0:
+                c1 = d.iloc[0]
+                hint = "bearish" if float(c1["close"]) < float(c1["open"]) else "bullish"
+            mc = mom_ticker_context(tk, hint, base)
+            m = mom_scan_open(tk, df_5m=df5, market_ctx=mc)
+            return tk, m
+        except Exception:
+            return tk, "ERR"
+
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="pbp_mom") as ex:
+        futs = {ex.submit(_one, t): t for t in tickers}
+        for f in as_completed(futs):
+            tk, m = f.result()
+            done += 1
+            if m == "ERR" or m is None:
+                if m == "ERR":
+                    errors += 1
+            elif m.get("available"):
+                sig = m.get("signal")
+                if sig == "A_THRUST":
+                    thrust.append(m)
+                elif sig == "B_DELAYED":
+                    delayed.append(m)
+                # NONE = null, we don't surface cards but count them
+            if progress_cb:
+                try:
+                    progress_cb(done, len(tickers), tk)
+                except Exception:
+                    pass
+
+    thrust.sort(key=lambda x: -x.get("score", 0))
+    delayed.sort(key=lambda x: -x.get("score", 0))
+    stats = {"scanned": len(tickers), "errors": errors,
+             "thrust": len(thrust), "delayed": len(delayed),
+             "spy_dir": base.get("spy_dir", "flat"), "qqq_dir": base.get("qqq_dir", "flat")}
+    return thrust, delayed, nulls, stats
+
+
 def render_news_sentiment_html(news_data, ticker, signal_direction=None,
                                 flip_signal=False, flip_reason="", conf_adj=0):
     if not news_data or not news_data.get("article_count"):
@@ -8947,7 +10120,7 @@ if _mt:
         unsafe_allow_html=True
     )
 
-tab4,tab1,tab2,tab9,tab7,tab_stats = st.tabs(["SCAN","SIGNALS","CHART","🎯 SNIPER","HOW IT WORKS","📊 STATS"])
+tab_orb,tab_mom,tab4,tab2,tab7,tab_stats = st.tabs(["🔴 ORB","⚡ MOMENTUM","SCAN","CHART","HOW IT WORKS","📊 STATS"])
 
 try:
     _macro_w = get_macro_event_warning()
@@ -8965,84 +10138,6 @@ try:
 except Exception:
     pass
 render_weekly_bias_banner()
-
-with tab1:
-    if _blank_state:
-        st.markdown("<div style='text-align:center;color:#4a5568;padding:40px;font-size:0.85rem'>Select a ticker from the sidebar to view signals.</div>", unsafe_allow_html=True)
-    else:
-        cands_quick, tfs_quick = build_multi_tf_candidates(selected_ticker, toggles, account_size, risk_pct, dte_quick, "quick", atr=atr)
-        cands_swing, tfs_swing = build_multi_tf_candidates(selected_ticker, toggles, account_size, risk_pct, dte_swing, "swing", atr=atr)
-
-        # Replaces score_setup's 5-factor system with the full 6-signal engine.
-        def _enrich_with_precision(cands, tfs, style, dte_used):
-            pri_key = "15min" if style == "quick" else "1hr"  # quick primary = 15min
-            con_key = "5min" if style == "quick" else ("4hr" if "4hr" in tfs else "daily")
-            _pri = tfs.get(pri_key)
-            _con = tfs.get(con_key)
-            if _pri is None:
-                return cands
-            enriched = []
-            for c in cands:
-                try:
-                    _ps_conf, _ps_detail = precision_score(
-                        selected_ticker, c["direction"], _pri, _con,
-                        iv_rank, earnings_days,
-                        "neutral",      # market_bias — neutral for single ticker view
-                        "neutral",      # sector_bias — same reason
-                        atr, dte_used, account_size, risk_pct, style,
-                        current_price=current_price,
-                        signals_only=True  # skip hard stops — pattern already surfaced
-                    )
-                    if isinstance(_ps_detail, dict):
-                        # Enrichment adds signal detail and updates signal count.
-                        # Never lower the confidence — signals_only=True path skips
-                        # hard stops so its score can be lower than the full run.
-                        # Only update confidence if enrichment scored it HIGHER.
-                        if _ps_conf is not None and _ps_conf > c["confidence"]:
-                            c["confidence"] = _ps_conf
-                        c["detail"]        = _ps_detail
-                        c["signals_hit"]   = _ps_detail.get("signals_hit", 0)
-                        c["signal_detail"] = _ps_detail.get("signal_detail", [])
-                        c["confluence"]    = _ps_detail.get("confluence", {})
-                        c["vol_class"]     = _ps_detail.get("vol_class", {})
-                        c["fib_data"]      = _ps_detail.get("fib_data", {})
-                except Exception:
-                    pass
-                enriched.append(c)
-            return enriched
-
-        if not _blank_state and current_price > 0:
-            cands_quick = _enrich_with_precision(cands_quick, tfs_quick, "quick", dte_quick)
-            cands_swing = _enrich_with_precision(cands_swing, tfs_swing, "swing", dte_swing)
-
-        no_quick = len(cands_quick) == 0
-        no_swing = len(cands_swing) == 0
-
-        if no_quick and no_swing:
-            st.markdown("""<div style='background:#111827;border:2px solid #2A2A2D;border-radius:12px;padding:24px;text-align:center;color:#A1A1A6'>
-                <div style='font-size:1rem;font-weight:700;margin:8px 0'>NO SIGNALS FOUND</div>
-                <div style='font-size:0.85rem'>Try Daily or 4 Hour timeframe, enable more patterns, or check a different ticker.</div>
-            </div>""", unsafe_allow_html=True)
-        else:
-            # Use first candidate list that has signals for shared logic below
-            candidates = cands_quick if not no_quick else cands_swing
-            # Side-by-side columns: Quick (purple) | Swing (blue)
-            col_q, col_s = st.columns(2)
-            with col_q:
-                st.markdown(f"<div style='background:#1a0a3a;border-radius:6px;padding:6px 12px;text-align:center;color:#aa88ff;font-family:monospace;font-size:0.75rem;letter-spacing:1px'>⚡ QUICK &nbsp;|&nbsp; {dte_quick}DTE</div>", unsafe_allow_html=True)
-            with col_s:
-                st.markdown(f"<div style='background:#0a1a2a;border-radius:6px;padding:6px 12px;text-align:center;color:#A1A1A6;font-family:monospace;font-size:0.75rem;letter-spacing:1px'>📅 SWING &nbsp;|&nbsp; {dte_swing}DTE</div>", unsafe_allow_html=True)
-
-            with col_q:
-                render_signal_cards(cands_quick, selected_ticker, dte_quick, "quick", "q",
-                                    df, current_price, atr, iv_rank, earnings_days,
-                                    mstatus, mtext, account_size, risk_pct,
-                                    htf_trend, htf_rsi, htf_ema, liq_ok)
-            with col_s:
-                render_signal_cards(cands_swing, selected_ticker, dte_swing, "swing", "s",
-                                    df, current_price, atr, iv_rank, earnings_days,
-                                    mstatus, mtext, account_size, risk_pct,
-                                    htf_trend, htf_rsi, htf_ema, liq_ok)
 
 with tab2:
     chart_db    = [s for s in detect_double_bottom(df, selected_ticker, rr_min=2.0) if s.confirmed]
@@ -10167,172 +11262,469 @@ with tab4:
         else:
             empty_bkt("No developing setups found.")
 
-with tab9:
-    st.markdown("""
-    <div style='background:linear-gradient(135deg,#0a0a0d,#111115);border:1px solid #D4AF37;
-    border-radius:12px;padding:20px 24px;margin-bottom:20px'>
-    <div style='font-family:Barlow Condensed,Arial Black,sans-serif;font-size:1.6rem;
-    font-weight:900;color:#D4AF37;letter-spacing:0.05em'>🎯 SNIPER MODE</div>
-    <div style='color:#A1A1A6;font-size:0.82rem;margin-top:4px'>
-    Only GO NOW signals with active triggers and execution score ≥ 75.
-    No noise. Pure execution feed.</div></div>
-    """, unsafe_allow_html=True)
-
-    _go_now_sniper = st.session_state.get("scan_go_now", []) or st.session_state.get("auto_scan_go_now", [])
-
-    if not _go_now_sniper:
-        st.markdown("<div style='text-align:center;color:#4a5568;padding:60px;font-size:0.85rem'>Run a scan to populate Sniper Mode.</div>", unsafe_allow_html=True)
-    else:
-        _sniper_hits = []
-        for _sr in _go_now_sniper:
-            try:
-                _s_1m = fetch_1min(_sr["ticker"])
-                _s_tt, _s_ta, _s_ew, _s_td = detect_micro_trigger(_s_1m, _sr.get("direction", "bullish"))
-                _s_vol = False
-                if _s_1m is not None and len(_s_1m) > 5:
-                    _s_va = float(_s_1m["volume"].iloc[-10:].mean())
-                    _s_vc = float(_s_1m["volume"].iloc[-1])
-                    _s_vol = _s_vc > _s_va * 1.2
-                _s_exec = calc_execution_score(
-                    _s_tt, _s_ta, _s_vol,
-                    _sr.get("entry_timing", {}).get("status", "WAITING"),
-                    _sr.get("direction", "bullish"),
-                    _s_1m, current_price, atr
-                )
-                if _s_exec >= 75 and _s_ta:
-                    _sniper_hits.append({"r": _sr, "exec": _s_exec, "trigger": _s_tt,
-                                         "detail": _s_td, "window": _s_ew})
-            except Exception:
-                pass
-
-        _sniper_hits.sort(key=lambda x: x["exec"], reverse=True)
-
-        if not _sniper_hits:
-            st.markdown("""
-            <div style='background:#111115;border:1px solid #2A2A2D;border-radius:10px;
-            padding:32px;text-align:center'>
-            <div style='font-size:1.1rem;font-weight:700;color:#A1A1A6;margin-bottom:8px'>
-            NO SNIPER SETUPS RIGHT NOW</div>
-            <div style='color:#4a5568;font-size:0.82rem'>
-            GO NOW signals exist but none have active triggers with execution score ≥ 75.<br>
-            Triggers fire when price hits the entry zone on 1-minute candles.<br>
-            Check back as market conditions develop.</div></div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"<div style='color:#D4AF37;font-size:0.78rem;font-weight:700;letter-spacing:0.15em;margin-bottom:16px'>⚡ {len(_sniper_hits)} ACTIVE SNIPER SETUP{'S' if len(_sniper_hits) != 1 else ''}</div>", unsafe_allow_html=True)
-            for _sh in _sniper_hits:
-                _r = _sh["r"]
-                _dir_color = "#D4AF37" if _r.get("direction") == "bullish" else "#C1121F"
-                _action = "BUY CALL" if _r.get("direction") == "bullish" else "BUY PUT"
-                st.markdown(f"""
-                <div style='background:linear-gradient(135deg,#0f0f12,#1a1a1d);
-                border:2px solid {_dir_color};border-radius:10px;padding:16px 20px;margin-bottom:12px'>
-                <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:10px'>
-                    <div>
-                        <span style='font-family:Barlow Condensed,Arial Black,sans-serif;
-                        font-size:1.3rem;font-weight:900;color:{_dir_color}'>{_r["ticker"]}</span>
-                        <span style='color:#A1A1A6;font-size:0.82rem;margin-left:10px'>{_action} · {_r.get("pattern","Signal")}</span>
-                    </div>
-                    <div style='text-align:right'>
-                        <div style='font-size:0.65rem;color:#A1A1A6'>EXECUTION</div>
-                        <div style='font-size:1.1rem;font-weight:700;color:#00C853'>{_sh["exec"]}%</div>
-                    </div>
-                </div>
-                <div style='font-size:0.8rem;color:#F5F5F5;font-weight:700'>⚡ {_sh["trigger"]} → {_sh["window"]}</div>
-                <div style='font-size:0.72rem;color:#A1A1A6;margin-top:4px'>{_sh["detail"]}</div>
-                <div style='display:flex;gap:20px;margin-top:10px;font-size:0.78rem'>
-                    <span style='color:#A1A1A6'>Conf: <b style='color:#F5F5F5'>{_r.get("confidence",0)}%</b></span>
-                    <span style='color:#A1A1A6'>Gates: <b style='color:#F5F5F5'>{_r.get("gates_passed",0)}/7</b></span>
-                    <span style='color:#A1A1A6'>Entry: <b style='color:#D4AF37'>${_r.get("price",0):.2f}</b></span>
-                    <span style='color:#A1A1A6'>Stop: <b style='color:#FF1744'>${_r.get("opt",{}).get("stop",0):.2f}</b></span>
-                </div></div>
-                """, unsafe_allow_html=True)
-                # Show Confluence Intel block — same data as signal card
-                try:
-                    _s_cfl = _r.get("confluence", _r.get("detail", {}).get("confluence", {}))
-                    if _s_cfl and _s_cfl.get("available"):
-                        st.markdown(render_confluence_block_html(_s_cfl, _r.get("direction","bullish")), unsafe_allow_html=True)
-                except Exception:
-                    pass
-
 with tab7:
     st.markdown("""
 <style>
-.hiw-section { background:#0B0B0C; border-radius:12px; padding:20px 24px;
-               margin-bottom:16px; border-left:3px solid #2A2A2D; }
-.hiw-title   { font-size:1.1rem; font-weight:700; color:#F5F5F5; margin-bottom:8px; }
-.hiw-body    { font-size:0.8rem; color:#A1A1A6; line-height:1.8; }
-.hiw-badge   { display:inline-block; padding:2px 10px; border-radius:20px;
-               font-size:0.7rem; font-weight:700; margin:2px; }
+.hiw-card { background:#0B0B0C; border-radius:12px; padding:18px 22px;
+            margin-bottom:14px; border-left:3px solid #2A2A2D; }
+.hiw-t    { font-size:1.05rem; font-weight:700; color:#F5F5F5; margin-bottom:8px; }
+.hiw-b    { font-size:0.8rem; color:#A1A1A6; line-height:1.75; }
+.hiw-b b  { color:#F5F5F5; }
+.hiw-chip { display:inline-block; padding:2px 9px; border-radius:4px;
+            font-size:0.65rem; font-weight:700; letter-spacing:0.5px; margin:1px 2px; }
 </style>
 """, unsafe_allow_html=True)
 
-    _hiw_sections = [
-        ("#2A2A2D", "🎯 What Is This?",
-         "PaidButPressured is a real-time options screener built for active traders who want high-conviction setups with clear execution timing — not just signals, but the exact moment to act on them.<br><br>"
-         "The engine runs two layers: a <b style='color:#F5F5F5'>Setup Layer</b> (7-point gate system, 7-signal precision scoring) and an <b style='color:#F5F5F5'>Execution Layer</b> (1-minute candle analysis, Sniper Strip, execution score 0–100)."),
-        ("#D4AF37", "🎯 The Sniper Strip — Read This First",
-         "<span class='hiw-badge' style='background:#00C85322;color:#00C853;border:1px solid #00C853'>🟢 ENTER NOW</span> Trigger active. Price in entry zone. Act.<br><br>"
-         "<span class='hiw-badge' style='background:#FFD60022;color:#FFD600;border:1px solid #FFD600'>🟡 WAIT — PULLBACK FORMING</span> Setup valid, not at entry zone yet.<br><br>"
-         "<span class='hiw-badge' style='background:#FF174422;color:#FF1744;border:1px solid #FF1744'>🔴 EXTENDED — DO NOT CHASE</span> Price too far from entry zone. Wait.<br><br>"
-         "<span class='hiw-badge' style='background:#1A1A1D;color:#A1A1A6;border:1px solid #A1A1A6'>⚪ NO ENTRY — MONITOR</span> No active trigger. Watch for setup."),
-        ("#00C853", "⚡ Micro Triggers — 1-Minute Signal",
-         "<b style='color:#F5F5F5'>VWAP RECLAIM</b> — Price crossed above VWAP (calls) or below (puts) on 1-min. Highest conviction trigger.<br><br>"
-         "<b style='color:#F5F5F5'>PULLBACK HOLD</b> — Price pulled back to VWAP/EMA8 and held. Enter on next push.<br><br>"
-         "<b style='color:#F5F5F5'>MOMENTUM BREAK</b> — Broke recent 1-min high/low with volume. Momentum entry — move happening now.<br><br>"
-         "<b style='color:#FF1744'>EXTENDED</b> — Price too far from VWAP. Do not chase. Wait for pullback."),
-        ("#D4AF37", "📊 Two Scores — Setup vs Execution",
-         "<b style='color:#F5F5F5'>Setup Score (Confidence %)</b> — How strong is the pattern? 7-signal precision score: trend, volume, exhaustion, squeeze, RSI divergence, Fibonacci, 200MA.<br><br>"
-         "<b style='color:#F5F5F5'>Execution Score (0–100%)</b> — How good is the TIMING right now? Trigger quality, 1-min volume, extension from entry zone.<br><br>"
-         "<b style='color:#00C853'>Strong (75%+)</b> — Clean timing. Enter if setup agrees. &nbsp;"
-         "<b style='color:#FFD600'>Moderate (50–74%)</b> — Watch closely. &nbsp;"
-         "<b style='color:#FF1744'>Weak (below 50%)</b> — Not the moment."),
-        ("#D4AF37", "🚦 Signal Tiers",
-         "<span class='hiw-badge' style='background:#22C55E22;color:#22C55E;border:1px solid #22C55E'>🟢 GO NOW</span> 85%+ conf, 5/7 gates, 4/7 signals, CONFIRMED entry. Act.<br><br>"
-         "<span class='hiw-badge' style='background:#D4AF3722;color:#D4AF37;border:1px solid #D4AF37'>🟡 WATCHING</span> Strong setup, waiting on confirmation. Add to Watch Queue.<br><br>"
-         "<span class='hiw-badge' style='background:#1A1A1D;color:#A1A1A6;border:1px solid #A1A1A6'>📋 ON DECK</span> Setup developing. Not ready. Monitor."),
-        ("#9966ff", "⚙️ The 7-Point Gate System",
-         "<b>Volatility</b> — IV Rank below 60%.<br>"
-         "<b>Volume</b> — 1.2x average minimum.<br>"
-         "<b>Momentum</b> — RSI divergence detected.<br>"
-         "<b>Entry Timing</b> — Price within 3% of entry level.<br>"
-         "<b>Risk/Reward</b> — 2:1 swing, 1.5:1 quick minimum.<br>"
-         "<b>Expiration</b> — DTE meets pattern timeframe.<br>"
-         "<b>Earnings</b> — No earnings within 7 days.<br><br>"
-         "5/7 minimum for GO NOW. 6–7/7 = PRIME SETUP badge."),
-        ("#C1121F", "📰 News Sentiment Engine",
-         "Every signal card includes live news sentiment. Philosophy: news is directional data, not a blocker.<br><br>"
-         "Hard blocks: trading halt and delisted only. Everything else is PUT/CALL intel.<br><br>"
-         "Confidence adj: aligned news +8, opposing -12. Reuters/Bloomberg 3x weight vs Seeking Alpha 0.8x.<br><br>"
-         "💡 NEWS SUGGESTS PUT/CALL — shows when news strongly contradicts signal direction."),
-        ("#D4AF37", "📡 Market Regime Engine",
-         "🟢 BULL CONFIRMED — Broad participation, CALL signals elevated.<br>"
-         "🔴 BEAR CONFIRMED — Sustained downtrend, PUT signals elevated.<br>"
-         "⚠️ BULL TRAP — Fake rally, CALL signals penalized.<br>"
-         "📉 DISTRIBUTION — Smart money selling into strength.<br>"
-         "💰 CAPITULATION — Extreme fear, watch for reversal.<br>"
-         "↔️ CHOPPY — No clear edge. Reduce size. Wait."),
-        ("#D4AF37", "📡 200-Day MA + Support/Resistance (NEW)",
-         "<b style='color:#F5F5F5'>200MA</b> — Signal 7 in precision engine. Above rising 200MA for CALLs = +8 pts structural alignment. Below 200MA for CALLs = -6 pts headwind. Shown on every signal card.<br><br>"
-         "<b style='color:#F5F5F5'>S/R Levels</b> — Swing highs/lows, 52-week H/L, and round numbers clustered and scored. At support for CALL = +8 pts. At resistance = -6 pts. Nearest sup/res shown on every card."),
-        ("#22C55E", "📋 The Rules — Simple Version",
-         "<b>1.</b> Sniper strip first — EXTENDED or NO ENTRY = skip regardless of confidence.<br><br>"
-         "<b>2.</b> Never enter on WAITING — wait for CONFIRMED.<br><br>"
-         "<b>3.</b> Setup Score + Execution Score must both be strong.<br><br>"
-         "<b>4.</b> Never fight the daily trend — Trend Opposing = cut size in half.<br><br>"
-         "<b>5.</b> Respect the stop — when price hits stop, exit. No hoping.<br><br>"
-         "<b>6.</b> Quick trades close same day — never hold overnight.<br><br>"
-         "<b style='color:#D4AF37'>One sentence:</b> Sniper strip ENTER NOW + execution ≥75% + CONFIRMED entry + 5/7 gates = execute. Everything else = wait."),
+    _hiw = [
+        ("#D4AF37", "🎯 What this tool does",
+         "This screener trades ONE strategy: the <b>Opening Range Breakout (ORB)</b>. "
+         "Every morning the first 15 minutes (9:30&ndash;9:45 ET) sets a high and a low. "
+         "That box is the <b>opening range</b>. When price breaks out of it with real "
+         "strength and then comes back to test that level and holds &mdash; that's the trade. "
+         "The tool watches all of it for you across your whole list, so you're not marking "
+         "levels by hand on 200 charts."),
+
+        ("#22C55E", "🚦 The three buckets",
+         "Every setup lands in one of three buckets so you know what to do at a glance:<br><br>"
+         "<span class='hiw-chip' style='background:#22C55E22;color:#22C55E;border:1px solid #22C55E'>GO NOW</span> "
+         "The retest held. The entry is live right now.<br>"
+         "<span class='hiw-chip' style='background:#D4AF3722;color:#D4AF37;border:1px solid #D4AF37'>WATCHING</span> "
+         "It broke but hasn't retested yet, or the volume was weak. Wait for confirmation.<br>"
+         "<span class='hiw-chip' style='background:#7AA2F722;color:#7AA2F7;border:1px solid #7AA2F7'>ON DECK</span> "
+         "The range is set and price is near a boundary, but nothing's triggered. Keep an eye on it."),
+
+        ("#22C55E", "🔑 The retest is the entry — not the break",
+         "This is the #1 thing beginners get wrong. When price first breaks out, that's the "
+         "<b>worst</b> time to enter &mdash; you're chasing and your stop is far away. The real "
+         "entry is the <b>retest</b>: price breaks out, pulls back to 'test' the level it broke, "
+         "and if it holds, THAT's your shot with a tight stop. The tool grades each retest "
+         "<b>A+ to B</b> based on where it holds (right at the level, or at VWAP / the 9EMA). "
+         "A break with no retest yet is never GO NOW &mdash; on purpose."),
+
+        ("#D4AF37", "📊 How setups are scored (70 / 30)",
+         "Each setup gets a score out of 100. <b>70 points</b> come from the structure &mdash; "
+         "did it break on a clean 5m close, was there volume, did the retest hold, is the "
+         "range a healthy size. <b>30 points</b> come from context &mdash; news catalyst, "
+         "squeeze, market direction, volatility. The key rule: <b>context can only lower a "
+         "score or add a little, never create a signal on its own.</b> Good news can't turn a "
+         "weak break into a trade. The structure has to be there first."),
+
+        ("#22C55E", "📈 Volume is the filter",
+         "A breakout without volume is a trap. The tool checks the volume on the break against "
+         "the stock's own normal pace. Weak volume? It tells you to <b>wait for the next 5m "
+         "candle to confirm</b> instead of jumping in. That patience is what separates traders "
+         "who last from traders who get chopped up."),
+
+        ("#7AA2F7", "🎯 Entry, stop, target, strike &amp; expiration",
+         "Every GO NOW card lays out the whole trade: <b>entry</b> at the level, <b>stop</b> at "
+         "the retest invalidation, and <b>target</b> at the nearest realistic level (capped at "
+         "~1x the day's average range, so it never targets something price can't reach "
+         "intraday). It also suggests a <b>strike and expiration</b> sized to that move, plus a "
+         "runner target if it trends. Note: the contract-dollar figures are estimates to help "
+         "you size &mdash; not live option prices."),
+
+        ("#C1121F", "⚡ The Momentum tab — high risk, read this",
+         "The <b>⚡ MOMENTUM</b> tab catches hard moves in the first 15 minutes, <b>before</b> "
+         "the range is even done. This is the most violent, least predictable part of the day. "
+         "Every momentum card is stamped <b>EARLY &middot; UNCONFIRMED &middot; CAN REVERSE</b> "
+         "for a reason. Use it as a heads-up, not a green light. The card shows a two-leg plan: "
+         "a small <b>starter</b> now (as a % of your normal size), then <b>add a second leg</b> "
+         "only if the range confirms the same direction after 9:45. Size small here. Always."),
+
+        ("#7AA2F7", "🔍 Scanning and single-ticker lookup",
+         "Scan your <b>watchlist</b>, a <b>sector</b>, or the <b>full universe</b> &mdash; the tool "
+         "only ever looks for the ORB setup. Want just one name? Type it into the search box at "
+         "the top of the ORB tab and you get the full read even <b>before it breaks</b>: where "
+         "price sits, how far from the trigger, which side of VWAP, and what to watch for."),
+
+        ("#6B6B6B", "📋 The simple version",
+         "1. Scan after 9:45 when the range is set.<br>"
+         "2. Look at GO NOW first &mdash; those retests are live.<br>"
+         "3. Check the volume and the score before you trust it.<br>"
+         "4. Use the entry / stop / target on the card. Respect the stop.<br>"
+         "5. Momentum tab = early heads-up only, size small, confirm with the range.<br>"
+         "6. An empty board is a real answer. Some mornings there's no trade &mdash; that's fine."),
     ]
 
-    for border_color, title, body in _hiw_sections:
+    for _color, _title, _body in _hiw:
         st.markdown(
-            "<div class='hiw-section' style='border-left-color:%s'>"
-            "<div class='hiw-title'>%s</div>"
-            "<div class='hiw-body'>%s</div>"
-            "</div>" % (border_color, title, body),
-            unsafe_allow_html=True
-        )
+            "<div class='hiw-card' style='border-left-color:" + _color + "'>"
+            "<div class='hiw-t'>" + _title + "</div>"
+            "<div class='hiw-b'>" + _body + "</div></div>",
+            unsafe_allow_html=True)
+
+    st.markdown(
+        "<div style='color:#6B6B6B;font-size:0.72rem;text-align:center;padding:8px 0 4px 0'>"
+        "This tool finds setups and manages risk &mdash; it doesn't guarantee outcomes. "
+        "Trade your own plan. Not financial advice.</div>", unsafe_allow_html=True)
+
+
+with tab_orb:
+    st.markdown(
+        "<div style='background:#0A0A0A;border:1px solid #1F1F1F;border-radius:6px;"
+        "padding:13px 16px;margin-bottom:14px'>"
+        "<div style='color:#D4AF37;font-size:0.72rem;font-weight:700;letter-spacing:1.6px;"
+        "margin-bottom:5px'>OPENING RANGE BREAKOUT</div>"
+        "<div style='color:#A1A1A6;font-size:0.76rem;line-height:1.5'>"
+        "Range is the 9:30&ndash;9:45 ET window, wick to wick. Breaks and retests read on the 5m close. "
+        "A break alone is never GO NOW &mdash; the retest is the entry."
+        "</div></div>", unsafe_allow_html=True)
+
+    # ================= SINGLE-TICKER LOOKUP =================
+    _olk1, _olk2 = st.columns([2, 1])
+    with _olk1:
+        _orb_lookup_tk = st.text_input(
+            "Look up one ticker", value="", key="orb_lookup_input",
+            placeholder="e.g. NVDA — full read even before it breaks").strip().upper()
+    with _olk2:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        _orb_lookup_go = st.button("READ TICKER", use_container_width=True, key="orb_lookup_btn")
+
+    if _orb_lookup_go and _orb_lookup_tk:
+        with st.spinner("Reading " + _orb_lookup_tk + "..."):
+            try:
+                _lk = orb_lookup_ticker(_orb_lookup_tk, context_fn=orb_build_context)
+                st.session_state["orb_lookup_result"] = _lk
+            except Exception as _le:
+                st.error("Lookup failed: " + str(_le)[:160])
+                st.session_state["orb_lookup_result"] = None
+
+    _lk = st.session_state.get("orb_lookup_result")
+    if _lk:
+        _mode = _lk.get("mode")
+        if _mode == "NO_DATA":
+            st.markdown("<div style='color:#C1121F;font-size:0.78rem;padding:6px 0'>"
+                        + _lk.get("note", "No data") + "</div>", unsafe_allow_html=True)
+        elif _mode == "RANGE_BUILDING":
+            st.markdown(render_orb_building_html(_lk["levels"]), unsafe_allow_html=True)
+        elif _mode == "WATCHING_PRE":
+            st.markdown(render_orb_pre_html(_lk), unsafe_allow_html=True)
+        elif _mode == "BROKE":
+            for _c in _lk.get("candidates", []):
+                try:
+                    st.markdown(render_orb_card_html(
+                        _c["levels"], _c["events"], _c["structure"],
+                        _c["score_data"], _c["geo"], _c["side"]), unsafe_allow_html=True)
+                except Exception as _ce:
+                    st.markdown("<div style='color:#C1121F;font-size:0.72rem'>Card error: "
+                                + str(_ce)[:90] + "</div>", unsafe_allow_html=True)
+        if st.button("Clear lookup", key="orb_lookup_clear"):
+            st.session_state["orb_lookup_result"] = None
+            st.rerun()
+        st.markdown("<div style='border-top:1px solid #1A1A1A;margin:14px 0'></div>",
+                    unsafe_allow_html=True)
+
+    # ================= UNIVERSE / SECTOR / WATCHLIST SCAN =================
+    _osc1, _osc2 = st.columns([1, 1.4])
+    with _osc1:
+        _orb_scope = st.radio(
+            "Scan scope", ["My Watchlist", "Sector", "Full Universe"],
+            index=2, horizontal=True, key="orb_scope")
+    with _osc2:
+        _orb_sector = None
+        if _orb_scope == "Sector":
+            _sector_names = [k for k in SECTOR_LISTS.keys() if k != "My Watchlist"]
+            _orb_sector = st.selectbox("Which sector", _sector_names, key="orb_sector_pick")
+
+    if _orb_scope == "My Watchlist":
+        _orb_list = list(st.session_state.get("user_watchlist", []) or [])
+        if not _orb_list:
+            _orb_list = list(DEFAULT_WATCHLIST)
+        _scope_label = "My Watchlist (%d)" % len(_orb_list)
+    elif _orb_scope == "Sector" and _orb_sector:
+        _orb_list = list(SECTOR_LISTS.get(_orb_sector, []))
+        _scope_label = "%s (%d)" % (_orb_sector, len(_orb_list))
+    else:
+        _orb_list = list(SCAN_UNIVERSE)
+        _scope_label = "Full Universe (%d)" % len(_orb_list)
+    _orb_list = list(dict.fromkeys([t for t in _orb_list if t]))
+
+    _oc1, _oc2, _oc3 = st.columns([1.1, 1, 1])
+    with _oc1:
+        _orb_run = st.button("RUN ORB SCAN", type="primary", use_container_width=True, key="orb_run_btn")
+    with _oc2:
+        _orb_bucket = st.selectbox("Bucket", ["All", "GO NOW", "WATCHING", "ON DECK"], key="orb_bucket_f")
+    with _oc3:
+        _orb_dir = st.selectbox("Direction", ["Both", "Calls only", "Puts only"], key="orb_dir_f")
+
+    _orb_hide_broken = st.checkbox(
+        "Hide setups where structure has broken", value=True, key="orb_hide_broken",
+        help="Structure broken = price closed through VWAP or lost the 9EMA. No entry, timeline only.")
+
+    st.markdown(
+        "<div style='color:#6B6B6B;font-size:0.71rem;margin:2px 0 8px 0'>Scope: <b style='color:#A1A1A6'>"
+        + _scope_label + "</b></div>", unsafe_allow_html=True)
+
+    if _orb_run:
+        if not _orb_list:
+            st.warning("No tickers in scope. Add names to your watchlist or pick a different scope.")
+        else:
+            _obar = st.progress(0.0)
+            _otxt = st.empty()
+
+            def _orb_prog(done, total, tk):
+                try:
+                    _obar.progress(min(1.0, done / max(1, total)))
+                    _otxt.markdown(
+                        "<div style='color:#6B6B6B;font-size:0.72rem'>Scanning %d/%d &middot; %s</div>"
+                        % (done, total, tk), unsafe_allow_html=True)
+                except Exception:
+                    pass
+
+            try:
+                _ocands, _obuilding, _ostats = run_orb_scan(
+                    _orb_list, max_workers=4, progress_cb=_orb_prog)
+                st.session_state["orb_results"] = _ocands
+                st.session_state["orb_building"] = _obuilding
+                st.session_state["orb_stats"] = _ostats
+                st.session_state["orb_scan_time"] = datetime.now().strftime("%-I:%M:%S %p ET")
+                st.session_state["orb_scan_scope"] = _scope_label
+            except Exception as _oe:
+                st.error("ORB scan failed: " + str(_oe)[:180])
+            finally:
+                _obar.empty()
+                _otxt.empty()
+
+    _ocands   = st.session_state.get("orb_results", [])
+    _obuilding = st.session_state.get("orb_building", [])
+    _ostats   = st.session_state.get("orb_stats", {})
+
+    # Bucket count banner — the "4 go now, 6 watching, 10 on deck" board
+    if _ocands:
+        _n_go = len([c for c in _ocands if c.get("bucket") == "GO NOW"])
+        _n_wa = len([c for c in _ocands if c.get("bucket") == "WATCHING"])
+        _n_od = len([c for c in _ocands if c.get("bucket") == "ON DECK"])
+        st.markdown(
+            "<div style='display:flex;gap:10px;margin:10px 0 6px 0'>"
+            "<div style='flex:1;background:#22C55E14;border:1px solid #22C55E55;border-radius:6px;"
+            "padding:10px;text-align:center'>"
+            "<div style='color:#22C55E;font-size:1.5rem;font-weight:800'>%d</div>"
+            "<div style='color:#22C55E;font-size:0.6rem;font-weight:700;letter-spacing:1.2px'>GO NOW</div></div>"
+            "<div style='flex:1;background:#D4AF3714;border:1px solid #D4AF3755;border-radius:6px;"
+            "padding:10px;text-align:center'>"
+            "<div style='color:#D4AF37;font-size:1.5rem;font-weight:800'>%d</div>"
+            "<div style='color:#D4AF37;font-size:0.6rem;font-weight:700;letter-spacing:1.2px'>WATCHING</div></div>"
+            "<div style='flex:1;background:#7AA2F714;border:1px solid #7AA2F755;border-radius:6px;"
+            "padding:10px;text-align:center'>"
+            "<div style='color:#7AA2F7;font-size:1.5rem;font-weight:800'>%d</div>"
+            "<div style='color:#7AA2F7;font-size:0.6rem;font-weight:700;letter-spacing:1.2px'>ON DECK</div></div>"
+            "</div>" % (_n_go, _n_wa, _n_od), unsafe_allow_html=True)
+
+    if _ostats:
+        st.markdown(
+            "<div style='display:flex;gap:14px;flex-wrap:wrap;font-size:0.72rem;color:#6B6B6B;"
+            "padding:4px 0 12px 0'>"
+            "<span>Scanned <b style='color:#F5F5F5'>%d</b></span>"
+            "<span>With breaks <b style='color:#F5F5F5'>%d</b></span>"
+            "<span>Range building <b style='color:#F5F5F5'>%d</b></span>"
+            "<span>Errors <b style='color:#F5F5F5'>%d</b></span>"
+            "<span>%s &middot; %s</span></div>"
+            % (_ostats.get("scanned", 0), _ostats.get("with_breaks", 0),
+               _ostats.get("building", 0), _ostats.get("errors", 0),
+               st.session_state.get("orb_scan_scope", ""),
+               st.session_state.get("orb_scan_time", "")),
+            unsafe_allow_html=True)
+
+    if _obuilding:
+        st.markdown(
+            "<div style='color:#7AA2F7;font-size:0.74rem;font-weight:700;letter-spacing:1.2px;"
+            "margin:6px 0'>RANGE STILL BUILDING &mdash; completes 9:45 ET</div>",
+            unsafe_allow_html=True)
+        for _b in _obuilding[:12]:
+            try:
+                st.markdown(render_orb_building_html(_b["levels"]), unsafe_allow_html=True)
+            except Exception:
+                pass
+
+    _show = []
+    for _c in _ocands:
+        if _orb_bucket != "All" and _c.get("bucket") != _orb_bucket:
+            continue
+        if _orb_dir == "Calls only" and _c.get("side") != "high":
+            continue
+        if _orb_dir == "Puts only" and _c.get("side") != "low":
+            continue
+        if _orb_hide_broken and _c.get("state") == "STRUCTURE_BROKEN":
+            continue
+        _show.append(_c)
+
+    if _ocands and not _show:
+        st.markdown(
+            "<div style='background:#0D0D0D;border:1px solid #1F1F1F;border-radius:6px;"
+            "padding:16px;text-align:center;color:#6B6B6B;font-size:0.78rem'>"
+            "Breaks were found, but none match the current filters.</div>",
+            unsafe_allow_html=True)
+    elif not _ocands and _ostats:
+        st.markdown(
+            "<div style='background:#0D0D0D;border:1px solid #1F1F1F;border-radius:6px;"
+            "padding:18px;text-align:center'>"
+            "<div style='color:#F5F5F5;font-size:0.86rem;font-weight:700;margin-bottom:5px'>"
+            "No ORB setups in scope</div>"
+            "<div style='color:#6B6B6B;font-size:0.75rem;line-height:1.5'>"
+            "Nothing has broken its opening range on a 5m close. That is a normal result &mdash; "
+            "on a low-volatility morning the correct read is no trade.</div></div>",
+            unsafe_allow_html=True)
+    elif not _ocands:
+        st.markdown(
+            "<div style='color:#6B6B6B;font-size:0.78rem;padding:14px 0'>"
+            "Pick a scope and run the scan, or look up a single ticker above.</div>",
+            unsafe_allow_html=True)
+
+    for _bk in ["GO NOW", "WATCHING", "ON DECK"]:
+        _grp = [c for c in _show if c.get("bucket") == _bk]
+        if not _grp:
+            continue
+        _bcol = ORB_BUCKET_COLOR.get(_bk, "#7AA2F7")
+        st.markdown(
+            "<div style='color:%s;font-size:0.74rem;font-weight:700;letter-spacing:1.4px;"
+            "margin:16px 0 4px 0;padding-bottom:5px;border-bottom:1px solid #1A1A1A'>"
+            "%s &nbsp;<span style='color:#6B6B6B;font-weight:400'>%d</span></div>"
+            % (_bcol, _bk, len(_grp)), unsafe_allow_html=True)
+        for _c in _grp:
+            try:
+                st.markdown(render_orb_card_html(
+                    _c["levels"], _c["events"], _c["structure"],
+                    _c["score_data"], _c["geo"], _c["side"]), unsafe_allow_html=True)
+            except Exception as _ce:
+                st.markdown("<div style='color:#C1121F;font-size:0.72rem'>Card error for "
+                            + str(_c.get("ticker", "")) + ": " + str(_ce)[:90] + "</div>",
+                            unsafe_allow_html=True)
+
+
+with tab_mom:
+    st.markdown(
+        "<div style='background:#0A0A0A;border:1px solid #1F1F1F;border-radius:6px;"
+        "padding:13px 16px;margin-bottom:12px'>"
+        "<div style='color:#C1121F;font-size:0.72rem;font-weight:700;letter-spacing:1.6px;"
+        "margin-bottom:5px'>\u26A1 OPENING MOMENTUM</div>"
+        "<div style='color:#A1A1A6;font-size:0.76rem;line-height:1.5'>"
+        "Catches hard directional moves in the 9:30&ndash;9:45 window &mdash; before the ORB range "
+        "completes. This is the most violent part of the day and these setups are UNCONFIRMED. "
+        "Read them as a heads-up, size small, and confirm with the range.</div></div>",
+        unsafe_allow_html=True)
+
+    # Time awareness — mode is live only in the opening window
+    try:
+        _now_et = datetime.now()
+        _mins_now = _now_et.hour * 60 + _now_et.minute
+        _in_window = (MOM_WINDOW_START <= _mins_now < MOM_WINDOW_END)
+    except Exception:
+        _in_window = False
+
+    if not _in_window:
+        st.markdown(
+            "<div style='background:#0D0D0D;border:1px solid #1F1F1F;border-left:3px solid #6B6B6B;"
+            "border-radius:6px;padding:11px 14px;margin-bottom:12px'>"
+            "<div style='color:#F6E27A;font-size:0.72rem;line-height:1.5'>"
+            "\u23F0 <b>Outside the opening window (9:30&ndash;9:45 ET).</b> This mode is built for "
+            "the open. You can still scan to see what fired earlier &mdash; those names hand off to "
+            "the ORB tab for the confirmed continuation &mdash; but fresh momentum reads are most "
+            "reliable live at the bell.</div></div>", unsafe_allow_html=True)
+
+    _mc1, _mc2 = st.columns([1, 1.4])
+    with _mc1:
+        _mom_scope = st.radio("Scope", ["My Watchlist", "Sector", "Full Universe"],
+                              index=2, horizontal=True, key="mom_scope")
+    with _mc2:
+        _mom_sector = None
+        if _mom_scope == "Sector":
+            _mnames = [k for k in SECTOR_LISTS.keys() if k != "My Watchlist"]
+            _mom_sector = st.selectbox("Which sector", _mnames, key="mom_sector_pick")
+
+    if _mom_scope == "My Watchlist":
+        _mom_list = list(st.session_state.get("user_watchlist", []) or []) or list(DEFAULT_WATCHLIST)
+        _mscope_label = "My Watchlist (%d)" % len(_mom_list)
+    elif _mom_scope == "Sector" and _mom_sector:
+        _mom_list = list(SECTOR_LISTS.get(_mom_sector, []))
+        _mscope_label = "%s (%d)" % (_mom_sector, len(_mom_list))
+    else:
+        _mom_list = list(SCAN_UNIVERSE)
+        _mscope_label = "Full Universe (%d)" % len(_mom_list)
+    _mom_list = list(dict.fromkeys([t for t in _mom_list if t]))
+
+    _mom_run = st.button("SCAN OPENING MOMENTUM", type="primary",
+                         use_container_width=True, key="mom_run_btn")
+
+    if _mom_run and _mom_list:
+        _mbar = st.progress(0.0); _mtxt = st.empty()
+        def _mom_prog(done, total, tk):
+            try:
+                _mbar.progress(min(1.0, done / max(1, total)))
+                _mtxt.markdown("<div style='color:#6B6B6B;font-size:0.72rem'>Scanning %d/%d &middot; %s</div>"
+                               % (done, total, tk), unsafe_allow_html=True)
+            except Exception:
+                pass
+        try:
+            _thrust, _delayed, _nulls, _mstats = run_momentum_scan(
+                _mom_list, max_workers=4, progress_cb=_mom_prog)
+            st.session_state["mom_thrust"] = _thrust
+            st.session_state["mom_delayed"] = _delayed
+            st.session_state["mom_stats"] = _mstats
+            st.session_state["mom_scan_time"] = datetime.now().strftime("%-I:%M:%S %p ET")
+            st.session_state["mom_scope_label"] = _mscope_label
+        except Exception as _me:
+            st.error("Momentum scan failed: " + str(_me)[:170])
+        finally:
+            _mbar.empty(); _mtxt.empty()
+
+    _thrust = st.session_state.get("mom_thrust", [])
+    _delayed = st.session_state.get("mom_delayed", [])
+    _mstats = st.session_state.get("mom_stats", {})
+
+    if _mstats:
+        _spy_d = _mstats.get("spy_dir", "flat"); _qqq_d = _mstats.get("qqq_dir", "flat")
+        _dcol = {"up": "#22C55E", "down": "#C1121F", "flat": "#6B6B6B"}
+        st.markdown(
+            "<div style='display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:0.72rem;"
+            "color:#6B6B6B;padding:8px 0 10px 0'>"
+            "<span>SPY open <b style='color:%s'>%s</b></span>"
+            "<span>QQQ open <b style='color:%s'>%s</b></span>"
+            "<span>Thrust <b style='color:#F5F5F5'>%d</b></span>"
+            "<span>Forming <b style='color:#F5F5F5'>%d</b></span>"
+            "<span>Errors <b style='color:#F5F5F5'>%d</b></span>"
+            "<span>%s &middot; %s</span></div>"
+            % (_dcol.get(_spy_d, "#6B6B6B"), _spy_d.upper(),
+               _dcol.get(_qqq_d, "#6B6B6B"), _qqq_d.upper(),
+               _mstats.get("thrust", 0), _mstats.get("delayed", 0), _mstats.get("errors", 0),
+               st.session_state.get("mom_scope_label", ""),
+               st.session_state.get("mom_scan_time", "")),
+            unsafe_allow_html=True)
+
+    if _thrust:
+        st.markdown("<div style='color:#C1121F;font-size:0.74rem;font-weight:700;letter-spacing:1.4px;"
+                    "margin:14px 0 4px 0;padding-bottom:5px;border-bottom:1px solid #1A1A1A'>"
+                    "\u26A1 IMMEDIATE THRUST <span style='color:#6B6B6B;font-weight:400'>%d</span></div>"
+                    % len(_thrust), unsafe_allow_html=True)
+        for _m in _thrust:
+            try: st.markdown(render_momentum_card_html(_m), unsafe_allow_html=True)
+            except Exception as _e:
+                st.markdown("<div style='color:#C1121F;font-size:0.72rem'>card error: " + str(_e)[:80] + "</div>",
+                            unsafe_allow_html=True)
+
+    if _delayed:
+        st.markdown("<div style='color:#F6E27A;font-size:0.74rem;font-weight:700;letter-spacing:1.4px;"
+                    "margin:16px 0 4px 0;padding-bottom:5px;border-bottom:1px solid #1A1A1A'>"
+                    "\u26A1 DELAYED / FORMING <span style='color:#6B6B6B;font-weight:400'>%d</span></div>"
+                    % len(_delayed), unsafe_allow_html=True)
+        for _m in _delayed:
+            try: st.markdown(render_momentum_card_html(_m), unsafe_allow_html=True)
+            except Exception as _e:
+                st.markdown("<div style='color:#C1121F;font-size:0.72rem'>card error: " + str(_e)[:80] + "</div>",
+                            unsafe_allow_html=True)
+
+    if _mstats and not _thrust and not _delayed:
+        st.markdown(
+            "<div style='background:#0D0D0D;border:1px solid #1F1F1F;border-radius:6px;"
+            "padding:18px;text-align:center'>"
+            "<div style='color:#F5F5F5;font-size:0.85rem;font-weight:700;margin-bottom:5px'>"
+            "No opening thrust right now</div>"
+            "<div style='color:#6B6B6B;font-size:0.75rem;line-height:1.5'>"
+            "Nothing is breaking hard enough off the open to flag. On a calm morning that is the "
+            "correct read &mdash; no forced trades.</div></div>", unsafe_allow_html=True)
+    elif not _mstats:
+        st.markdown("<div style='color:#6B6B6B;font-size:0.78rem;padding:12px 0'>"
+                    "Scan to read opening momentum across your scope.</div>", unsafe_allow_html=True)
+
 
 with tab_stats:
     _stats_is_admin = (
